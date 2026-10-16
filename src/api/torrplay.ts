@@ -104,7 +104,14 @@ export function extractHashFromMagnet(magnetUri: string): string | null {
 // bound rather than abandoning a call the instance is still working on.
 const PRELOAD_START_TIMEOUT_MS = 45000;
 
+// How many listings, each one instance's answer to one listing URL, stay cached for
+// revalidation. Polls repeat a handful of URLs, while each search adds one that is
+// rarely asked again.
+const LISTING_CACHE_LIMIT = 32;
+
 export class TorrPlayApi {
+  private static listingCache = new Map<string, TorrentsResponse>();
+
   /**
    * Health check and latency measurement via GET /api/system/health.
    */
@@ -171,6 +178,11 @@ export class TorrPlayApi {
     if (response.status === 401 && shouldRetryAuthentication && instance.authType === 'bearer') {
       instance.jwtToken = undefined;
       return this.request<T>(instance, path, options, false);
+    }
+
+    // Only a conditional request is answered 304; its caller holds the unchanged body.
+    if (response.status === 304) {
+      return undefined as T;
     }
 
     if (!response.ok) {
@@ -255,11 +267,23 @@ export class TorrPlayApi {
    * listing server-side to the given info hashes, and `saved` to database rows
    * or client-only entries. `search` keeps torrents whose title or name matches
    * every query term, ordered by match quality; `fuzzy` lets a term tolerate a
-   * typo.
+   * typo. A listing asked for again is revalidated: the request carries the
+   * instance's entity tag for the cached answer, `W/"<facets.version>"`, and an
+   * unchanged listing is answered 304 without a body and served from the cache.
+   * `shouldRevalidate: false` keeps a listing that will not be asked for again out
+   * of the cache. Each call returns its own copy of the listing and its torrents.
    */
   public static async getTorrents(
     instance: TorrPlayInstance,
-    options?: { fuzzy?: boolean, hashes?: string[], limit?: number, offset?: number, saved?: boolean, search?: string }
+    options?: {
+      fuzzy?: boolean,
+      hashes?: string[],
+      limit?: number,
+      offset?: number,
+      saved?: boolean,
+      search?: string,
+      shouldRevalidate?: boolean
+    }
   ): Promise<TorrentsResponse> {
     const query = new URLSearchParams();
     if (options?.fuzzy) query.append('fuzzy', 'true');
@@ -270,9 +294,30 @@ export class TorrPlayApi {
     if (options?.search) query.append('search', options.search);
     const queryString = query.toString();
     const endpoint = `/api/v1/torrents${queryString ? `?${queryString}` : ''}`;
-    return this.request<TorrentsResponse>(instance, endpoint, {
+    const cacheKey = `${instance.id}\u0001${instance.url}\u0001${endpoint}`;
+    const shouldRevalidate = options?.shouldRevalidate !== false;
+    const cached = shouldRevalidate ? this.listingCache.get(cacheKey) : undefined;
+    const response = await this.request<TorrentsResponse | undefined>(instance, endpoint, {
+      headers: cached ? { 'If-None-Match': `W/"${cached.facets.version}"` } : {},
       method: 'GET',
     });
+    const listing = response || cached;
+    if (!listing) {
+      throw new TorrPlayApiError(`TorrPlay API error (${endpoint}): empty listing`, 0);
+    }
+    if (shouldRevalidate) {
+      // Re-inserting keeps the most recently used listings at the end of the map's order.
+      this.listingCache.delete(cacheKey);
+      this.listingCache.set(cacheKey, listing);
+      if (this.listingCache.size > LISTING_CACHE_LIMIT) {
+        this.listingCache.delete(this.listingCache.keys().next().value as string);
+      }
+    }
+    return { ...listing, torrents: (listing.torrents || []).map(torrent => ({ ...torrent })) };
+  }
+
+  public static resetForTesting(): void {
+    this.listingCache.clear();
   }
 
   /**

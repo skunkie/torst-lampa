@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
+import { TorrPlayApi } from '../src/api/torrplay';
 import { estimatePlaybackFraction, ExternalProgress } from '../src/engine/external-progress';
 import { TorrPlayInstance } from '../src/types/torrplay';
 
@@ -173,6 +174,7 @@ describe('ExternalProgress', () => {
       }
       assert.ok(url.includes(`/api/v1/torrents?hashes=${torrentHash}`), `unexpected request ${url}`);
       return new Response(JSON.stringify({
+        facets: { categories: [], total: 1, version: `active-${isTorrentActive}` },
         torrents: [{
           active: isTorrentActive,
           files: [{ length: 100 * PIECE_BYTES, name: 'movie.mkv', path: 'movie.mkv' }],
@@ -183,11 +185,13 @@ describe('ExternalProgress', () => {
     };
 
     ExternalProgress.resetForTesting();
+    TorrPlayApi.resetForTesting();
     ExternalProgress.init();
   });
 
   afterEach(() => {
     ExternalProgress.resetForTesting();
+    TorrPlayApi.resetForTesting();
     mock.timers.reset();
     globalThis.fetch = originalFetch;
     (globalThis as any).Lampa = originalLampa;

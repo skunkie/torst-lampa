@@ -13,6 +13,7 @@ describe('TorrPlayApi', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    TorrPlayApi.resetForTesting();
   });
 
   const baseInstance: TorrPlayInstance = {
@@ -417,6 +418,7 @@ describe('TorrPlayApi', () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
       assert.ok(String(input).includes('/api/v1/torrents'));
       return new Response(JSON.stringify({
+        facets: { categories: [], total: 1, version: 'v1' },
         limit: 50,
         offset: 0,
         torrents: [
@@ -448,7 +450,7 @@ describe('TorrPlayApi', () => {
     let requestedUrl = '';
     globalThis.fetch = async (input: RequestInfo | URL) => {
       requestedUrl = String(input);
-      return new Response(JSON.stringify({ torrents: [] }), {
+      return new Response(JSON.stringify({ facets: { categories: [], total: 0, version: 'v1' }, torrents: [] }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -561,6 +563,115 @@ describe('TorrPlayApi', () => {
     await TorrPlayApi.updateSettings(instance, { enable_downloader: false, file_storage_path: '/mnt/storage' });
     assert.equal(methodCalled, 'PATCH');
     assert.equal(bodySent, JSON.stringify({ enable_downloader: false, file_storage_path: '/mnt/storage' }));
+  });
+
+  describe('listing revalidation', () => {
+    function listing(version: string, hashes: string[]) {
+      return {
+        facets: { categories: [], total: hashes.length, version },
+        torrents: hashes.map(hash => ({ files: [], hash, name: hash, storage: 'memory' })),
+      };
+    }
+
+    // serve answers each listing with the current body, or 304 when the request
+    // carries the entity tag of its version, and records the If-None-Match sent.
+    function serve(initial: ReturnType<typeof listing>) {
+      const server = { body: initial, sent: [] as (string | undefined)[] };
+      globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
+        server.sent.push(ifNoneMatch);
+        if (ifNoneMatch === `W/"${server.body.facets.version}"`) {
+          return new Response(null, { status: 304 });
+        }
+        return new Response(JSON.stringify(server.body), { status: 200 });
+      };
+      return server;
+    }
+
+    it('serves an unchanged listing from the cache after a 304', async () => {
+      const instance = { ...baseInstance };
+      const server = serve(listing('v1', ['sintel']));
+
+      const first = await TorrPlayApi.getTorrents(instance);
+      const second = await TorrPlayApi.getTorrents(instance);
+
+      assert.deepEqual(server.sent, [undefined, 'W/"v1"']);
+      assert.deepEqual(second, first);
+      assert.equal(second.torrents[0].hash, 'sintel');
+    });
+
+    it('hands every caller its own copy of a cached listing', async () => {
+      const instance = { ...baseInstance };
+      serve(listing('v1', ['sintel']));
+
+      const first = await TorrPlayApi.getTorrents(instance);
+      first.torrents[0].storage = 'file';
+      first.torrents.push({ files: [], hash: 'spring', name: 'spring', storage: 'memory', total_size: 0 });
+      const second = await TorrPlayApi.getTorrents(instance);
+
+      assert.notEqual(second, first);
+      assert.deepEqual(second.torrents.map(torrent => [torrent.hash, torrent.storage]), [['sintel', 'memory']]);
+    });
+
+    it('keeps a listing that skips revalidation out of the cache', async () => {
+      const instance = { ...baseInstance };
+      const server = serve(listing('v1', ['sintel']));
+
+      await TorrPlayApi.getTorrents(instance, { hashes: ['sintel'], shouldRevalidate: false });
+      await TorrPlayApi.getTorrents(instance, { hashes: ['sintel'] });
+      await TorrPlayApi.getTorrents(instance, { hashes: ['sintel'], shouldRevalidate: false });
+
+      assert.deepEqual(server.sent, [undefined, undefined, undefined]);
+    });
+
+    it('replaces the cached listing once it changes', async () => {
+      const instance = { ...baseInstance };
+      const server = serve(listing('v1', ['sintel']));
+      await TorrPlayApi.getTorrents(instance);
+
+      server.body = listing('v2', ['sintel', 'spring']);
+      const changed = await TorrPlayApi.getTorrents(instance);
+      const unchanged = await TorrPlayApi.getTorrents(instance);
+
+      assert.deepEqual(server.sent, [undefined, 'W/"v1"', 'W/"v2"']);
+      assert.deepEqual(changed.torrents.map(torrent => torrent.hash), ['sintel', 'spring']);
+      assert.deepEqual(unchanged, changed);
+    });
+
+    it('keeps listings of other instances and other filters apart', async () => {
+      const server = serve(listing('v1', ['sintel']));
+      await TorrPlayApi.getTorrents({ ...baseInstance });
+
+      await TorrPlayApi.getTorrents({ ...baseInstance, id: 'other-node' });
+      await TorrPlayApi.getTorrents({ ...baseInstance, url: 'http://127.0.0.1:8091' });
+      await TorrPlayApi.getTorrents({ ...baseInstance }, { saved: true });
+
+      assert.deepEqual(server.sent, [undefined, undefined, undefined, undefined]);
+    });
+
+    it('rejects a 304 for a listing it never cached', async () => {
+      globalThis.fetch = async () => new Response(null, { status: 304 });
+
+      await assert.rejects(
+        async () => TorrPlayApi.getTorrents({ ...baseInstance }),
+        (err: unknown) => err instanceof TorrPlayApiError
+      );
+    });
+
+    it('drops the least recently used listing beyond its limit', async () => {
+      const instance = { ...baseInstance };
+      const server = serve(listing('v1', ['sintel']));
+      await TorrPlayApi.getTorrents(instance, { search: 'first' });
+      for (let index = 0; index < 32; index++) {
+        await TorrPlayApi.getTorrents(instance, { search: `query ${index}` });
+      }
+      server.sent = [];
+
+      await TorrPlayApi.getTorrents(instance, { search: 'query 31' });
+      await TorrPlayApi.getTorrents(instance, { search: 'first' });
+
+      assert.deepEqual(server.sent, ['W/"v1"', undefined]);
+    });
   });
 
   it('throws TorrPlayApiError with status on HTTP failure', async () => {

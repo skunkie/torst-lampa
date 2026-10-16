@@ -84,6 +84,7 @@ export async function requestHttp(
   const method = options.method || 'GET';
   const headers = options.headers || {};
   const timeoutMs = options.timeoutMs || 15000;
+  const isConditional = Object.keys(headers).some(name => name.toLowerCase() === 'if-none-match');
 
   // Prefer Lampa.Reguest when running in Lampa environment
   if (typeof Lampa !== 'undefined' && Lampa.Reguest) {
@@ -165,13 +166,15 @@ export async function requestHttp(
           (responseBody: string | object) => {
             // Lampa's Reguest wrapper only passes the parsed body to its success callback
             // without exposing the underlying jqXHR status. We synthesize 200 vs 204 based
-            // on whether the response body contains data.
+            // on whether the response body contains data, and 304 for an empty answer to a
+            // conditional request, which ajax counts as a success.
             const hasBody = responseBody !== null && responseBody !== undefined && responseBody !== '';
             const responseText = typeof responseBody === 'string'
               ? responseBody
               : (responseBody ? JSON.stringify(responseBody) : '');
-            const status = hasBody ? 200 : 204;
-            const statusText = hasBody ? 'OK' : 'No Content';
+            const isNotModified = !hasBody && isConditional;
+            const status = hasBody ? 200 : (isNotModified ? 304 : 204);
+            const statusText = hasBody ? 'OK' : (isNotModified ? 'Not Modified' : 'No Content');
 
             settleResolve({
               json: async () => (
@@ -179,7 +182,7 @@ export async function requestHttp(
                   ? responseBody
                   : (responseText ? JSON.parse(responseText) : {})
               ),
-              ok: true,
+              ok: !isNotModified,
               status,
               statusText,
               text: async () => responseText,

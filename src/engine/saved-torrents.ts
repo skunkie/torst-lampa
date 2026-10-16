@@ -184,10 +184,12 @@ export class SavedTorrents {
         const chunk = hashes.slice(offset, offset + LOOKUP_CHUNK_SIZE);
         try {
           // The limit caps the response should the server not know the filter and answer
-          // with the whole listing instead.
+          // with the whole listing instead. A resolved hash is never looked up again, so
+          // the batch would only crowd recurring listings out of the revalidation cache.
           const response = await TorrPlayApi.getTorrents(instance, {
             hashes: chunk,
             limit: chunk.length,
+            shouldRevalidate: false,
           });
           if (this.generation !== generation) return;
           const persisted = new Set(

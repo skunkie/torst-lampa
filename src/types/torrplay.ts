@@ -53,7 +53,19 @@ export interface Torrent {
   updated_at?: string
 }
 
+export interface TorrentCategoryCount {
+  count: number,
+  name: string
+}
+
+export interface TorrentFacets {
+  categories: TorrentCategoryCount[],
+  total: number,
+  version: string
+}
+
 export interface TorrentsResponse {
+  facets: TorrentFacets,
   torrents: Torrent[],
   total?: number
 }

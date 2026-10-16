@@ -70,6 +70,7 @@ describe('TorrPlayEngine', () => {
   });
 
   afterEach(() => {
+    TorrPlayApi.resetForTesting();
     mock.restoreAll();
     globalThis.fetch = originalFetch;
     TorrPlayEngine.resetForTesting();

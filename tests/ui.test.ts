@@ -116,6 +116,7 @@ describe('UI & Settings Integration', () => {
   });
 
   afterEach(() => {
+    TorrPlayApi.resetForTesting();
     globalThis.fetch = originalFetch;
   });
 
@@ -1990,6 +1991,89 @@ describe('UI & Settings Integration', () => {
     }
   });
 
+  it('revalidates background refreshes and keeps the grid when the listing is unchanged', async () => {
+    const buildDom = () => {
+      const node: any = { children: [] as any[] };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    try {
+      const component = new TorrPlayTorrentsComponent();
+      const grid: any = (component as any).contentGrid;
+      const instance = {
+        authType: 'none',
+        id: 'test',
+        name: 'Test Node',
+        url: 'http://127.0.0.1:8090',
+      };
+      const torrent = { files: [], hash: 'unchanged123', name: 'Sintel', storage: 'memory', total_size: 0 };
+
+      const sentTags: (string | undefined)[] = [];
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).includes('/api/v1/torrents')) {
+          return new Response(JSON.stringify({}), { status: 200 });
+        }
+        const ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
+        sentTags.push(ifNoneMatch);
+        if (ifNoneMatch === 'W/"v1"') return new Response(null, { status: 304 });
+        return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' }, torrents: [torrent] }), {
+          status: 200,
+        });
+      };
+      (InstanceManager as any).instances = [instance];
+
+      await component.load(true);
+      const initialCards = grid[0].children.slice();
+      assert.equal(initialCards.length, 1);
+
+      await component.load(true);
+
+      assert.deepEqual(sentTags, [undefined, 'W/"v1"']);
+      assert.deepEqual(grid[0].children, initialCards, 'an unchanged listing must leave the live cards in place');
+      component.destroy();
+    } finally {
+      (globalThis as any).$ = originalJquery;
+    }
+  });
+
   it('suspends background refreshes while the context menu is open and restores focus on close', async () => {
     (globalThis as any).Lampa.Scroll = class {
       public append(_e: any) {}
@@ -2037,7 +2121,7 @@ describe('UI & Settings Integration', () => {
           status: 200,
         });
       }
-      return new Response(JSON.stringify({ torrents: [torrent] }), {
+      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' }, torrents: [torrent] }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -2974,6 +3058,7 @@ describe('UI & Settings Integration', () => {
     globalThis.fetch = async (input: RequestInfo | URL) => {
       requestedUrls.push(String(input));
       return new Response(JSON.stringify({
+        facets: { categories: [], total: 2, version: 'v1' },
         torrents: [
           { created_at: '2026-01-15T10:30:00Z', files: [], hash: storedHash, name: 'Stored', storage: 'memory', total_size: 0 },
           { files: [], hash: clientOnlyHash, name: 'Client only', storage: 'memory', total_size: 0 },
@@ -3034,6 +3119,7 @@ describe('UI & Settings Integration', () => {
       requestedUrls.push(url);
       if (shouldFail && url.includes('/api/v1/torrents')) return new Response('boom', { status: 500 });
       return new Response(JSON.stringify({
+        facets: { categories: [], total: 1, version: 'v1' },
         torrents: [
           { created_at: '2026-01-15T10:30:00Z', files: [], hash, name: 'Stored', storage: 'memory', total_size: 0 },
         ],

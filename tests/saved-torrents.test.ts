@@ -100,7 +100,10 @@ describe('Saved torrent database scope', () => {
         announceStart();
         finishLookup = () => {
           if (shouldReject) reject(new Error('Old database is unavailable'));
-          else resolve({ torrents: [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory', total_size: 0 }] });
+          else resolve({
+            facets: { categories: [], total: 1, version: 'v1' },
+            torrents: [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory', total_size: 0 }],
+          });
         };
       }));
 
@@ -143,6 +146,7 @@ describe('Saved torrent database scope', () => {
     await new Promise<void>(resolve => setImmediate(resolve));
 
     assert.equal(listing.mock.callCount(), 2);
+    assert.deepEqual(listing.mock.calls[0].arguments[1], { hashes: [firstHash], limit: 1, shouldRevalidate: false });
     assert.equal(SavedTorrents.isSaved(hash), undefined);
     assert.equal(SavedTorrents.isSaved(firstHash), true);
     assert.equal(SavedTorrents.isSaved(queuedHash), true);
@@ -160,6 +164,7 @@ describe('Saved torrent database scope', () => {
           finishLookup = () => {
             if (shouldReject) reject(new Error('Lookup failed'));
             else resolve({
+              facets: { categories: [], total: 1, version: 'v1' },
               torrents: isSaved ? [] : [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory', total_size: 0 }],
             });
           };

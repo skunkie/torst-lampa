@@ -174,6 +174,70 @@ describe('HTTP Client (requestHttp)', () => {
     assert.equal(responseText, '');
   });
 
+  it('synthesizes status 304 Not Modified for an empty answer to a conditional request', async () => {
+    class MockReguest {
+      public timeout(_timeoutMs: number) {}
+      public silent(
+        _url: string,
+        onSuccess: (responseBody: any) => void,
+        _onFailure: (error: any) => void
+      ) {
+        onSuccess('');
+      }
+    }
+
+    (globalThis as any).Lampa = {
+      Reguest: MockReguest,
+    };
+
+    for (const headerName of ['If-None-Match', 'if-none-match']) {
+      const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+        headers: { [headerName]: 'W/"v1"' },
+      });
+      assert.equal(response.ok, false);
+      assert.equal(response.status, 304);
+      assert.equal(response.statusText, 'Not Modified');
+    }
+  });
+
+  it('reports a 304 from the Lampa.Reguest reject callback', async () => {
+    class MockReguest {
+      public timeout(_timeoutMs: number) {}
+      public silent(
+        _url: string,
+        _onSuccess: (responseBody: any) => void,
+        onFailure: (error: any) => void
+      ) {
+        onFailure({ responseText: '', status: 304, statusText: 'Not Modified' });
+      }
+    }
+
+    (globalThis as any).Lampa = {
+      Reguest: MockReguest,
+    };
+
+    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+      headers: { 'If-None-Match': 'W/"v1"' },
+    });
+    assert.equal(response.ok, false);
+    assert.equal(response.status, 304);
+  });
+
+  it('passes a 304 through the fetch fallback', async () => {
+    let sentHeaders: HeadersInit | undefined;
+    globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sentHeaders = init?.headers;
+      return new Response(null, { status: 304 });
+    };
+
+    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+      headers: { 'If-None-Match': 'W/"v1"' },
+    });
+    assert.deepEqual(sentHeaders, { 'If-None-Match': 'W/"v1"' });
+    assert.equal(response.ok, false);
+    assert.equal(response.status, 304);
+  });
+
   it('handles HTTP error status from Lampa.Reguest reject callback', async () => {
     class MockReguest {
       public timeout(_timeoutMs: number) {}
