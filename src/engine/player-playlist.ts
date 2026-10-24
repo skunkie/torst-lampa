@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 /**
- * Lampa skips its preroll ad for an item that is continuing a playlist, which it recognises
+ * Lampa skips its preroll ad for an item that is continuing a playlist, which it recognizes
  * only while that item is in the player's current playlist. Switching episodes inside the
  * player tears the player down first, which empties that playlist, and restores it only after
  * the next episode has passed the ad check. Lampa announces each playback before that check,

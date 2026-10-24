@@ -109,7 +109,7 @@ svg {
   max-width: 100%;
 }
 
-/* Floating Glassmorphic Navbar */
+/* Floating Navigation */
 .navbar {
   position: sticky;
   top: 1rem;
@@ -623,7 +623,7 @@ svg {
   box-shadow: 0 0 14px var(--accent-glow);
 }
 
-/* Bento Grid Feature Cards */
+/* Feature Cards */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

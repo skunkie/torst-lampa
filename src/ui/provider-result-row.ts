@@ -122,7 +122,7 @@ function describeAudioStream(stream: LampaFfprobeStream, voices: string[]): stri
 }
 
 /**
- * Summarises the release's quality, video, audio and subtitle streams as the short tags
+ * Summarizes the release's quality, video, audio and subtitle streams as the short tags
  * shown under a torrent title, most significant first and without duplicates.
  */
 export function buildMediaTags(result: ProviderSearchResult): MediaTag[] {
@@ -221,7 +221,7 @@ export class ProviderResultRow {
     row.on('hover:enter', () => this.onEnter?.());
     row.on('hover:long', () => this.showActions());
 
-    // Each row sits in a wrapper of its own, so Lampa's spacing between neighbouring torrent rows
+    // Each row sits in a wrapper of its own, so Lampa's spacing between neighboring torrent rows
     // never applies; the wrapper takes the list's side padding and the gap below each row.
     this.container = document.createElement('div');
     this.container.className = 'torrent-list';

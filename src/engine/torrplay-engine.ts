@@ -249,7 +249,7 @@ export class TorrPlayEngine {
 
   /**
    * Resolves file metadata (season, episode, serial flag) and standard Lampa timeline hash.
-   * Matches Lampa's native EpisodeParser and Torserver.parse behavior to align timecodes
+   * Matches Lampa's native EpisodeParser and `Torserver.parse` behavior to align timecodes
    * with Lampa's movie and TV show cards, watch history, and in-player playlist resumes.
    */
   public static resolveFileInfo(

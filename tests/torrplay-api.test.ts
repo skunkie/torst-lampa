@@ -417,7 +417,7 @@ describe('TorrPlayApi', () => {
     assert.equal(
       buildStreamMagnet('magnet:?XT=urn:btih:abc&DN=Title&TR=http://t.example/ann'),
       'magnet:?XT=urn:btih:abc&TR=http://t.example/ann',
-      'uppercase parameter keys must be recognised'
+      'uppercase parameter keys must be recognized'
     );
     assert.equal(buildStreamMagnet('not-a-magnet'), null);
     assert.equal(buildStreamMagnet(undefined), null);

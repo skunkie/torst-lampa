@@ -249,7 +249,7 @@ describe('PreloadModal', () => {
       }
     });
 
-    describe('cancelling while the start request is in flight', () => {
+    describe('canceling while the start request is in flight', () => {
       const runCancelDuringStart = async (settleStart: (respond: (response: Response) => void, fail: (error: Error) => void) => void) => {
         const requests: string[] = [];
         let respondToStart: (response: Response) => void = () => {};
@@ -273,7 +273,7 @@ describe('PreloadModal', () => {
         await new Promise(resolve => setImmediate(resolve));
         cancelLoading();
 
-        assert.equal(await waiting, false, 'cancelling must abandon playback right away');
+        assert.equal(await waiting, false, 'canceling must abandon playback right away');
         assert.deepEqual(requests, ['PUT'], 'the cancel must wait for the in-flight start');
 
         settleStart(respondToStart, failStart);
@@ -319,7 +319,7 @@ describe('PreloadModal', () => {
         globalThis.setTimeout = originalSetTimeout;
       });
 
-      it('stops on a failed preload even past the readiness threshold, without cancelling it', async () => {
+      it('stops on a failed preload even past the readiness threshold, without canceling it', async () => {
         let pollCount = 0;
         let isCancelRequested = false;
         globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {

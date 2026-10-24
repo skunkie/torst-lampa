@@ -513,7 +513,7 @@ export class InstancePoolUi {
     }, value => {
       const rawInput = (value || '').trim();
 
-      // If user cancelled, cleared input, or submitted original unchanged URL
+      // If user canceled, cleared input, or submitted original unchanged URL
       if (!rawInput || rawInput === instance.url) {
         this.openInstanceActions(instance);
         return;

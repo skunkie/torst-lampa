@@ -87,7 +87,7 @@ declare global {
     start?(): void
   }
 
-  // Media-info streams that jacred-style Jackett instances attach to each result.
+  // Media-info streams that `jacred`-style Jackett instances attach to each result.
   // Lampa reads them straight off the parser item to render per-torrent resolution,
   // channel and audio/subtitle-track tags, and `tags` arrives with inconsistent key
   // casing (language/LANGUAGE, title/TITLE, handler_name/HANDLER_NAME).

@@ -86,7 +86,7 @@ export async function requestHttp(
   const timeoutMs = options.timeoutMs || 15000;
   const isConditional = Object.keys(headers).some(name => name.toLowerCase() === 'if-none-match');
 
-  // Prefer Lampa.Reguest when running in Lampa environment
+  // Prefer `Lampa.Reguest` when running in Lampa environment
   if (typeof Lampa !== 'undefined' && Lampa.Reguest) {
     const lampaRequest = new Lampa.Reguest();
     lampaRequest.timeout(timeoutMs);
@@ -164,7 +164,7 @@ export async function requestHttp(
         invoke(
           url,
           (responseBody: string | object) => {
-            // Lampa's Reguest wrapper only passes the parsed body to its success callback
+            // Lampa's `Reguest` wrapper only passes the parsed body to its success callback
             // without exposing the underlying jqXHR status. We synthesize 200 vs 204 based
             // on whether the response body contains data, and 304 for an empty answer to a
             // conditional request, which ajax counts as a success.
@@ -250,7 +250,7 @@ export async function requestHttp(
     return dispatch(lampaRequest.silent.bind(lampaRequest), buildAjaxParams(), realPostData);
   }
 
-  // Fallback to fetch (Node.js test environment or when Lampa.Reguest is unavailable)
+  // Fallback to fetch (Node.js test environment or when `Lampa.Reguest` is unavailable)
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const handleAbort = () => controller?.abort();
   options.signal?.addEventListener('abort', handleAbort, { once: true });

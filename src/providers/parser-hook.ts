@@ -168,8 +168,8 @@ export class ParserHook {
       signal: controller.signal,
     })
       .then(results => {
-        // Providers that answered before the abort landed still fulfil the aggregate, so
-        // a cancelled caller must not be handed their now-stale results.
+        // Providers that answered before the abort landed still fulfill the aggregate, so
+        // a canceled caller must not be handed their now-stale results.
         if (controller.signal.aborted) {
           if (onAbort) onAbort();
           return;

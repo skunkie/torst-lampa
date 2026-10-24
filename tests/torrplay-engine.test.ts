@@ -1371,7 +1371,7 @@ describe('TorrPlayEngine', () => {
     });
   });
 
-  it('keeps the next episode recognised as continuing the playlist when Lampa switches episodes', async () => {
+  it('keeps the next episode recognized as continuing the playlist when Lampa switches episodes', async () => {
 
     const createListeners: Array<(event: any) => void> = [];
     let lampaPlaylist: any[] = [];
@@ -1930,7 +1930,7 @@ describe('TorrPlayEngine', () => {
       (globalThis as any).Lampa.Utils.hash('standalonehash:video.mp4')
     );
 
-    // Delegates to Lampa.Torserver.parse when present
+    // Delegates to `Lampa.Torserver.parse` when present
     const originalTorserver = (globalThis as any).Lampa.Torserver;
     try {
       (globalThis as any).Lampa.Torserver = {
@@ -1954,7 +1954,7 @@ describe('TorrPlayEngine', () => {
       (globalThis as any).Lampa.Torserver = originalTorserver;
     }
 
-    // Falls back gracefully and logs when Lampa.Torserver.parse throws
+    // Falls back gracefully and logs when `Lampa.Torserver.parse` throws
     try {
       let debugMessage = '';
       const originalDebug = console.debug;
@@ -2082,7 +2082,7 @@ describe('TorrPlayEngine', () => {
     }
   });
 
-  it('reports no hand-off when the preload is cancelled', async () => {
+  it('reports no hand-off when the preload is canceled', async () => {
     let playCount = 0;
     const originalWaitUntilReady = PreloadModal.waitUntilReady;
     PreloadModal.waitUntilReady = async () => false;

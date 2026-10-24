@@ -2933,7 +2933,7 @@ describe('UI & Settings Integration', () => {
     CatalogChoice.init();
     assert.ok(torrentListener, 'Torrent listener must be registered');
 
-    // Test in 'ask' mode: tomy item is retained
+    // Test in 'ask' mode: `tomy` item is retained
     storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
     const askMenu: any[] = [
@@ -2968,7 +2968,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(viewedMenu.some(item => item.unmark), 'Unmark action must be kept when already viewed');
     assert.equal(viewedMenu.some(item => item.mark), false, 'Mark action must be filtered when already viewed');
 
-    // Test in 'torrplay' mode: tomy item is stripped
+    // Test in 'torrplay' mode: `tomy` item is stripped
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
     const torrplayMenu: any[] = [
       { title: 'Add to TorrServer', tomy: true },
@@ -4480,7 +4480,7 @@ describe('UI & Settings Integration', () => {
     };
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
-    // A navigator without getFocusedElement: the grid has to recognise its own cursor anyway.
+    // A navigator without getFocusedElement: the grid has to recognize its own cursor anyway.
     let focusedElement: any = null;
     (globalThis as any).Lampa.Navigator = {
       focused: (element: any) => { focusedElement = element; },

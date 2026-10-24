@@ -48,6 +48,15 @@ reuse lint
 landing page `dist/index.html`. To try a change on a device, serve `dist/`
 and add the script's URL as a plugin in Lampa.
 
+`npm run lint` includes American English spell checking with CSpell. Run
+`npm run lint:spelling` to check spelling alone. It checks documentation,
+source comments, and English UI translations. Code identifiers, fixture
+data, code examples, and Cyrillic text are outside its scope. The small
+vocabulary in `cspell.config.mjs` covers project names and technical terms.
+Fix ordinary spelling errors instead of adding exceptions.
+For an intentional quotation with different spelling, use a narrowly scoped
+`cspell:disable-next-line` directive.
+
 ## Making a change
 
 - **Keep it cohesive.** One change and the refactors and tests it needs make
