@@ -216,6 +216,8 @@ function toggleMobileMenu() {
     closeMobileMenu();
   } else {
     menu.classList.add('active');
+    var toggle = document.getElementById('mobile-menu-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
     if (hamburgerIcon) hamburgerIcon.style.display = 'none';
     if (closeIcon) closeIcon.style.display = 'block';
   }
@@ -223,9 +225,11 @@ function toggleMobileMenu() {
 
 function closeMobileMenu() {
   var menu = document.getElementById('mobile-menu');
+  var toggle = document.getElementById('mobile-menu-toggle');
   var hamburgerIcon = document.getElementById('hamburger-icon');
   var closeIcon = document.getElementById('close-icon');
   if (menu) menu.classList.remove('active');
+  if (toggle) toggle.setAttribute('aria-expanded', 'false');
   if (hamburgerIcon) hamburgerIcon.style.display = 'block';
   if (closeIcon) closeIcon.style.display = 'none';
 }

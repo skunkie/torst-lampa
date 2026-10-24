@@ -458,4 +458,33 @@ describe('ExternalProgress', () => {
 
     assert.deepEqual(timelineUpdates, []);
   });
+
+  for (const stage of ['listing', 'statistics', 'runtime']) {
+    it(`discards a measurement if another playback starts while awaiting ${stage}`, async () => {
+      if (stage === 'runtime') {
+        (globalThis as any).Lampa.Api = {
+          seasons: (_movie: any, _seasons: number[], onComplete: (data: any) => void) => {
+            armAndLaunch();
+            onComplete({ 1: { episodes: [{ episode_number: 3, runtime: 50 }] } });
+          },
+        };
+      } else {
+        const fetchResponse = globalThis.fetch;
+        globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+          const response = await fetchResponse(input, init);
+          const isStatsRequest = String(input).includes('/api/stats/');
+          if (isStatsRequest === (stage === 'statistics')) armAndLaunch();
+          return response;
+        };
+      }
+
+      armAndLaunch({ id: 7, number_of_seasons: 1 }, [{ episode: 3, hash: 'episode-hash', path: 'movie.mkv', season: 1 }]);
+      leaveAndReturn();
+      mock.timers.tick(2000);
+      await flush();
+
+      assert.deepEqual(timelineUpdates, []);
+      if (stage === 'listing') assert.equal(requestedUrls.length, 1);
+    });
+  }
 });

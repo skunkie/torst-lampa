@@ -16,7 +16,7 @@ export class PlayDialog {
     const savedStorageType = String(rawStorage ?? 'memory');
     const isAskStorage = savedStorageType === 'ask';
 
-    const isAskDatabase = rawSaveToDb === 'ask' || String(rawSaveToDb) === 'ask';
+    const isAskDatabase = String(rawSaveToDb) === 'ask';
     const isSaveToDatabase = !isAskDatabase &&
       rawSaveToDb !== false && rawSaveToDb !== 'false' && rawSaveToDb !== 0 && rawSaveToDb !== '0';
 
@@ -24,7 +24,7 @@ export class PlayDialog {
     if (!isAskStorage && !isAskDatabase) {
       return {
         saveToDb: isSaveToDatabase,
-        storage: (isSaveToDatabase && savedStorageType === 'file' ? 'file' : 'memory') as TorrentStorage,
+        storage: isSaveToDatabase && savedStorageType === 'file' ? 'file' : 'memory',
       };
     }
 

@@ -73,6 +73,16 @@ describe('card watched overlay', () => {
     assert.equal(findLatestFileProgress(showTorrent, showCard), undefined);
   });
 
+  it('uses the same path-first video selection as playback', () => {
+    const torrent = {
+      files: [{ length: 1, name: 'Episode 1', path: 'Show.S01E01.mkv' }],
+      hash: 'abc',
+    };
+    timelines['11Show'] = { hash: '11Show', percent: 40, updated: 1 };
+
+    assert.equal(findLatestFileProgress(torrent, showCard)?.view.percent, 40);
+  });
+
   it('labels an episode by its number', () => {
     const element: any = buildCardWatchedElement({
       fileInfo: { episode: 2, hash: 'h', season: 1, serial: true },

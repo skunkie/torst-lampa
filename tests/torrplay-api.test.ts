@@ -51,6 +51,22 @@ describe('TorrPlayApi', () => {
     assert.equal(instance.latencyMs, Infinity);
   });
 
+  for (const shouldFail of [false, true]) {
+    it(`discards a health result for an instance URL changed in flight (${shouldFail ? 'failure' : 'success'})`, async () => {
+      const instance: TorrPlayInstance = { ...baseInstance, status: 'unknown' };
+      globalThis.fetch = async () => {
+        instance.url = 'http://new.local:8090';
+        if (shouldFail) throw new TypeError('Connection refused');
+        return new Response(null, { status: 200 });
+      };
+
+      assert.equal((await TorrPlayApi.checkHealth(instance)).isOk, false);
+      assert.equal(instance.status, 'unknown');
+      assert.equal(instance.latencyMs, undefined);
+      assert.equal(instance.checkedUrl, undefined);
+    });
+  }
+
   it('resolves a link without requesting file storage', async () => {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       assert.ok(String(input).endsWith('/api/v1/torrent-resolutions'));
@@ -257,6 +273,21 @@ describe('TorrPlayApi', () => {
     assert.equal(normalizeInfoHash(undefined), null);
     assert.equal(normalizeInfoHash({}), null);
     assert.equal(normalizeInfoHash('not-a-valid-hex-or-base32-hash-value-1234567890'), null);
+  });
+
+  it('extracts encoded exact topics and rejects partial or unrelated magnet values', () => {
+    const hash = '0123456789abcdef0123456789abcdef01234567';
+    assert.equal(extractHashFromMagnet(`magnet:?XT=${encodeURIComponent(`URN:BTIH:${hash}`)}`), hash);
+    assert.equal(extractHashFromMagnet(`magnet:?xt=urn:btmh:ignored&xt=urn:btih:${hash}`), hash);
+    for (const magnet of [
+      `magnet:?notxt=urn:btih:${hash}`,
+      `magnet:?dn=xt=urn:btih:${hash}`,
+      `magnet:?xt=urn:btih:${hash}0`,
+      `magnet:?xt=urn:btih:${hash.slice(0, -1)}g`,
+      `https://example.com/?xt=urn:btih:${hash}`,
+    ]) {
+      assert.equal(extractHashFromMagnet(magnet), null, magnet);
+    }
   });
 
   it('addTorrent replaces invalid hash with hash extracted from magnet link', async () => {
@@ -622,6 +653,36 @@ describe('TorrPlayApi', () => {
       await TorrPlayApi.getTorrents(instance, { hashes: ['sintel'], shouldRevalidate: false });
 
       assert.deepEqual(server.sent, [undefined, undefined, undefined]);
+    });
+
+    it('isolates nested files and facets from both fresh and revalidated callers', async () => {
+      const body = {
+        facets: { categories: [{ count: 1, name: 'movies' }], total: 1, version: 'v1' },
+        torrents: [{
+          files: [{ length: 100, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
+          hash: 'sintel',
+          name: 'Sintel',
+          storage: 'memory',
+          total_size: 100,
+        }],
+      };
+      let requestCount = 0;
+      globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (requestCount++ === 0) return new Response(JSON.stringify(body));
+        assert.equal((init?.headers as Record<string, string>)['If-None-Match'], 'W/"v1"');
+        return new Response(null, { status: 304 });
+      };
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await TorrPlayApi.getTorrents(baseInstance);
+        assert.deepEqual(response, body);
+        response.facets.version = 'changed';
+        response.facets.categories[0].name = 'changed';
+        response.facets.categories.push({ count: 2, name: 'extra' });
+        response.torrents[0].files[0].path = 'changed.mkv';
+        response.torrents[0].files.pop();
+      }
+      assert.deepEqual(await TorrPlayApi.getTorrents(baseInstance), body);
     });
 
     it('replaces the cached listing once it changes', async () => {

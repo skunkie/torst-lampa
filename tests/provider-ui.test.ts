@@ -17,11 +17,13 @@ describe('ProviderSettingsUi', () => {
 
   let lastSelectOptions: any = null;
   let lastInputOptions: any = null;
+  let notifications: string[];
 
   beforeEach(() => {
     storageMap.clear();
     lastSelectOptions = null;
     lastInputOptions = null;
+    notifications = [];
 
     (globalThis as any).Lampa = {
       Controller: {
@@ -35,7 +37,7 @@ describe('ProviderSettingsUi', () => {
       },
       Lang: createTestLanguage(),
       Noty: {
-        show: () => {},
+        show: (message: string) => { notifications.push(message); },
       },
       Select: {
         close: () => {},
@@ -176,7 +178,7 @@ describe('ProviderSettingsUi', () => {
 
   it('switches provider type between jackett and prowlarr', () => {
     const provider: TorrentProvider = {
-      id: 'p1', isEnabled: true, name: 'Node', type: 'jackett', url: 'http://node.example.com',
+      id: 'p1', isEnabled: true, latencyMs: 35, name: 'Node', status: 'online', type: 'jackett', url: 'http://node.example.com',
     };
     ProviderManager.addProvider(provider);
 
@@ -185,6 +187,48 @@ describe('ProviderSettingsUi', () => {
     lastSelectOptions.onSelect(switchAction);
 
     assert.equal(ProviderManager.getProviders().find(p => p.id === 'p1')?.type, 'prowlarr');
+    assert.equal(provider.status, 'unknown');
+    assert.equal(provider.latencyMs, undefined);
+    lastSelectOptions.onSelect(switchAction);
+    assert.equal(provider.type, 'jackett');
+  });
+
+  for (const input of ['new-key', '', ' k ']) {
+    it(`invalidates provider health only when the API key changes (${JSON.stringify(input)})`, () => {
+      const provider: TorrentProvider = { ...jackettProvider, latencyMs: 35, status: 'online' };
+      ProviderManager.addProvider(provider);
+      (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => callback(input);
+
+      ProviderSettingsUi.openProviderActions(provider);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'edit_api_key'));
+
+      const hasChanged = input.trim() !== jackettProvider.apiKey;
+      assert.equal(provider.apiKey, input.trim());
+      assert.equal(provider.status, hasChanged ? 'unknown' : 'online');
+      assert.equal(provider.latencyMs, hasChanged ? undefined : 35);
+    });
+  }
+
+  it('uses provider labels throughout the action, URL edit and deletion dialogs in both locales', () => {
+    const provider = { ...jackettProvider };
+    ProviderManager.addProvider(provider);
+
+    for (const locale of ['en', 'ru'] as const) {
+      (globalThis as any).Lampa.Lang = createTestLanguage(locale);
+      ProviderSettingsUi.openProviderActions(provider);
+      const editUrl = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+      const back = lastSelectOptions.items.find((item: any) => item.action === 'back');
+      assert.ok(editUrl.title.includes(getTestTranslation('torrplay_provider_edit_url', {}, locale)));
+      assert.equal(back.subtitle, getTestTranslation('torrplay_provider_back_to_list', {}, locale));
+
+      ProviderSettingsUi.promptEditProviderUrl(provider);
+      assert.equal(lastInputOptions.title, getTestTranslation('torrplay_provider_edit_url', {}, locale));
+
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'delete'));
+      assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_provider_confirm_delete_title', {}, locale));
+      const cancel = lastSelectOptions.items.find((item: any) => item.action === 'cancel');
+      assert.equal(cancel.subtitle, getTestTranslation('torrplay_provider_keep', {}, locale));
+    }
   });
 
   it('rejects invalid provider URLs when adding', () => {
@@ -195,6 +239,7 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.promptAddProvider();
     assert.equal(ProviderManager.getProviders().length, 0);
+    assert.equal(notifications[0], getTestTranslation('torrplay_provider_noty_valid_url'));
   });
 
   it('rejects duplicate provider URLs when adding', () => {
@@ -204,11 +249,12 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.promptAddProvider();
     assert.equal(ProviderManager.getProviders().length, 1);
+    assert.equal(notifications[0], getTestTranslation('torrplay_provider_noty_duplicate_url'));
   });
 
   it('adds a new provider defaulting to jackett type and hostname-based name', () => {
     ProviderSettingsUi.promptAddProvider();
-    assert.ok(lastInputOptions.title.includes(getTestTranslation('torrplay_instance_url_placeholder')));
+    assert.equal(lastInputOptions.title, getTestTranslation('torrplay_provider_url_placeholder'));
     const added = ProviderManager.getProviders().find(p => p.url === 'http://192.168.1.200:9117');
     assert.ok(added);
     assert.equal(added?.type, 'jackett');
@@ -227,7 +273,7 @@ describe('ProviderSettingsUi', () => {
 
     // Confirmation dialog shown, provider not yet removed
     assert.equal(ProviderManager.getProviders().length, 1);
-    assert.ok(lastSelectOptions.title.includes(getTestTranslation('torrplay_confirm_delete_title')));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_provider_confirm_delete_title'));
 
     const confirmAction = lastSelectOptions.items.find((i: any) => i.action === 'confirm_delete');
     lastSelectOptions.onSelect(confirmAction);

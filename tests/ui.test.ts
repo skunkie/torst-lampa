@@ -432,6 +432,32 @@ describe('UI & Settings Integration', () => {
     assert.equal(lastInputOptions.value, 'secret');
   });
 
+  for (const action of ['edit_auth', 'edit_username', 'edit_password']) {
+    it(`invalidates cached authentication and playback tokens on ${action}`, () => {
+      const instance = InstanceManager.getInstances()[0];
+      Object.assign(instance, {
+        authType: 'bearer', enableDownloader: false, fileStoragePath: '/storage',
+        jwtExpiresAtMs: Date.now() + 60000, jwtToken: 'jwt', password: 'old-password',
+        playbackToken: 'playback', playbackTokenExpiresAtMs: Date.now() + 60000, username: 'old-user',
+      });
+      (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => callback('new-value');
+
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === action));
+      if (action === 'edit_auth') {
+        lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.auth === 'basic'));
+        assert.equal(instance.authType, 'basic');
+      } else {
+        assert.equal(action === 'edit_username' ? instance.username : instance.password, 'new-value');
+      }
+
+      assert.equal(instance.jwtToken, undefined);
+      assert.equal(instance.jwtExpiresAtMs, undefined);
+      assert.equal(instance.playbackToken, undefined);
+      assert.equal(instance.playbackTokenExpiresAtMs, undefined);
+    });
+  }
+
   it('edits file storage path in instance actions and updates TorrPlay instance', async () => {
     const instance = InstanceManager.getInstances()[0];
     instance.fileStoragePath = '/initial/path';
@@ -1057,6 +1083,55 @@ describe('UI & Settings Integration', () => {
     component.destroy();
   });
 
+  for (const stage of ['selection', 'listing', 'failure']) {
+    it(`does not revive a destroyed library after pending ${stage} work`, async () => {
+      const originalJquery = (globalThis as any).$;
+      (globalThis as any).$ = () => ({ remove: () => {} });
+      (globalThis as any).Lampa.Scroll = class { public destroy() {} };
+      const instance = InstanceManager.getInstances()[0];
+      let finish = () => {};
+      const pending = new Promise<any>((resolve, reject) => {
+        finish = () => stage === 'failure'
+          ? reject(new Error('Connection refused'))
+          : resolve(stage === 'selection' ? instance : { facets: { categories: [], total: 0, version: 'v1' }, torrents: [] });
+      });
+      mock.method(InstanceManager, 'getBestInstance', async () => stage === 'selection' ? pending : instance);
+      const list = mock.method(TorrPlayApi, 'getTorrents', async () => pending);
+      mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+      const sync = mock.method(SavedTorrents, 'syncFromListing', () => {});
+      const interval = mock.method(globalThis, 'setInterval', () => 1 as unknown as ReturnType<typeof setInterval>);
+      const component = new TorrPlayTorrentsComponent();
+      const renderEmpty = mock.method(component, 'renderEmptyState', () => {});
+      const renderTorrents = mock.method(component, 'renderTorrents', () => {});
+      const toggle = mock.fn();
+      component.componentActivity = { loader: () => {}, toggle } as any;
+      const load = mock.method(component, 'load');
+
+      try {
+        component.pause();
+        component.start();
+        await Promise.resolve();
+        component.destroy();
+        finish();
+        await load.mock.calls[0].result;
+        await Promise.resolve();
+        component.start();
+        await component.load();
+
+        assert.equal(renderEmpty.mock.callCount(), 0);
+        assert.equal(renderTorrents.mock.callCount(), 0);
+        assert.equal(sync.mock.callCount(), 0);
+        assert.equal(toggle.mock.callCount(), 0);
+        assert.equal(interval.mock.callCount(), 0);
+        if (stage === 'selection') assert.equal(list.mock.callCount(), 0);
+      } finally {
+        component.destroy();
+        (globalThis as any).$ = originalJquery;
+        mock.restoreAll();
+      }
+    });
+  }
+
   it('displays the active instance name and re-resolves it after pausing and resuming', async () => {
     const createMockElement = (tag: string) => {
       const children: any[] = [];
@@ -1605,6 +1680,7 @@ describe('UI & Settings Integration', () => {
       total_size: 1048576,
     };
     let isCardTypeRemoved = false;
+    let isActiveBadgeRemoved = false;
     let appendedToCardView = '';
     const mockCardType = {
       length: 0,
@@ -1615,7 +1691,8 @@ describe('UI & Settings Integration', () => {
     };
     const cardElement = {
       find: (selector: string) => {
-        if (selector === '.card__type') return mockCardType;
+        if (selector === '.card__type--storage') return mockCardType;
+        if (selector === '.card__type') return { length: 1, remove: () => { isActiveBadgeRemoved = true; } };
         if (selector === '.card__view') return mockCardView;
         return { length: 0 };
       },
@@ -1671,6 +1748,7 @@ describe('UI & Settings Integration', () => {
     await lastSelectOptions.onSelect(secondSwitchAction);
     assert.equal(torrent.storage, 'memory');
     assert.equal(isCardTypeRemoved, true, 'switching back to memory storage must remove badge from card');
+    assert.equal(isActiveBadgeRemoved, false, 'storage changes must preserve the active badge');
   });
 
   it('context menu reports failure and keeps storage unchanged when PATCH fails', async () => {

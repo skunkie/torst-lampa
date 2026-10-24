@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { VIDEO_EXTENSIONS } from '../engine/file-parser';
+import { selectVideoFiles } from '../engine/file-parser';
 import { TorrPlayEngine } from '../engine/torrplay-engine';
-import { ParsedFileInfo, Torrent, TorrentFile } from '../types/torrplay';
+import { ParsedFileInfo, Torrent } from '../types/torrplay';
 
 interface TimelineView {
   duration?: number,
@@ -19,11 +19,6 @@ export interface FileProgress {
   view: TimelineView
 }
 
-function isVideoFile(file: TorrentFile): boolean {
-  const extension = (file.name || file.path || '').split('.').pop()?.toLowerCase() || '';
-  return VIDEO_EXTENSIONS.includes(extension);
-}
-
 /**
  * Returns the most recently watched video file of a torrent, hashed exactly as
  * playback records it, or undefined when none of its files has progress.
@@ -31,7 +26,7 @@ function isVideoFile(file: TorrentFile): boolean {
 export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie): FileProgress | undefined {
   if (!Lampa.Timeline) return undefined;
 
-  const sortedFiles = TorrPlayEngine.sortTorrentFiles((torrent.files || []).filter(isVideoFile));
+  const sortedFiles = selectVideoFiles(torrent.files);
   let latest: FileProgress | undefined;
 
   sortedFiles.forEach(file => {

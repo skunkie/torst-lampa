@@ -144,6 +144,7 @@ export class PreloadModal {
         const progress = PreloadModal.calculateProgress(preloadResponse);
 
         if (preloadResponse.status === 'ready' || progress >= 95) {
+          isStopped = true;
           cleanup();
           resolve(true);
           return true;

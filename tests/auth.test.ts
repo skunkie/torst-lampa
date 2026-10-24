@@ -144,4 +144,40 @@ describe('AuthManager', () => {
     assert.equal(token, 'playback-token-abcdef');
     assert.equal(instance.playbackToken, 'playback-token-abcdef');
   });
+
+  it('invalidates both token caches and their expiration times', () => {
+    const instance: TorrPlayInstance = {
+      authType: 'bearer', id: 'test', jwtExpiresAtMs: Date.now() + 60000, jwtToken: 'jwt', name: 'Test',
+      playbackToken: 'playback', playbackTokenExpiresAtMs: Date.now() + 60000, url: 'http://localhost:8090',
+    };
+
+    AuthManager.invalidateTokens(instance);
+
+    assert.equal(instance.jwtToken, undefined);
+    assert.equal(instance.jwtExpiresAtMs, undefined);
+    assert.equal(instance.playbackToken, undefined);
+    assert.equal(instance.playbackTokenExpiresAtMs, undefined);
+  });
+
+  for (const kind of ['bearer', 'playback']) {
+    it(`discards an in-flight ${kind} token after credentials change`, async () => {
+      const instance: TorrPlayInstance = {
+        authType: kind === 'bearer' ? 'bearer' : 'basic', id: 'test', name: 'Test',
+        password: 'old-password', url: 'http://localhost:8090', username: 'user',
+      };
+      globalThis.fetch = async () => {
+        instance.password = 'new-password';
+        return new Response(JSON.stringify({
+          access_token: 'old-jwt', expires_at: new Date(Date.now() + 60000).toISOString(), token: 'old-playback',
+        }));
+      };
+
+      await assert.rejects(
+        kind === 'bearer' ? AuthManager.loginBearer(instance) : AuthManager.getPlaybackToken(instance),
+        AuthenticationError
+      );
+      assert.equal(instance.jwtToken, undefined);
+      assert.equal(instance.playbackToken, undefined);
+    });
+  }
 });

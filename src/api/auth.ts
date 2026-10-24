@@ -19,6 +19,24 @@ export class AuthenticationError extends Error {
 }
 
 export class AuthManager {
+  public static invalidateTokens(instance: TorrPlayInstance): void {
+    delete instance.jwtToken;
+    delete instance.jwtExpiresAtMs;
+    delete instance.playbackToken;
+    delete instance.playbackTokenExpiresAtMs;
+  }
+
+  private static ensureAuthenticationUnchanged(instance: TorrPlayInstance, original: TorrPlayInstance): void {
+    if (
+      instance.authType !== original.authType
+      || instance.password !== original.password
+      || instance.url !== original.url
+      || instance.username !== original.username
+    ) {
+      throw new AuthenticationError('Instance authentication settings changed; retry the request');
+    }
+  }
+
   /**
    * Encodes username and password into a standard HTTP Basic Auth header value.
    */
@@ -40,6 +58,7 @@ export class AuthManager {
     if (!instance.username || !instance.password) {
       throw new AuthenticationError('Username and password required for Bearer authentication');
     }
+    const original = { ...instance };
 
     const loginForm = new URLSearchParams({
       grant_type: 'password',
@@ -65,6 +84,7 @@ export class AuthManager {
     }
 
     const tokenResponse = (await response.json()) as TokenResponse;
+    this.ensureAuthenticationUnchanged(instance, original);
     instance.jwtToken = tokenResponse.access_token;
     // Set expiration with 60s safety buffer
     const expiresInSeconds = tokenResponse.expires_in || 86400;
@@ -119,7 +139,9 @@ export class AuthManager {
       return instance.playbackToken;
     }
 
+    const original = { ...instance };
     const authHeaders = await this.getAuthHeaders(instance);
+    this.ensureAuthenticationUnchanged(instance, original);
     const url = `${instance.url.replace(/\/+$/, '')}/api/v1/tokens`;
 
     const response = await requestHttp(url, {
@@ -143,6 +165,7 @@ export class AuthManager {
     }
 
     const tokenResponse = (await response.json()) as ScopedToken;
+    this.ensureAuthenticationUnchanged(instance, original);
     instance.playbackToken = tokenResponse.token;
     const expiresAtMs = new Date(tokenResponse.expires_at).getTime();
     instance.playbackTokenExpiresAtMs = isNaN(expiresAtMs)

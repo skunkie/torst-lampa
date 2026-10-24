@@ -96,6 +96,7 @@ describe('Saved Torrent Cards', () => {
     cards[0].image.onerror!();
 
     assert.equal(cards[0].image.src, './img/img_broken.svg');
+    assert.equal(cards[0].image.onerror, null, 'the fallback image must not retry itself if it also fails');
   });
 
   it('adds and removes the viewed icon', () => {

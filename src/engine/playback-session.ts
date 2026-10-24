@@ -10,7 +10,7 @@ import { PreloadModal } from '../ui/preload-modal';
 import { closeModalSafely, markTorrentViewed, recordWatchedHistory } from './engine-utils';
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from './episode-preview';
 import { ExternalPlaybackFile, ExternalProgress } from './external-progress';
-import { resolveFileIndex, resolveFileInfo, sortTorrentFiles, VIDEO_EXTENSIONS } from './file-parser';
+import { resolveFileIndex, resolveFileInfo, selectVideoFiles } from './file-parser';
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { rememberPlayerPlaylist } from './player-playlist';
 
@@ -79,19 +79,14 @@ export async function displayFileList(
   sourceController?: string
 ): Promise<void> {
   const torrentFiles: TorrentFile[] = torrent.files || [];
-  const videoFiles = torrentFiles.filter(file => {
-    const extension = file.path.split('.').pop()?.toLowerCase() || '';
-    return VIDEO_EXTENSIONS.includes(extension);
-  });
+  const sortedVideoFiles = selectVideoFiles(torrentFiles);
 
-  if (videoFiles.length === 0) {
+  if (sortedVideoFiles.length === 0) {
     if (Lampa.Noty) {
       Lampa.Noty.show(translate('torrplay_noty_no_video', 'No video files found in torrent'));
     }
     return;
   }
-
-  const sortedVideoFiles = sortTorrentFiles(videoFiles);
 
   const resolvedMovie = resolveMovieContext(movie);
   const poster = resolvePosterUrl(torrent, resolvedMovie);
@@ -107,7 +102,7 @@ export async function displayFileList(
 
   // If single video file, start directly
   if (sortedVideoFiles.length === 1) {
-    void playSingleVideoFile(
+    await playSingleVideoFile(
       instance,
       torrent,
       sortedVideoFiles[0],
@@ -298,6 +293,7 @@ export async function playTorrentFile(
       ...candidateItem,
       card: historyCard,
       episode: candidateInfo.episode,
+      file_index: targetIndex,
       first_title: historyCard.name || historyCard.title,
       movie: historyCard,
       season: candidateInfo.season,
@@ -332,6 +328,7 @@ export async function playTorrentFile(
       ...playlistItem,
       card: historyCard,
       episode: fileInfo.episode,
+      file_index: fileIndex,
       first_title: historyCard.name || historyCard.title,
       movie: historyCard,
       season: fileInfo.season,
@@ -339,9 +336,7 @@ export async function playTorrentFile(
       torrent_hash: torrentHash,
       url: streamUrl,
     };
-    if (mappedPlaylist.length === 0) {
-      mappedPlaylist.push(playerItem);
-    }
+    mappedPlaylist.push(playerItem);
   }
 
   playerItem.continue_play = true;
@@ -357,14 +352,13 @@ export async function playTorrentFile(
   recordWatchedHistory(historyCard, playerItem);
 
   ExternalProgress.arm({
-    files: (mappedPlaylist.includes(playerItem) ? mappedPlaylist : [playerItem, ...mappedPlaylist])
-      .reduce<ExternalPlaybackFile[]>((files, item) => {
-        const timelineHash = (item.timeline as { hash?: number | string } | undefined)?.hash;
-        if (item.path && timelineHash !== undefined) {
-          files.push({ episode: item.episode, hash: timelineHash, path: item.path, season: item.season });
-        }
-        return files;
-      }, []),
+    files: mappedPlaylist.reduce<ExternalPlaybackFile[]>((files, item) => {
+      const timelineHash = (item.timeline as { hash?: number | string } | undefined)?.hash;
+      if (item.path && timelineHash !== undefined) {
+        files.push({ episode: item.episode, hash: timelineHash, path: item.path, season: item.season });
+      }
+      return files;
+    }, []),
     instance,
     movie: historyCard,
     torrentHash,

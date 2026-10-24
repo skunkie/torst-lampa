@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
+import { AuthManager } from '../api/auth';
 import { TorrPlayApi } from '../api/torrplay';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
@@ -378,6 +379,7 @@ export class InstancePoolUi {
             },
             onSelect: (selectedAuthentication: AuthenticationSelectItem) => {
               instance.authType = selectedAuthentication.auth;
+              AuthManager.invalidateTokens(instance);
               InstanceManager.updateInstance(instance);
               this.openInstanceActions(instance);
             },
@@ -392,6 +394,7 @@ export class InstancePoolUi {
               value: instance.username || '',
             }, value => {
               instance.username = value ? value.trim() : '';
+              AuthManager.invalidateTokens(instance);
               InstanceManager.updateInstance(instance);
               this.openInstanceActions(instance);
             });
@@ -406,6 +409,7 @@ export class InstancePoolUi {
               value: instance.password || '',
             }, value => {
               instance.password = value ? value.trim() : '';
+              AuthManager.invalidateTokens(instance);
               InstanceManager.updateInstance(instance);
               this.openInstanceActions(instance);
             });
@@ -563,10 +567,7 @@ export class InstancePoolUi {
       instance.url = cleanUrl;
       instance.status = 'unknown';
       delete instance.latencyMs;
-      delete instance.jwtToken;
-      delete instance.jwtExpiresAtMs;
-      delete instance.playbackToken;
-      delete instance.playbackTokenExpiresAtMs;
+      AuthManager.invalidateTokens(instance);
       InstanceManager.updateInstance(instance);
       if (Lampa.Noty) {
         Lampa.Noty.show(translate('torrplay_noty_url_updated', 'Instance URL updated'));

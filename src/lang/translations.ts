@@ -513,9 +513,17 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Add a Jackett or Prowlarr provider',
     ru: 'Добавить провайдер Jackett или Prowlarr',
   },
+  torrplay_provider_back_to_list: {
+    en: 'Return to provider list',
+    ru: 'Вернуться к списку провайдеров',
+  },
   torrplay_provider_confirm_delete_descr: {
     en: 'This also removes its saved API key',
     ru: 'Сохраненный API-ключ также будет удален',
+  },
+  torrplay_provider_confirm_delete_title: {
+    en: 'Delete Provider?',
+    ru: 'Удалить провайдер?',
   },
   torrplay_provider_delete: {
     en: 'Delete Provider',
@@ -537,6 +545,10 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Edit API Key',
     ru: 'Изменить API-ключ',
   },
+  torrplay_provider_edit_url: {
+    en: 'Edit Provider URL',
+    ru: 'Изменить URL провайдера',
+  },
   torrplay_provider_enable: {
     en: 'Enable Provider',
     ru: 'Включить провайдер',
@@ -549,6 +561,10 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'TorrPlay: Saved API keys for {names} could not be read. Please re-enter them in Settings.',
     ru: 'TorrPlay: Не удалось прочитать сохраненные API-ключи для {names}. Введите их заново в Настройках.',
   },
+  torrplay_provider_keep: {
+    en: 'Keep this provider',
+    ru: 'Оставить этот провайдер',
+  },
   torrplay_provider_noty_added: {
     en: 'Added {name} to pool',
     ru: 'Провайдер {name} добавлен в пул',
@@ -557,9 +573,21 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Deleted {name}',
     ru: 'Провайдер {name} удален',
   },
+  torrplay_provider_noty_duplicate_url: {
+    en: 'A provider with this URL already exists',
+    ru: 'Провайдер с таким URL уже существует',
+  },
   torrplay_provider_noty_pinging_all: {
     en: 'Testing all search providers...',
     ru: 'Проверка всех провайдеров поиска...',
+  },
+  torrplay_provider_noty_url_updated: {
+    en: 'Provider URL updated',
+    ru: 'URL провайдера обновлен',
+  },
+  torrplay_provider_noty_valid_url: {
+    en: 'Enter a valid HTTP or HTTPS provider URL',
+    ru: 'Укажите корректный HTTP или HTTPS URL провайдера',
   },
   torrplay_provider_pool_title: {
     en: 'Torrent Search Providers',
@@ -588,6 +616,10 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
   torrplay_provider_test_all_descr: {
     en: 'Test latency across all providers',
     ru: 'Проверить задержку всех провайдеров',
+  },
+  torrplay_provider_url_placeholder: {
+    en: 'Provider URL (e.g. http://192.168.1.100:9117)',
+    ru: 'URL провайдера (например, http://192.168.1.100:9117)',
   },
   torrplay_save_to: {
     en: 'Save to TorrPlay',

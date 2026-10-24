@@ -93,10 +93,14 @@ export function buildStreamMagnet(magnetUri?: string): string | null {
 }
 
 export function extractHashFromMagnet(magnetUri: string): string | null {
-  if (!magnetUri) return null;
-  const match = magnetUri.match(/xt=urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
-  if (!match) return null;
-  return normalizeInfoHash(match[1]);
+  if (!/^magnet:\?/i.test(magnetUri)) return null;
+  const parameters = new URLSearchParams(magnetUri.slice(magnetUri.indexOf('?') + 1));
+  for (const [key, value] of parameters) {
+    if (key.toLowerCase() !== 'xt' || !/^urn:btih:/i.test(value)) continue;
+    const hash = normalizeInfoHash(value.slice('urn:btih:'.length));
+    if (hash) return hash;
+  }
+  return null;
 }
 
 // The instance waits for torrent metadata before it answers a preload start. It bounds that
@@ -120,9 +124,10 @@ export class TorrPlayApi {
     timeoutMs = 4000
   ): Promise<{ isOk: boolean, latencyMs: number }> {
     const startedAtMs = performance.now();
+    const checkedUrl = instance.url;
 
     try {
-      const url = `${instance.url.replace(/\/+$/, '')}/api/system/health`;
+      const url = `${checkedUrl.replace(/\/+$/, '')}/api/system/health`;
       const response = await requestHttp(url, {
         headers: {
           'X-Requested-With': 'XMLHttpRequest',
@@ -132,10 +137,11 @@ export class TorrPlayApi {
       });
 
       const latencyMs = Math.round(performance.now() - startedAtMs);
+      if (instance.url !== checkedUrl) return { isOk: false, latencyMs: Infinity };
 
       if (response.ok) {
         instance.checkedAtMs = Date.now();
-        instance.checkedUrl = instance.url;
+        instance.checkedUrl = checkedUrl;
         instance.status = 'online';
         instance.latencyMs = latencyMs;
         return { isOk: true, latencyMs };
@@ -145,8 +151,10 @@ export class TorrPlayApi {
         return { isOk: false, latencyMs: Infinity };
       }
     } catch {
-      instance.status = 'offline';
-      instance.latencyMs = Infinity;
+      if (instance.url === checkedUrl) {
+        instance.status = 'offline';
+        instance.latencyMs = Infinity;
+      }
       return { isOk: false, latencyMs: Infinity };
     }
   }
@@ -313,7 +321,17 @@ export class TorrPlayApi {
         this.listingCache.delete(this.listingCache.keys().next().value as string);
       }
     }
-    return { ...listing, torrents: (listing.torrents || []).map(torrent => ({ ...torrent })) };
+    return {
+      ...listing,
+      facets: listing.facets && {
+        ...listing.facets,
+        categories: (listing.facets.categories || []).map(category => ({ ...category })),
+      },
+      torrents: (listing.torrents || []).map(torrent => ({
+        ...torrent,
+        files: (torrent.files || []).map(file => ({ ...file })),
+      })),
+    };
   }
 
   public static resetForTesting(): void {

@@ -1133,6 +1133,50 @@ describe('TorrPlayEngine', () => {
     }
   });
 
+  it('awaits single-file playback and propagates its errors from the file list', async () => {
+    mock.method(TorrPlayApi, 'getStreamUrl', async () => { throw new Error('Stream unavailable'); });
+    await assert.rejects(displayFileList(
+      { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8090' },
+      {
+        files: [{ length: 100, name: 'Sintel', path: 'Sintel.mkv' }],
+        hash: 'hash', name: 'Sintel', storage: 'memory', total_size: 100,
+      }
+    ), /Stream unavailable/);
+  });
+
+  for (const variant of ['empty', 'missing-current', 'implicit-indices']) {
+    it(`hands the exact played item to the player playlist (${variant})`, async () => {
+      const playlist = variant === 'empty' ? [] : [
+        { path: 'first.mkv', title: 'First' },
+        { path: 'second.mkv', title: 'Second' },
+      ];
+      const fileIndex = variant === 'implicit-indices' ? 1 : 2;
+      const currentItem = variant === 'implicit-indices' ? playlist[1] : { path: 'current.mkv', title: 'Current' };
+      let played: any;
+      let handedPlaylist: any[] = [];
+      const calls: string[] = [];
+      (globalThis as any).Lampa.Player = {
+        callback: () => {},
+        play: (item: any) => { played = item; calls.push('play'); },
+        playlist: (items: any[]) => { handedPlaylist = items; calls.push('playlist'); },
+      };
+      mock.method(TorrPlayApi, 'getStreamUrl', async () => 'http://127.0.0.1/stream');
+
+      await playTorrentFile(
+        { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8090' },
+        'hash', fileIndex, currentItem, playlist
+      );
+
+      assert.deepEqual(calls, ['playlist', 'play']);
+      assert.ok(handedPlaylist.includes(played));
+      assert.equal(played.file_index, fileIndex);
+      assert.equal(played.url, 'http://127.0.0.1/stream');
+      assert.equal(handedPlaylist.length, variant === 'implicit-indices' ? 2 : playlist.length + 1);
+      assert.ok(handedPlaylist.every(item => item.continue_play === true && item.torrent === true));
+      assert.doesNotThrow(() => JSON.stringify(played));
+    });
+  }
+
   it('tags player item and playlist with continue_play and torrent for native ad exemption', async () => {
     const testHash = '5555555555555555555555555555555555555555';
     let playedItem: any = null;

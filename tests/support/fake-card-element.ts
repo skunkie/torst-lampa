@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 export interface FakeImage {
-  onerror?: () => void,
+  onerror?: (() => void) | null,
   onload?: () => void,
   src: string
 }

@@ -93,6 +93,24 @@ describe('PreloadModal', () => {
   });
 
   describe('waitUntilReady', () => {
+    it('ignores a stale loading cancellation callback once preloading succeeds', async () => {
+      let cancel = () => {};
+      let stopCount = 0;
+      const methods: string[] = [];
+      (globalThis as any).Lampa.Loading.start = (onCancel: () => void) => { cancel = onCancel; };
+      (globalThis as any).Lampa.Loading.stop = () => { stopCount++; };
+      globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+        methods.push(init?.method || 'GET');
+        return new Response(JSON.stringify({ status: 'ready' }));
+      };
+
+      assert.equal(await PreloadModal.waitUntilReady(testInstance, 'hash123', { index: 0 }), true);
+      cancel();
+      await Promise.resolve();
+      assert.equal(stopCount, 1);
+      assert.deepEqual(methods, ['PUT']);
+    });
+
     it('treats increasing percentage-only responses as progress for stall detection', async () => {
       const originalDateNow = Date.now;
       const originalSetTimeout = globalThis.setTimeout;

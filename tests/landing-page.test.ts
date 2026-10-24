@@ -17,6 +17,31 @@ function createLandingPageHarness(channel: 'production' | 'dev' = 'production', 
   const attributes: Record<string, string> = { 'data-lang': language, lang: language };
   const prompts: string[][] = [];
   const timers: (() => void)[] = [];
+  const documentListeners = new Map<string, (event: { target: unknown }) => void>();
+  const menuToggleMarkup = html.match(/<button\b[^>]*id="mobile-menu-toggle"[^>]*>/)?.[0];
+  assert.ok(menuToggleMarkup);
+  const menuToggleAttributes: Record<string, string> = {
+    'aria-controls': menuToggleMarkup.match(/aria-controls="([^"]+)"/)?.[1] || '',
+    'aria-expanded': menuToggleMarkup.match(/aria-expanded="([^"]+)"/)?.[1] || '',
+  };
+  const menuToggle = {
+    getAttribute: (name: string) => menuToggleAttributes[name],
+    id: 'mobile-menu-toggle',
+    setAttribute: (name: string, value: string) => { menuToggleAttributes[name] = value; },
+  };
+  const menuClasses = new Set<string>();
+  const mobileMenu = {
+    classList: {
+      add: (name: string) => { menuClasses.add(name); },
+      contains: (name: string) => menuClasses.has(name),
+      remove: (name: string) => { menuClasses.delete(name); },
+    },
+    id: 'mobile-menu',
+  };
+  const menuIcons = [
+    { id: 'hamburger-icon', style: { display: 'block' } },
+    { id: 'close-icon', style: { display: 'none' } },
+  ];
   const buttons = ['min', 'dev'].map(bundle => {
     const id = `btn-copy-${bundle}`;
     const markup = html.match(new RegExp(`<button[^>]*id="${id}"[^>]*>([\\s\\S]*?)</button>`))?.[1];
@@ -61,13 +86,14 @@ function createLandingPageHarness(channel: 'production' | 'dev' = 'production', 
   };
   const context = {
     document: {
-      addEventListener: () => {},
+      addEventListener: (name: string, callback: (event: { target: unknown }) => void) => { documentListeners.set(name, callback); },
       documentElement: {
         getAttribute: (name: string) => attributes[name],
         setAttribute: (name: string, value: string) => { attributes[name] = value; },
       },
       execCommand: () => true,
-      getElementById: (id: string) => [...buttons, ...inputs, pageDescription, pageTitle].find(element => element.id === id) || null,
+      getElementById: (id: string) => [...buttons, ...inputs, ...menuIcons, menuToggle, mobileMenu, pageDescription, pageTitle].find(element => element.id === id) || null,
+      querySelector: (selector: string) => selector === '.navbar' ? { contains: (target: unknown) => target === menuToggle } : null,
       querySelectorAll: (selector: string) => {
         if (selector === '[data-docs-url]') return documentationLinks;
         if (selector === '[data-i18n-aria]') return ariaElements;
@@ -92,7 +118,7 @@ function createLandingPageHarness(channel: 'production' | 'dev' = 'production', 
   assert.ok(script);
   runInNewContext(script, context);
   const translations = runInNewContext('i18n', context) as Record<string, Record<string, string>>;
-  return { ariaElements, buttons, context, documentationLinks, inputs, pageDescription, pageTitle, prompts, timers, translations };
+  return { ariaElements, buttons, context, documentationLinks, documentListeners, inputs, menuToggle, mobileMenu, pageDescription, pageTitle, prompts, timers, translations };
 }
 
 function assertCopyButtonLabel(button: { innerHTML: string }, expectedLabel: string): void {
@@ -102,6 +128,44 @@ function assertCopyButtonLabel(button: { innerHTML: string }, expectedLabel: str
 }
 
 describe('Landing Page', () => {
+  it('defaults to dark and restores a saved theme without a media query API', () => {
+    const script = generateLandingPage('1.2.3').match(/<script>([\s\S]*?)<\/script>/)?.[1];
+    assert.ok(script);
+
+    for (const savedTheme of [null, 'light', 'dark']) {
+      const attributes: Record<string, string> = {};
+      runInNewContext(script, {
+        document: { documentElement: { setAttribute: (name: string, value: string) => { attributes[name] = value; } } },
+        localStorage: { getItem: (key: string) => key === 'torrplay-theme' ? savedTheme : null },
+        navigator: { language: 'ru' },
+        window: {},
+      });
+
+      assert.equal(attributes['data-theme'], savedTheme || 'dark');
+      assert.equal(attributes['data-lang'], 'ru');
+    }
+  });
+
+  it('announces mobile menu state when toggled, closed by a link or dismissed outside the navbar', () => {
+    const { context, documentListeners, menuToggle, mobileMenu } = createLandingPageHarness();
+    assert.equal(menuToggle.getAttribute('aria-controls'), mobileMenu.id);
+    assert.equal(menuToggle.getAttribute('aria-expanded'), 'false');
+
+    for (const closeMethod of ['toggle', 'link', 'outside']) {
+      runInNewContext('toggleMobileMenu()', context);
+      assert.equal(mobileMenu.classList.contains('active'), true);
+      assert.equal(menuToggle.getAttribute('aria-expanded'), 'true');
+
+      if (closeMethod === 'outside') {
+        documentListeners.get('click')?.({ target: {} });
+      } else {
+        runInNewContext(closeMethod === 'toggle' ? 'toggleMobileMenu()' : 'closeMobileMenu()', context);
+      }
+      assert.equal(mobileMenu.classList.contains('active'), false);
+      assert.equal(menuToggle.getAttribute('aria-expanded'), 'false');
+    }
+  });
+
   it('generates a deterministic self-contained page', () => {
     const first = generateLandingPage('1.2.3');
     const second = generateLandingPage('1.2.3');

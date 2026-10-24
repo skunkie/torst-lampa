@@ -94,6 +94,7 @@ export function buildSavedTorrentCard(torrent: SavedTorrentSummary, isViewed: bo
       card.addClass('card--loaded');
     };
     posterImageElement.onerror = () => {
+      posterImageElement.onerror = null;
       posterImageElement.src = './img/img_broken.svg';
       card.addClass('card--loaded');
     };

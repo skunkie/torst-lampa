@@ -151,7 +151,7 @@ export class ProviderSettingsUi {
       {
         action: 'edit_url',
         subtitle: translate('torrplay_current_value', `Current: ${provider.url}`, { value: provider.url }),
-        title: iconLabel(ICON_PENCIL, translate('torrplay_edit_url', 'Edit Instance URL')),
+        title: iconLabel(ICON_PENCIL, translate('torrplay_provider_edit_url', 'Edit Provider URL')),
       },
       {
         action: 'edit_api_key',
@@ -172,7 +172,7 @@ export class ProviderSettingsUi {
       },
       {
         action: 'back',
-        subtitle: translate('torrplay_back_to_instances', 'Return to instance list'),
+        subtitle: translate('torrplay_provider_back_to_list', 'Return to provider list'),
         title: iconLabel(ICON_ARROW_LEFT, translate('torrplay_back', 'Back')),
       },
     ];
@@ -230,14 +230,21 @@ export class ProviderSettingsUi {
               title: translate('torrplay_provider_edit_api_key', 'API Key'),
               value: provider.apiKey || '',
             }, value => {
-              provider.apiKey = value ? value.trim() : '';
-              ProviderManager.updateProvider(provider);
+              const apiKey = value ? value.trim() : '';
+              if (apiKey !== (provider.apiKey || '')) {
+                provider.apiKey = apiKey;
+                provider.status = 'unknown';
+                delete provider.latencyMs;
+                ProviderManager.updateProvider(provider);
+              }
               this.openProviderActions(provider);
             });
           }
         } else if (selectedItem.action === 'switch_type') {
           const nextType: ProviderType = provider.type === 'prowlarr' ? 'jackett' : 'prowlarr';
           provider.type = nextType;
+          provider.status = 'unknown';
+          delete provider.latencyMs;
           ProviderManager.updateProvider(provider);
           this.openProviderActions(provider);
         } else if (selectedItem.action === 'delete') {
@@ -258,7 +265,7 @@ export class ProviderSettingsUi {
     Lampa.Input.edit({
       free: true,
       nosave: true,
-      title: translate('torrplay_edit_url', 'Provider URL'),
+      title: translate('torrplay_provider_edit_url', 'Edit Provider URL'),
       value: currentUrl,
     }, value => {
       const rawInput = (value || '').trim();
@@ -271,7 +278,7 @@ export class ProviderSettingsUi {
       const cleanUrl = normalizeProviderUrl(rawInput);
       if (!cleanUrl) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_noty_valid_url', 'Enter a valid HTTP or HTTPS instance URL'));
+          Lampa.Noty.show(translate('torrplay_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
         }
         this.promptEditProviderUrl(provider, rawInput);
         return;
@@ -287,7 +294,7 @@ export class ProviderSettingsUi {
       );
       if (isDuplicate) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_noty_duplicate_url', 'An instance with this URL already exists'));
+          Lampa.Noty.show(translate('torrplay_provider_noty_duplicate_url', 'A provider with this URL already exists'));
         }
         this.promptEditProviderUrl(provider, rawInput);
         return;
@@ -298,7 +305,7 @@ export class ProviderSettingsUi {
       delete provider.latencyMs;
       ProviderManager.updateProvider(provider);
       if (Lampa.Noty) {
-        Lampa.Noty.show(translate('torrplay_noty_url_updated', 'Instance URL updated'));
+        Lampa.Noty.show(translate('torrplay_provider_noty_url_updated', 'Provider URL updated'));
       }
       this.openProviderActions(provider);
     });
@@ -310,7 +317,7 @@ export class ProviderSettingsUi {
     Lampa.Input.edit({
       free: true,
       nosave: true,
-      title: translate('torrplay_instance_url_placeholder', 'Instance URL (e.g. http://192.168.1.100:8090)'),
+      title: translate('torrplay_provider_url_placeholder', 'Provider URL (e.g. http://192.168.1.100:9117)'),
       value: 'http://',
     }, providerUrlInput => {
       if (!providerUrlInput || !providerUrlInput.trim() || providerUrlInput.trim() === 'http://') {
@@ -320,7 +327,7 @@ export class ProviderSettingsUi {
       const normalizedUrl = normalizeProviderUrl(providerUrlInput);
       if (!normalizedUrl) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_noty_valid_url', 'Enter a valid HTTP or HTTPS instance URL'));
+          Lampa.Noty.show(translate('torrplay_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
         }
         this.openPoolManager();
         return;
@@ -328,7 +335,7 @@ export class ProviderSettingsUi {
       const isDuplicate = ProviderManager.getProviders().some(candidate => candidate.url === normalizedUrl);
       if (isDuplicate) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_noty_duplicate_url', 'An instance with this URL already exists'));
+          Lampa.Noty.show(translate('torrplay_provider_noty_duplicate_url', 'A provider with this URL already exists'));
         }
         this.openPoolManager();
         return;
@@ -365,7 +372,7 @@ export class ProviderSettingsUi {
         },
         {
           action: 'cancel',
-          subtitle: translate('torrplay_keep_instance', 'Keep this instance'),
+          subtitle: translate('torrplay_provider_keep', 'Keep this provider'),
           title: translate('torrplay_cancel', 'Cancel'),
         },
       ],
@@ -384,7 +391,7 @@ export class ProviderSettingsUi {
         }
         this.openPoolManager();
       },
-      title: translate('torrplay_confirm_delete_title', 'Delete Instance?'),
+      title: translate('torrplay_provider_confirm_delete_title', 'Delete Provider?'),
     });
   }
 }

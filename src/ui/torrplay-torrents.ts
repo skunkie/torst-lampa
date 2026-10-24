@@ -50,6 +50,7 @@ export class TorrPlayTorrentsComponent {
   private contextMenuResumesPolling = false;
   private emptyState: LampaEmptyState | null = null;
   private fileListRequestId = 0;
+  private isDestroyed = false;
   private isLoading = false;
   private isPinnedToSearchInstance = false;
   private lastFocusedElement: HTMLElement | null = null;
@@ -194,7 +195,7 @@ export class TorrPlayTorrentsComponent {
   }
 
   public async load(silent = false): Promise<void> {
-    if (this.isLoading) return;
+    if (this.isDestroyed || this.isLoading) return;
     // Rebuilding the grid replaces every card element, which detaches the card the open context
     // menu acts on and the element focus is restored to when it closes. Skip background
     // refreshes until the menu is closed; polling resumes from there.
@@ -213,6 +214,7 @@ export class TorrPlayTorrentsComponent {
 
     try {
       this.activeInstance = searchInstance || await InstanceManager.getBestInstance();
+      if (this.isDestroyed) return;
       this.updateHeaderTitle(this.activeInstance);
       const searchQuery = this.searchQuery;
       const [torrents, settings] = await Promise.all([
@@ -221,6 +223,7 @@ export class TorrPlayTorrentsComponent {
           : searchDatabaseTorrents(this.activeInstance, searchQuery),
         TorrPlayApi.getSettings(this.activeInstance).catch(() => null),
       ]);
+      if (this.isDestroyed) return;
       if (settings) {
         let changed = false;
         if (typeof settings.file_storage_path === 'string') {
@@ -252,6 +255,7 @@ export class TorrPlayTorrentsComponent {
         this.renderTorrents(torrents, this.activeInstance, silent);
       }
     } catch (err: unknown) {
+      if (this.isDestroyed) return;
       // Once the pinned instance stops answering, the search row it backed is stale anyway, so
       // the view falls back to regular instance selection instead of failing on every refresh.
       const isUnreachable = isNetworkError(err) || (err instanceof TorrPlayApiError && err.status >= 500);
@@ -331,6 +335,7 @@ export class TorrPlayTorrentsComponent {
   }
 
   public start(): void {
+    if (this.isDestroyed) return;
     this.clearContextMenuState();
     if (this.needsReload) {
       this.needsReload = false;
@@ -419,6 +424,7 @@ export class TorrPlayTorrentsComponent {
   }
 
   private startPolling(): void {
+    if (this.isDestroyed) return;
     this.stopPolling();
     this.pollIntervalId = setInterval(() => {
       this.load(true);
@@ -700,13 +706,13 @@ export class TorrPlayTorrentsComponent {
       sourceInstance,
       resolvedReturnController
     ).then(isHandedOff => {
-      if (isHandedOff) this.moveWatchedTorrentFirst(torrent.hash, fileIndex);
+      if (isHandedOff && !this.isDestroyed) this.moveWatchedTorrentFirst(torrent.hash, fileIndex);
     }).catch((err: unknown) => {
       console.error('[TorrPlay] Playback failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (typeof Lampa !== 'undefined') {
         if (Lampa.Loading) Lampa.Loading.stop();
-        if (Lampa.Controller) Lampa.Controller.toggle(resolvedReturnController);
+        if (!this.isDestroyed && Lampa.Controller) Lampa.Controller.toggle(resolvedReturnController);
         if (Lampa.Noty) {
           Lampa.Noty.show(
             translate('torrplay_noty_error', `TorrPlay: ${errorMessage}`, { msg: errorMessage })
@@ -912,7 +918,7 @@ export class TorrPlayTorrentsComponent {
             torrent.storage = nextStorage;
             if (cardElement && typeof cardElement.find === 'function') {
               if (nextStorage === 'file') {
-                const cardType = cardElement.find('.card__type');
+                const cardType = cardElement.find('.card__type--storage');
                 if (!cardType || cardType.length === 0) {
                   const cardView = cardElement.find('.card__view');
                   if (cardView && typeof cardView.append === 'function') {
@@ -920,7 +926,7 @@ export class TorrPlayTorrentsComponent {
                   }
                 }
               } else {
-                const cardType = cardElement.find('.card__type');
+                const cardType = cardElement.find('.card__type--storage');
                 if (cardType && typeof cardType.remove === 'function') {
                   cardType.remove();
                 }
@@ -961,6 +967,7 @@ export class TorrPlayTorrentsComponent {
    * Hands focus back to the torrent grid after a context menu closes and resumes polling.
    */
   private returnToContent(): void {
+    if (this.isDestroyed) return;
     const shouldResumePolling = this.contextMenuResumesPolling;
     this.clearContextMenuState();
     if (typeof Lampa !== 'undefined' && Lampa.Controller) {
@@ -972,6 +979,8 @@ export class TorrPlayTorrentsComponent {
   }
 
   public destroy(): void {
+    this.isDestroyed = true;
+    this.isLoading = false;
     this.fileListRequestId++;
     this.clearContextMenuState();
     this.stopPolling();

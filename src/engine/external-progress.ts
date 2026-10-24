@@ -270,6 +270,7 @@ export class ExternalProgress {
     // has been dropped, so the side-effect-free listing first confirms a reader is still
     // there; lingering readers count as active.
     const { torrents } = await TorrPlayApi.getTorrents(candidate.instance, { hashes: [candidate.torrentHash] });
+    if (this.candidate !== candidate || candidate.hasExactReport) return;
     const torrent = (torrents || []).find(
       listedTorrent => listedTorrent.hash.toLowerCase() === candidate.torrentHash.toLowerCase()
     );
@@ -286,10 +287,9 @@ export class ExternalProgress {
       return;
     }
     candidate.hasSeenActive = true;
-    if (candidate.hasExactReport) return;
 
     const stats = await TorrPlayApi.getTorrentStats(candidate.instance, candidate.torrentHash);
-    if (candidate.hasExactReport) return;
+    if (this.candidate !== candidate || candidate.hasExactReport) return;
 
     const estimate = estimatePlaybackFraction(
       torrent.files || [],
@@ -306,7 +306,7 @@ export class ExternalProgress {
     const durationSeconds = view.duration && view.duration > 0
       ? view.duration
       : await this.resolveRuntimeSeconds(candidate.movie, file);
-    if (candidate.hasExactReport) return;
+    if (this.candidate !== candidate || candidate.hasExactReport) return;
 
     const positionSeconds = durationSeconds ? Math.round(estimate.fraction * durationSeconds) : 0;
     if (durationSeconds && positionSeconds <= this.MINIMUM_POSITION_SECONDS) return;

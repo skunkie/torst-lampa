@@ -228,4 +228,24 @@ describe('ProviderManager', () => {
     const reloaded = ProviderManager.getProviders().find(candidate => candidate.id === 'corrupt-1');
     assert.equal(reloaded?.apiKey, '');
   });
+
+  for (const field of ['apiKey', 'type', 'url'] as const) {
+    for (const shouldFail of [false, true]) {
+      it(`discards an in-flight provider health result after ${field} changes (${shouldFail ? 'failure' : 'success'})`, async () => {
+        const provider: TorrentProvider = {
+          apiKey: 'old-key', id: 'test', isEnabled: true, name: 'Test', status: 'unknown', type: 'jackett', url: 'http://old.local',
+        };
+        globalThis.fetch = async () => {
+          if (field === 'type') provider.type = 'prowlarr';
+          else provider[field] = 'changed';
+          if (shouldFail) throw new TypeError('Connection refused');
+          return new Response(null, { status: 200 });
+        };
+
+        assert.equal((await ProviderManager.checkHealth(provider)).isOk, false);
+        assert.equal(provider.status, 'unknown');
+        assert.equal(provider.latencyMs, undefined);
+      });
+    }
+  }
 });
