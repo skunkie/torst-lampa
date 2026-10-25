@@ -11,6 +11,8 @@ import { closeModalSafely, markTorrentViewed, recordWatchedHistory } from './eng
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from './episode-preview';
 import { resolveFileIndex, resolveFileInfo, selectVideoFiles } from './file-parser';
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
+import { PlaybackFocus } from './playback-focus';
+import { PlaybackProgress } from './playback-progress';
 import { rememberPlayerPlaylist } from './player-playlist';
 
 export async function playSingleVideoFile(
@@ -52,6 +54,7 @@ export async function playSingleVideoFile(
     size: sizeString,
     title: cleanTitle,
     torrent_hash: torrent.hash,
+    torstFileId: singleFile.fileId,
   };
 
   await playTorrentFile(
@@ -125,6 +128,7 @@ export async function displayFileList(
       size: Lampa.Utils.bytesToSize(file.length),
       title: cleanTitle,
       torrent_hash: torrent.hash,
+      torstFileId: file.fileId,
     };
   });
 
@@ -162,7 +166,7 @@ export async function displayFileList(
     const fileInfo = fileInfos[playlistIndex];
     const preview = resolveEpisodePreview(fileInfo, seasonsData, poster);
     const timeline = Lampa.Timeline
-      ? Lampa.Timeline.view(fileInfo.hash)
+      ? Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, playlistItem.torstFileId, fileInfo.hash))
       : undefined;
 
     const fileItemElement = buildFileListItemElement({
@@ -230,7 +234,9 @@ export async function playTorrentFile(
     : { ...resolvedMovie, img: poster, title };
 
   const fileInfo = resolveFileInfo(playlistItem, historyCard, torrentHash, playlist);
-  const preloadTimeline = Lampa.Timeline ? Lampa.Timeline.view(fileInfo.hash) : undefined;
+  if (instance.profileId) await PlaybackProgress.prepare(instance, torrentHash, playlist, historyCard);
+  const timelineHash = PlaybackProgress.timelineHash(instance, playlistItem.torstFileId, fileInfo.hash);
+  const preloadTimeline = Lampa.Timeline ? Lampa.Timeline.view(timelineHash) : undefined;
   const playbackPositionSeconds = resolvePlaybackPositionSeconds(preloadTimeline);
   const percent = Number(preloadTimeline?.percent);
   const durationSeconds = Number(preloadTimeline?.duration);
@@ -263,7 +269,7 @@ export async function playTorrentFile(
   });
 
   const playerTimeline = Lampa.Timeline
-    ? Lampa.Timeline.view(fileInfo.hash)
+    ? Lampa.Timeline.view(timelineHash)
     : undefined;
 
   // A 'modal' returnController means the caller deliberately left its file
@@ -280,7 +286,7 @@ export async function playTorrentFile(
       : candidateIndex;
     const candidateInfo = resolveFileInfo(candidateItem, historyCard, torrentHash, playlist);
     const candidateTimeline = Lampa.Timeline
-      ? Lampa.Timeline.view(candidateInfo.hash)
+      ? Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, candidateItem.torstFileId, candidateInfo.hash))
       : undefined;
     const isCurrentFile = targetIndex === fileIndex;
 
@@ -349,11 +355,11 @@ export async function playTorrentFile(
     rememberPlayerPlaylist(mappedPlaylist);
     Lampa.Player.playlist(mappedPlaylist);
   }
-  Lampa.Player.play(playerItem);
-  markTorrentViewed(sourceTorrentItem);
-  Lampa.Player.callback(() => {
+  PlaybackFocus.arm(mappedPlaylist, () => {
     Lampa.Controller.toggle(returnController);
   });
+  Lampa.Player.play(playerItem);
+  markTorrentViewed(sourceTorrentItem);
 
   if (typeof Lampa !== 'undefined' && Lampa.Listener && typeof Lampa.Listener.send === 'function') {
     Lampa.Listener.send('torrent_file', {

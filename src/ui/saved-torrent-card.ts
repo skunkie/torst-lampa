@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { TorstApi } from '../api/torst';
+import { PlaybackProgress } from '../engine/playback-progress';
 import { translate } from '../lang/translations';
 import { Torrent, TorstInstance } from '../types/torst';
 import { buildCardWatchedElement, findLatestFileProgress } from './card-watched';
@@ -46,7 +47,7 @@ const VIEWED_ICON = `
 export function summarizeSavedTorrent(torrent: Torrent): SavedTorrentSummary {
   return {
     file_count: torrent.file_count,
-    files: (torrent.files || []).map(file => ({ length: file.length, name: file.name, path: file.path })),
+    files: (torrent.files || []).map(file => ({ ...(file.fileId ? { fileId: file.fileId } : {}), length: file.length, name: file.name, path: file.path })),
     hash: torrent.hash,
     name: torrent.name,
     poster: torrent.poster,
@@ -146,7 +147,8 @@ export class WatchedOverlayScheduler {
 
   public schedule(card: LampaDomElement, torrent: Pick<Torrent, 'files' | 'hash'>, instance?: TorstInstance): void {
     this.cancel();
-    if (card.find('.card-watched').length) return;
+    if (instance?.profileId) card.find('.card-watched').remove();
+    else if (card.find('.card-watched').length) return;
     const generation = this.generation;
 
     const canShow = () => {
@@ -160,21 +162,25 @@ export class WatchedOverlayScheduler {
 
     const show = () => {
       if (!canShow()) return;
-      const progress = findLatestFileProgress(torrent, torrent as unknown as LampaMovie);
+      const progress = findLatestFileProgress(torrent, torrent as unknown as LampaMovie, instance);
       if (progress) card.find('.card__view').prepend(buildCardWatchedElement(progress));
     };
 
     this.timerId = setTimeout(() => {
       this.timerId = null;
       if (!canShow()) return;
-      if (!torrent.files.length && instance) {
+      const showProgress = () => {
+        if (instance?.profileId) void PlaybackProgress.hydrate(instance, torrent).then(show).catch(() => {});
+        else show();
+      };
+      if (instance && (!torrent.files.length || (instance.profileId && torrent.files.some(file => !file.fileId)))) {
         void TorstApi.getTorrent(instance, torrent.hash).then(resource => {
           if (generation !== this.generation) return;
           torrent.files = resource.files;
-          show();
+          showProgress();
         }).catch(() => {});
       } else {
-        show();
+        showProgress();
       }
     }, WATCHED_OVERLAY_DELAY_MS);
   }

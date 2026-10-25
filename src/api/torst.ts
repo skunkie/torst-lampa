@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: MIT
 
 import {
+  FileProgress,
   PreloadRequest,
   PreloadResponse,
+  ProgressUpdate,
   Torrent,
   TorrentAdd,
   TorrentFile,
@@ -12,7 +14,9 @@ import {
   TorrentsResponse,
   TorrentUpdate,
   TorstInstance,
+  TorstProfile,
   TorstSettings,
+  UpNextEntry,
 } from '../types/torst';
 import { AuthenticationError, AuthManager } from './auth';
 import { isNetworkError, requestHttp } from './http-client';
@@ -160,7 +164,7 @@ export class TorstApi {
   private static async request<T>(
     instance: TorstInstance,
     path: string,
-    options: { body?: string | FormData | Blob, headers?: Record<string, string>, method?: string, needsResponseHeaders?: boolean, timeoutMs?: number } = {},
+    options: { body?: string | FormData | Blob, headers?: Record<string, string>, method?: string, needsResponseHeaders?: boolean, responseType?: 'blob', timeoutMs?: number } = {},
     shouldRetryAuthentication = true
   ): Promise<{ data: T, etag?: string }> {
     // Only instance-relative API links are followed, so credentials never leave this instance.
@@ -190,6 +194,7 @@ export class TorstApi {
       } catch {}
       throw new TorstApiError(`Torst API error (${path}): ${detail}`, response.status, resource);
     }
+    if (options.responseType === 'blob') return { data: await response.blob() as T, etag: response.headers?.get('ETag') || undefined };
     const text = await response.text();
     return { data: text ? await response.json() as T : undefined as T, etag: response.headers?.get('ETag') || undefined };
   }
@@ -414,6 +419,71 @@ export class TorstApi {
 
   public static async getSettings(instance: TorstInstance): Promise<TorstSettings> {
     return (await this.request<TorstSettings>(instance, '/api/v1/settings')).data;
+  }
+
+  public static async getProfiles(instance: TorstInstance): Promise<TorstProfile[]> {
+    return this.collectPages<TorstProfile>(instance, '/api/v1/profiles?page_size=200');
+  }
+
+  public static async createProfile(instance: TorstInstance, name: string): Promise<TorstProfile> {
+    return (await this.request<TorstProfile>(instance, '/api/v1/profiles', {
+      body: JSON.stringify({ name }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })).data;
+  }
+
+  public static async renameProfile(instance: TorstInstance, profileId: string, name: string): Promise<TorstProfile> {
+    const path = `/api/v1/profiles/${encodeURIComponent(profileId)}`;
+    await this.patchResource(instance, path, { name });
+    return (await this.request<TorstProfile>(instance, path)).data;
+  }
+
+  public static async getProfileAvatar(instance: TorstInstance, profileId: string): Promise<Blob> {
+    return (await this.request<Blob>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/avatar`, { responseType: 'blob' })).data;
+  }
+
+  public static async deleteProfile(instance: TorstInstance, profileId: string): Promise<void> {
+    await this.request(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}`, { method: 'DELETE' });
+  }
+
+  public static async getTorrentProgress(instance: TorstInstance, profileId: string, hash: string): Promise<FileProgress[]> {
+    const torrent = await this.findTorrent(instance, hash);
+    return this.collectPages<FileProgress>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/torrents/${encodeURIComponent(torrent.id as string)}/progress?page_size=200`);
+  }
+
+  public static async saveFileProgress(instance: TorstInstance, profileId: string, hash: string, fileId: string, progress: ProgressUpdate): Promise<FileProgress> {
+    const torrent = await this.findTorrent(instance, hash);
+    return (await this.request<FileProgress>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/torrents/${encodeURIComponent(torrent.id as string)}/progress/${encodeURIComponent(fileId)}`, {
+      body: JSON.stringify(progress),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT',
+    })).data;
+  }
+
+  public static async getUpNext(instance: TorstInstance, profileId: string): Promise<UpNextEntry[]> {
+    const entries = await this.collectPages<{
+      file: TorstFile,
+      id: string,
+      progress: FileProgress | null,
+      reason: string,
+      torrent: TorstTorrent
+    }>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/up-next?page_size=200`, true);
+    const token = entries.some(entry => entry.torrent.poster) ? await AuthManager.getPlaybackToken(instance) : '';
+    return entries.map(entry => {
+      const torrent = this.rememberTorrent(instance, entry.torrent);
+      return {
+        file: { fileId: entry.file.id, length: entry.file.size_bytes, name: entry.file.path[entry.file.path.length - 1], path: entry.file.path.join('/') },
+        id: entry.id,
+        progress: entry.progress ? { ...entry.progress } : null,
+        reason: entry.reason,
+        torrent: { ...torrent, files: torrent.files.map(file => ({ ...file })), poster: torrent.poster && token ? `${torrent.poster}?token=${encodeURIComponent(token)}` : torrent.poster },
+      };
+    });
+  }
+
+  public static async dismissUpNext(instance: TorstInstance, profileId: string, entryId: string): Promise<void> {
+    await this.request(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/up-next/${encodeURIComponent(entryId)}`, { method: 'DELETE' });
   }
 
   public static async updateSettings(instance: TorstInstance, settings: TorstSettings): Promise<void> {

@@ -4,6 +4,7 @@
 
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { ProviderSearchResult } from '../types/provider';
+import { toTemplateText } from '../utils/template-text';
 
 export type MediaTagKind = 'audio' | 'channels' | 'resolution' | 'subtitle' | 'video';
 
@@ -63,22 +64,6 @@ function resolutionFromWidth(width: number): number {
   if (width >= 710) return 480;
   if (width >= 630) return 360;
   return 0;
-}
-
-/**
- * Prepares text for Lampa's template filling, which inserts each value into HTML through a
- * plain string replacement: markup is dropped, the characters HTML would read as markup are
- * escaped, `$` is doubled so the replacement keeps it literally, and `{` is written as an
- * entity so text such as `{size}` is not filled by a later value.
- */
-function toTemplateText(text: string): string {
-  const withoutMarkup = Lampa.Utils?.clearHtmlTags ? Lampa.Utils.clearHtmlTags(text) : text;
-  return withoutMarkup
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\{/g, '&#123;')
-    .replace(/\$/g, '$$$$');
 }
 
 /**

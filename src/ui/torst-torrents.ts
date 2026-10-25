@@ -12,6 +12,7 @@ import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import { Torrent, TorrentStorage, TorstInstance } from '../types/torst';
+import { ProfilesUi } from './profiles';
 import {
   buildSavedTorrentCard,
   describeViewedAction,
@@ -20,6 +21,7 @@ import {
   WatchedOverlayScheduler,
 } from './saved-torrent-card';
 import { showSavedTorrentFiles } from './saved-torrent-files';
+import { UpNextUi } from './up-next';
 
 export const TORST_TORRENTS_COMPONENT_ID = 'torst_torrents';
 
@@ -63,6 +65,7 @@ export class TorstTorrentsComponent {
   private scrollView: LampaScrollView;
   private searchInstanceId: string | undefined;
   private searchQuery: string | undefined;
+  private toolbar: LampaDomElement | null = null;
   private watchedOverlay = new WatchedOverlayScheduler();
 
   constructor(componentOptions?: LampaComponentOptions) {
@@ -93,8 +96,14 @@ export class TorstTorrentsComponent {
       style.id = styleId;
       style.textContent = `
         .torst-torrents {
+          display: flex;
+          flex-direction: column;
           width: 100%;
           height: 100%;
+        }
+        .torst-torrents > .scroll {
+          flex: 1;
+          min-height: 0;
         }
         .torst-torrents--empty,
         .torst-torrents--empty .scroll {
@@ -150,10 +159,53 @@ export class TorstTorrentsComponent {
 
   public create(): LampaDomElement | HTMLElement {
     this.scrollView.minus();
+    this.toolbar = $(`<div class="torst-library-toolbar" style="display: flex; margin-bottom: 1em;">
+      <div class="button selector torst-library-profile" style="margin-right: 1em;"></div>
+      <div class="button selector torst-library-up-next"></div>
+    </div>`);
+    this.toolbar.find('.torst-library-profile').text(translate('torst_profiles_title', 'Torst Profiles')).on('hover:enter', () => {
+      void this.openProfileView();
+    });
+    this.toolbar.find('.torst-library-up-next').text(translate('torst_up_next_title', 'Up Next')).on('hover:enter', () => {
+      void this.openUpNextView();
+    });
+    this.rootElement.append(this.toolbar);
     this.scrollView.append(this.contentGrid);
     this.rootElement.append(this.scrollView.render());
     this.load();
     return this.render();
+  }
+
+  private async openProfileView(): Promise<void> {
+    const instance = this.activeInstance || await InstanceManager.getBestInstance();
+    if (this.isDestroyed) return;
+    await ProfilesUi.show(instance, () => {
+      if (!this.isDestroyed) {
+        this.updateProfileLabel(instance);
+        Lampa.Controller.toggle('content');
+      }
+    });
+  }
+
+  private async openUpNextView(): Promise<void> {
+    const instance = this.activeInstance || await InstanceManager.getBestInstance();
+    if (!this.isDestroyed) await UpNextUi.show(instance, () => {
+      if (!this.isDestroyed) Lampa.Controller.toggle('content');
+    });
+  }
+
+  private controllerRoot(): LampaDomElement {
+    return this.toolbar ? this.rootElement : this.scrollView.render(true);
+  }
+
+  private focusedToolbarElement(): HTMLElement | null {
+    const focused = getNavigator()?.getFocusedElement?.();
+    const toolbar = this.toolbar?.[0];
+    return focused && toolbar?.contains?.(focused) ? focused : null;
+  }
+
+  private updateProfileLabel(instance: TorstInstance): void {
+    this.toolbar?.find('.torst-library-profile').text(instance.profileName || translate('torst_profiles_title', 'Torst Profiles'));
   }
 
   public async load(silent = false): Promise<void> {
@@ -178,6 +230,7 @@ export class TorstTorrentsComponent {
       this.activeInstance = searchInstance || await InstanceManager.getBestInstance();
       if (this.isDestroyed) return;
       this.updateHeaderTitle(this.activeInstance);
+      this.updateProfileLabel(this.activeInstance);
       const searchQuery = this.searchQuery;
       const [torrents, settings] = await Promise.all([
         searchQuery === undefined
@@ -302,7 +355,7 @@ export class TorstTorrentsComponent {
       return;
     }
 
-    if (this.emptyState && typeof this.emptyState.start === 'function') {
+    if (!this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
       this.emptyState.start();
       this.startPolling();
       return;
@@ -338,8 +391,8 @@ export class TorstTorrentsComponent {
         // Recompute scroll layout here, not during silent background refreshes, since this
         // callback fires exactly when this component genuinely regains focus.
         this.scrollView.update(this.contentGrid, true);
-        Lampa.Controller.collectionSet(this.scrollView.render(true));
-        Lampa.Controller.collectionFocus(this.lastFocusedElement || false, this.scrollView.render(true));
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(this.lastFocusedElement || false, this.controllerRoot());
         if (this.needsReload) {
           this.needsReload = false;
           this.load(true).finally(() => this.startPolling());
@@ -430,7 +483,7 @@ export class TorstTorrentsComponent {
   private restoreNavigatorFocus(replacementCard: HTMLElement | false): void {
     const hasController = typeof Lampa !== 'undefined' && !!Lampa.Controller;
     if (hasController) {
-      Lampa.Controller.collectionSet(this.scrollView.render(true));
+      Lampa.Controller.collectionSet(this.controllerRoot());
     }
 
     const navigator = getNavigator();
@@ -443,7 +496,7 @@ export class TorstTorrentsComponent {
     }
 
     if (hasController) {
-      Lampa.Controller.collectionFocus(replacementCard || false, this.scrollView.render(true));
+      Lampa.Controller.collectionFocus(replacementCard || false, this.controllerRoot());
     }
   }
 
@@ -472,7 +525,8 @@ export class TorstTorrentsComponent {
     // view — rendering again would stack another copy of it on every poll tick.
     if (silent && signature === this.lastRenderedSignature) return;
 
-    const ownedNavigatorFocus = silent && this.ownsNavigatorFocus();
+    const focusedToolbar = this.focusedToolbarElement();
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar);
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = null;
     this.renderedCards = new Map();
@@ -510,14 +564,14 @@ export class TorstTorrentsComponent {
     // scroll layout or focus; the content controller's own toggle callback handles that when
     // this component genuinely regains control.
     if (!silent) {
-      if (this.emptyState && typeof this.emptyState.start === 'function') {
+      if (!this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
         this.emptyState.start();
       } else if (typeof Lampa !== 'undefined' && Lampa.Controller) {
-        Lampa.Controller.collectionSet(this.scrollView.render(true));
-        Lampa.Controller.collectionFocus(false, this.scrollView.render(true));
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(false, this.controllerRoot());
       }
     } else if (ownedNavigatorFocus) {
-      this.restoreNavigatorFocus(false);
+      this.restoreNavigatorFocus(focusedToolbar || false);
     }
     if (typeof Lampa !== 'undefined' && Lampa.Layer && typeof Lampa.Layer.update === 'function') {
       Lampa.Layer.update();
@@ -536,7 +590,8 @@ export class TorstTorrentsComponent {
     // the instance that was just replaced.
     if (silent && signature === this.lastRenderedSignature && instance.id === this.lastRenderedInstanceId) return;
 
-    const ownedNavigatorFocus = silent && this.ownsNavigatorFocus();
+    const focusedToolbar = this.focusedToolbarElement();
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar);
     const previousFocusIndex = this.renderedTorrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = instance.id;
@@ -631,11 +686,11 @@ export class TorstTorrentsComponent {
     if (!silent) {
       this.scrollView.update(this.contentGrid, true);
       if (typeof Lampa !== 'undefined' && Lampa.Controller) {
-        Lampa.Controller.collectionSet(this.scrollView.render(true));
-        Lampa.Controller.collectionFocus(elementToFocus || false, this.scrollView.render(true));
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(elementToFocus || false, this.controllerRoot());
       }
     } else if (ownedNavigatorFocus) {
-      this.restoreNavigatorFocus(rebuiltFocusCard);
+      this.restoreNavigatorFocus(focusedToolbar || rebuiltFocusCard);
       // The card under the cursor moved, so follow it rather than leave the cursor out of view.
       const focusIndex = torrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
       if (rebuiltFocusCard && focusIndex !== previousFocusIndex) {
@@ -756,6 +811,7 @@ export class TorstTorrentsComponent {
 
     const returnController = Lampa.Controller?.enabled?.().name || 'content';
     await showSavedTorrentFiles({
+      instance: sourceInstance,
       isStale: () => fileListRequestId !== this.fileListRequestId,
       onBack: () => {
         Lampa.Modal.close();

@@ -5,10 +5,12 @@
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from '../engine/episode-preview';
 import { resolveFileIndex, resolveFileInfo } from '../engine/file-parser';
 import { resolveMovieContext, resolvePosterUrl } from '../engine/media-context';
-import { Torrent, TorrentFile } from '../types/torst';
+import { PlaybackProgress } from '../engine/playback-progress';
+import { Torrent, TorrentFile, TorstInstance } from '../types/torst';
 import { buildFileListItemElement } from './file-list-item';
 
 interface SavedTorrentFileListParams {
+  instance?: TorstInstance,
   isStale?: () => boolean,
   onBack: () => void,
   onSelect: (fileIndex: number) => void,
@@ -23,7 +25,7 @@ interface SavedTorrentFileListParams {
  * player can hand focus back to it.
  */
 export async function showSavedTorrentFiles(params: SavedTorrentFileListParams): Promise<void> {
-  const { isStale, onBack, onSelect, torrent, videoFiles } = params;
+  const { instance, isStale, onBack, onSelect, torrent, videoFiles } = params;
   const torrentFiles = torrent.files || [];
   const movieContext = resolveMovieContext({
     original_name: torrent.name,
@@ -36,6 +38,7 @@ export async function showSavedTorrentFiles(params: SavedTorrentFileListParams):
   const timelineMovie = torrent as unknown as LampaMovie;
 
   const seasonsData = await fetchSeasonEpisodes(movieContext, collectSeasonNumbers(fileInfos));
+  if (instance?.profileId) await PlaybackProgress.hydrate(instance, torrent);
   if (isStale?.()) return;
 
   const fallbackImage = resolvePosterUrl(torrent, movieContext);
@@ -54,7 +57,7 @@ export async function showSavedTorrentFiles(params: SavedTorrentFileListParams):
     const fileInfo = fileInfos[fallbackIndex];
     const preview = resolveEpisodePreview(fileInfo, seasonsData, fallbackImage);
     const timeline = Lampa.Timeline
-      ? Lampa.Timeline.view(resolveFileInfo(file, timelineMovie, torrent.hash, videoFiles).hash)
+      ? Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, file.fileId, resolveFileInfo(file, timelineMovie, torrent.hash, videoFiles).hash))
       : undefined;
 
     const fileItemElement = buildFileListItemElement({

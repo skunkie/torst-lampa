@@ -189,7 +189,8 @@ declare global {
     season?: number | null,
     size?: string,
     title?: string,
-    torrent_hash?: string
+    torrent_hash?: string,
+    torstFileId?: string
   }
 
   interface LampaScrollView {
@@ -211,6 +212,7 @@ declare global {
     onSelect?: (element: LampaDomElement, selectedItem: LampaSelectItem<T>) => void,
     selected?: boolean,
     subtitle?: string,
+    thumbnail?: string,
     title: string
   }
 
@@ -265,6 +267,7 @@ interface LampaSettingsApi {
 
 interface LampaListener {
   follow(event: string, callback: (eventData: any) => void): void,
+  remove?(event: string, callback: (eventData: any) => void): void,
   send(event: string, eventData: any): void
 }
 

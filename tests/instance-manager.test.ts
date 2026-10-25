@@ -36,6 +36,21 @@ describe('InstanceManager', () => {
     mock.restoreAll();
   });
 
+  it('persists an independent selected viewing profile on each instance', () => {
+    const instances = InstanceManager.getInstances();
+    const first = instances[0];
+    first.profileId = 'prf_one';
+    first.profileName = 'Alex';
+    InstanceManager.updateInstance(first);
+    InstanceManager.addInstance({ authType: 'none', id: 'second-profile-instance', name: 'Second', profileId: 'prf_two', profileName: 'Sam', url: 'http://second.local' });
+    const stored = JSON.parse(storageMap.get('torst_instances'));
+    assert.equal(stored.find((entry: any) => entry.id === first.id).profileId, 'prf_one');
+    assert.equal(stored.find((entry: any) => entry.id === 'second-profile-instance').profileId, 'prf_two');
+    const reloaded = InstanceManager.load();
+    assert.equal(reloaded.find(entry => entry.id === first.id)?.profileName, 'Alex');
+    assert.equal(reloaded.find(entry => entry.id === 'second-profile-instance')?.profileName, 'Sam');
+  });
+
   it('announces every change to which instance requests are routed to', () => {
     const notifications: string[] = [];
     InstanceManager.onSelectionChanged(() => notifications.push('changed'));

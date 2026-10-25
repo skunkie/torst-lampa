@@ -7,6 +7,7 @@ import { TorstApi, TorstApiError } from '../api/torst';
 import { DATABASE_SEARCH_ENABLED_STORAGE_KEY, searchDatabaseTorrents } from '../engine/database-search';
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
+import { PlaybackFocus } from '../engine/playback-focus';
 import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
@@ -316,7 +317,7 @@ export class DatabaseSearch {
     const playFile = (fileIndex: number, playbackReturnController: string, restorePlaybackFocus: () => void) => {
       if (!this.isEnabled() || item.databaseScopeId !== this.databaseScopeId) return;
       void this.playFile(torrent, fileIndex, item.instanceId, playbackReturnController).then(isHandedOff => {
-        if (isHandedOff) Lampa.Player.callback(restorePlaybackFocus);
+        if (isHandedOff) PlaybackFocus.setCallback(restorePlaybackFocus);
         else restorePlaybackFocus();
       }).catch(error => {
         restorePlaybackFocus();
@@ -330,6 +331,7 @@ export class DatabaseSearch {
       return;
     }
     await showSavedTorrentFiles({
+      instance,
       isStale: () => playbackRequestId !== this.playbackRequestId || item.databaseScopeId !== this.databaseScopeId,
       onBack: () => {
         Lampa.Modal.close();

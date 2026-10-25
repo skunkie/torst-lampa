@@ -8,6 +8,7 @@ import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import { TorstInstance } from '../types/torst';
 import { generateUuid } from '../utils/uuid';
+import { ProfilesUi } from './profiles';
 import {
   describeConnectionStatus,
   ICON_ARROW_LEFT,
@@ -210,6 +211,11 @@ export class InstancePoolUi {
 
     const menuItems: LampaSelectItem[] = [
       {
+        action: 'profile',
+        subtitle: instance.profileName || translate('torst_profile_local', 'Local Lampa Progress'),
+        title: translate('torst_profiles_title', 'Torst Profiles'),
+      },
+      {
         action: 'test',
         subtitle: translate('torst_test_conn_descr', 'Check availability and measure latency'),
         title: iconLabel(ICON_ZAP, translate('torst_test_conn', 'Test Connection')),
@@ -273,7 +279,9 @@ export class InstancePoolUi {
         this.openPoolManager();
       },
       onSelect: (selectedItem: LampaSelectItem) => {
-        if (selectedItem.action === 'test') {
+        if (selectedItem.action === 'profile') {
+          void ProfilesUi.show(instance, () => this.openInstanceActions(instance));
+        } else if (selectedItem.action === 'test') {
           if (Lampa.Noty) {
             Lampa.Noty.show(
               translate('torst_noty_testing', `Testing ${instance.url}...`, { url: instance.url })

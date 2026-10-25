@@ -493,6 +493,50 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Torst Pool ({mode})',
     ru: 'Пул Torst ({mode})',
   },
+  torst_profile_create: {
+    en: 'Create Profile',
+    ru: 'Создать профиль',
+  },
+  torst_profile_delete: {
+    en: 'Delete Profile',
+    ru: 'Удалить профиль',
+  },
+  torst_profile_delete_confirm: {
+    en: 'Delete this profile and all its viewing progress?',
+    ru: 'Удалить профиль и весь его прогресс просмотра?',
+  },
+  torst_profile_local: {
+    en: 'Local Lampa Progress',
+    ru: 'Прогресс только в Lampa',
+  },
+  torst_profile_name: {
+    en: 'Profile Name',
+    ru: 'Имя профиля',
+  },
+  torst_profile_rename: {
+    en: 'Rename Profile',
+    ru: 'Переименовать профиль',
+  },
+  torst_profile_required: {
+    en: 'Select a Torst profile first',
+    ru: 'Сначала выберите профиль Torst',
+  },
+  torst_profile_use: {
+    en: 'Use This Profile',
+    ru: 'Выбрать этот профиль',
+  },
+  torst_profiles_title: {
+    en: 'Torst Profiles',
+    ru: 'Профили Torst',
+  },
+  torst_progress_load_error: {
+    en: 'Could not load progress from Torst',
+    ru: 'Не удалось загрузить прогресс из Torst',
+  },
+  torst_progress_save_error: {
+    en: 'Could not save progress to Torst',
+    ru: 'Не удалось сохранить прогресс в Torst',
+  },
   torst_provider_add: {
     en: 'Add Provider',
     ru: 'Добавить провайдер',
@@ -716,6 +760,26 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
   torst_test_conn_descr: {
     en: 'Check availability and measure latency',
     ru: 'Проверить доступность и задержку',
+  },
+  torst_up_next_dismiss: {
+    en: 'Remove from Up Next',
+    ru: 'Убрать из списка',
+  },
+  torst_up_next_empty: {
+    en: 'Nothing to continue yet',
+    ru: 'Пока нечего продолжить',
+  },
+  torst_up_next_episode: {
+    en: 'Next Episode',
+    ru: 'Следующая серия',
+  },
+  torst_up_next_resume: {
+    en: 'Resume · {percent}%',
+    ru: 'Продолжить · {percent}%',
+  },
+  torst_up_next_title: {
+    en: 'Up Next',
+    ru: 'Продолжить просмотр',
   },
   torst_value_none: {
     en: '(none)',

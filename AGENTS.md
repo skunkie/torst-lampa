@@ -26,6 +26,8 @@ src/
 │   ├── episode-preview.ts   # TMDB season episode lookup for file list stills, names, and air dates
 │   ├── file-parser.ts       # Torrent file sorting, video detection, and season/episode/timeline resolution
 │   ├── media-context.ts     # Movie card context and poster URL resolution
+│   ├── playback-focus.ts    # Restores the originating view after internal or external playback
+│   ├── playback-progress.ts # Profile-scoped timeline hydration and exact server progress writes
 │   ├── playback-session.ts  # File list modal, single/multi-file playback, and player item construction
 │   ├── player-playlist.ts   # Restores the handed-over playlist when Lampa empties it on episode switches
 │   ├── saved-torrents.ts    # SavedTorrents: batched lookup cache of torrents stored in the database
@@ -51,6 +53,7 @@ src/
 │   ├── instance-pool.ts     # InstancePoolUi: Instance pool manager and per-instance action menus
 │   ├── play-dialog.ts       # Pre-playback options modal (storage type and database persistence)
 │   ├── preload-modal.ts     # Preload progress polling, native fullscreen loading UI, and stats
+│   ├── profiles.ts          # Per-instance profile selection, CRUD, and authenticated avatars
 │   ├── provider-result-row.ts # Full-width torrent rows and media tags for the provider global search tab
 │   ├── provider-settings.ts # ProviderSettingsUi: Search provider pool manager and action modals
 │   ├── saved-torrent-card.ts # Saved torrent card, viewed action, and watched overlay, shared by the library and global search
@@ -58,10 +61,12 @@ src/
 │   ├── settings.ts          # SettingsUi: Settings folder, parameters, and shared menu helpers
 │   ├── settings-keys.ts     # Storage keys shared with modules that SettingsUi itself depends on
 │   ├── sidebar.ts           # SidebarManager: Main menu button and native TorrServer visibility toggling
-│   └── torst-torrents.ts    # TorstTorrentsComponent: Database torrents browser and file manager
+│   ├── torst-torrents.ts    # TorstTorrentsComponent: Database torrents browser and file manager
+│   └── up-next.ts           # Profile Up Next view, exact file selection, and dismissal
 ├── utils/
 │   ├── search-query.ts      # Lenient URI decoding of Lampa global search queries
 │   ├── storage-obfuscation.ts # Storage credential obfuscation codec with reversible cipher
+│   ├── template-text.ts     # Safe text for Lampa HTML template replacement
 │   ├── trigger-setting.ts   # Reads and writes Lampa on/off settings in the string form Lampa stores
 │   └── uuid.ts              # RFC 4122 v4 UUID generator with older TV runtime fallback
 ├── index.ts                 # Plugin lifecycle bootstrap and Lampa ready event listeners
@@ -147,6 +152,14 @@ src/
     - All interface properties, type literal members, and struct property definitions should be sorted alphabetically by key name.
     - Keeps domain models and wire adapters consistent with the Torst OpenAPI specification.
     - Translation dictionaries are sorted alphabetically by key too: `TRANSLATIONS` in `src/lang/translations.ts` and each locale of the landing page's `i18n` dictionary in `landing/script.js`.
+
+12. **Profiles, Progress, and External Player Returns**:
+    - Select a Torst profile independently for each instance. Profile renames use the current ETag; deleting the last profile may fail with a lifecycle conflict. Avatars require authenticated requests; never put an API access token in an image URL.
+    - Keep existing Lampa timeline records intact. A selected Torst profile uses a separate timeline key scoped by instance, URL, profile, and opaque file ID. Never implicitly import local records into a server profile.
+    - Read and write seconds-based progress through the selected profile's file progress resources. Only actual player reports may advance progress. Suppress writes while applying server data, preserve server timestamps, and serialize/coalesce writes. Never estimate progress from bytes or elapsed time.
+    - Up Next uses the server's entry order and opaque file IDs. Dismiss entries without deleting torrents or their progress. Expose the view from the Torst library.
+    - Lampa's external player path does not call its internal player's exit callback. Track Torst's own external launch and browser visibility/focus return, restore the originating view once, and discard stale returns after navigation or unrelated playback.
+    - Cover these behaviors in `tests/playback-focus.test.ts`, `tests/playback-progress.test.ts`, `tests/torst-profiles-api.test.ts`, `tests/profile-ui.test.ts`, and `tests/up-next.test.ts`.
 
 ## Known Lampa Native API Quirks
 

@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import { resolveFileInfo, selectVideoFiles } from '../engine/file-parser';
-import { ParsedFileInfo, Torrent } from '../types/torst';
+import { PlaybackProgress } from '../engine/playback-progress';
+import { ParsedFileInfo, Torrent, TorstInstance } from '../types/torst';
 
 interface TimelineView {
   duration?: number,
@@ -22,7 +23,7 @@ export interface FileProgress {
  * Returns the most recently watched video file of a torrent, hashed exactly as
  * playback records it, or undefined when none of its files has progress.
  */
-export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie): FileProgress | undefined {
+export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie, instance?: TorstInstance): FileProgress | undefined {
   if (!Lampa.Timeline) return undefined;
 
   const sortedFiles = selectVideoFiles(torrent.files);
@@ -30,7 +31,7 @@ export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>,
 
   sortedFiles.forEach(file => {
     const fileInfo = resolveFileInfo(file, movie, torrent.hash, sortedFiles);
-    const view: TimelineView | undefined = Lampa.Timeline.view(fileInfo.hash);
+    const view: TimelineView | undefined = Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, file.fileId, fileInfo.hash));
     if (!view || !view.percent) return;
     if (!latest || (view.updated || 0) >= (latest.view.updated || 0)) latest = { fileInfo, view };
   });

@@ -144,6 +144,7 @@ export class InstanceManager {
         id: instance.id,
         name: instance.name,
         ...(instance.password !== undefined ? { password: obfuscateCredential(instance.password) } : {}),
+        ...(instance.profileId ? { profileId: instance.profileId, profileName: instance.profileName } : {}),
         status: 'unknown' as const,
         url: instance.url,
       };

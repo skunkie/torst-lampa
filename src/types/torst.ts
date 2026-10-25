@@ -21,6 +21,8 @@ export interface TorstInstance {
   password?: string,
   playbackToken?: string,
   playbackTokenExpiresAtMs?: number,
+  profileId?: string,
+  profileName?: string,
   status?: 'online' | 'offline' | 'checking' | 'unknown',
   url: string
 }
@@ -104,4 +106,31 @@ export interface ParsedFileInfo {
 export interface PlayOptions {
   saveToDb: boolean,
   storage: TorrentStorage
+}
+
+export interface TorstProfile {
+  avatar?: { updated_at: string } | null,
+  id: string,
+  name: string
+}
+
+export interface ProgressUpdate {
+  duration_seconds: number,
+  position_seconds: number,
+  viewed: boolean
+}
+
+export interface FileProgress extends ProgressUpdate {
+  completion_ratio: number,
+  file_id: string,
+  updated_at: string,
+  viewed_at: string | null
+}
+
+export interface UpNextEntry {
+  file: TorrentFile,
+  id: string,
+  progress: FileProgress | null,
+  reason: string,
+  torrent: Torrent
 }

@@ -32,6 +32,12 @@ Torst is unreleased and in active development. The plugin targets its current AP
   - Adds a dedicated **Torst** entry to Lampa's sidebar menu, backed by its own self-contained `torst_torrents` browser component (native TorrServer's `mytorrents` view is left untouched, and is instead hidden in "Always Torst" mode).
   - Browse torrents stored in the Torst database with posters, metadata, and multi-file selection.
   - Displays a file-storage badge icon over card posters for torrents cached on disk, alongside file counts and sizes.
+- **Profiles, Progress, and Up Next**:
+  - Choose, create, rename, or delete Torst profiles from the library's **Torst Profiles** button or an instance's actions menu. Each instance remembers its own active profile. Stored profile avatars appear in the picker, with a default icon when unavailable.
+  - A selected profile uses Torst's saved file positions and completion state. Exact positions reported by Lampa or an external player are saved back to that profile. Players that report no position leave the saved server progress unchanged.
+  - Existing Lampa resume points remain intact. Torst profiles use separate local progress caches; choosing **Local Lampa Progress** returns to the original local records. Local records are not automatically imported into Torst.
+  - Open **Up Next** from the Torst library to resume a file or play the next episode in the server's order. Removing an entry from this view keeps its torrent and saved progress.
+  - Returning from an external player restores focus to the originating list or file modal. The existing torrent-card viewed mark stays local to Lampa; Torst records completion per file.
 - **Torrent Search Providers (Jackett/Prowlarr)**:
   - Manage a pool of Jackett and Prowlarr search providers from **Settings → Torst → Manage Search Providers**, independent of the Torst instance pool.
   - Aggregates results from all enabled providers concurrently, deduplicates them, and ranks by seeder count.
@@ -98,7 +104,7 @@ The client follows the contract in [Torst's OpenAPI document](https://github.com
 
 Torst does not expose stream-reader positions, so external-player progress estimation is unavailable. Lampa's own playback progress remains available. Torst's download directory is configured on the instance; the plugin does not edit it.
 
-Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for settings and storage changes. Torrent file and poster downloads also need to permit requests from the client. Android's native HTTP bridge cannot send PATCH, PUT, or DELETE, so these use the browser transport.
+Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for settings and storage changes. Torrent file and poster downloads, plus authenticated profile-avatar requests also need to permit requests from the client. Android's native HTTP bridge cannot send PATCH, PUT, or DELETE, so these use the browser transport.
 
 ---
 
