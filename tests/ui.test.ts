@@ -164,18 +164,17 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('draws the Torst piece grid with fixed white paint for Lampa settings focus inversion', () => {
+  it('draws only the Torst T with an outlined top-right piece and fixed white paint for Lampa focus inversion', () => {
     const pieces = [...TORST_ICON.matchAll(/<rect\b[^>]*\/>/g)].map(([piece]) => (
       Object.fromEntries([...piece.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]))
     ));
 
-    assert.equal(pieces.length, 9);
+    const positions = [[2.25, 2.25], [9.25, 2.25], [16.25, 2.25], [9.25, 9.25], [9.25, 16.25]];
+    assert.equal(pieces.length, positions.length);
     for (const [index, piece] of pieces.entries()) {
-      const row = Math.floor(index / 3);
-      const column = index % 3;
-      assert.equal(piece.x, String(2.25 + column * 7));
-      assert.equal(piece.y, String(2.25 + row * 7));
-      if (row === 0 || column === 1) {
+      assert.equal(piece.x, String(positions[index][0]));
+      assert.equal(piece.y, String(positions[index][1]));
+      if (index !== 2) {
         assert.equal(piece.fill, 'white');
         assert.equal(piece.stroke, undefined);
       } else {
