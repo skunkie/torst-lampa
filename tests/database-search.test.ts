@@ -6,23 +6,23 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { NetworkError } from '../src/api/http-client';
-import { TorrPlayApi, TorrPlayApiError } from '../src/api/torrplay';
+import { TorstApi, TorstApiError } from '../src/api/torst';
 import { DATABASE_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/database-search';
-import { TorrPlayEngine } from '../src/engine/torrplay-engine';
+import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
-import { Torrent, TorrPlayInstance } from '../src/types/torrplay';
+import { Torrent, TorstInstance } from '../src/types/torst';
 import { DatabaseSearch } from '../src/ui/database-search';
-import { TORRPLAY_STORAGE_BADGE } from '../src/ui/saved-torrent-card';
+import { TORST_STORAGE_BADGE } from '../src/ui/saved-torrent-card';
 import { installFakeJquery } from './support/fake-card-element';
 import { createTestLanguage, getTestTranslation } from './support/translations';
 
-const instance: TorrPlayInstance = { authType: 'none', id: 'first', name: 'First', url: 'http://first.local' };
+const instance: TorstInstance = { authType: 'none', id: 'first', name: 'First', url: 'http://first.local' };
 const saved: Torrent = {
-  created_at: '2026-10-11T00:00:00Z',
-  files: [{ length: 100, name: 'episode.mkv', path: 'episode.mkv' }],
+  created_at: '2026-10-11T00:00:00Z', files: [{ length: 100, name: 'episode.mkv', path: 'episode.mkv' }],
   hash: 'a'.repeat(40),
   name: 'Test.Show.1080p',
   poster: 'https://images.local/poster.jpg',
+  retention: 'persisted' as const,
   storage: 'file',
   title: 'Test Show',
   total_size: 100,
@@ -84,9 +84,9 @@ describe('DatabaseSearch', () => {
     mock.method(InstanceManager, 'failover', async () => null);
     mock.method(InstanceManager, 'getInstances', () => [instance]);
     mock.method(InstanceManager, 'onSelectionChanged', (listener: () => void) => selectionListeners.push(listener));
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [saved] }));
-    mock.method(TorrPlayApi, 'getTorrent', async () => saved);
-    mock.method(TorrPlayEngine, 'startTorrentPlayback', async () => true);
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [saved] }));
+    mock.method(TorstApi, 'getTorrent', async () => saved);
+    mock.method(TorstEngine, 'startTorrentPlayback', async () => true);
   });
 
   afterEach(() => mock.restoreAll());
@@ -132,9 +132,9 @@ describe('DatabaseSearch', () => {
     return opened;
   }
 
-  it('opens global search on its own tab when opened from the TorrPlay library', () => {
+  it('opens global search on its own tab when opened from the Torst library', () => {
     enable();
-    (globalThis as any).Lampa.Activity.active = () => ({ component: 'torrplay_torrents' });
+    (globalThis as any).Lampa.Activity.active = () => ({ component: 'torst_torrents' });
 
     const opened = openGlobalSearch([{ title: 'TMDB' }, source]);
 
@@ -154,7 +154,7 @@ describe('DatabaseSearch', () => {
   it('leaves global search alone when its source is switched off', () => {
     enable();
     Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
-    (globalThis as any).Lampa.Activity.active = () => ({ component: 'torrplay_torrents' });
+    (globalThis as any).Lampa.Activity.active = () => ({ component: 'torst_torrents' });
 
     const opened = openGlobalSearch([{ title: 'TMDB' }, source]);
 
@@ -170,18 +170,18 @@ describe('DatabaseSearch', () => {
     Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
     assert.deepEqual(removed, [added[0]]);
     Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'true');
-    Lampa.Storage.set('torrplay_enabled', 'false');
+    Lampa.Storage.set('torst_enabled', 'false');
     assert.equal(added.length, 2);
     assert.equal(removed.length, 2);
   });
 
   it('lists the saved torrents the instance matches to the decoded query', async () => {
     enable();
-    const listing = mock.method(TorrPlayApi, 'getTorrents', async (_instance: TorrPlayInstance, options?: { search?: string }) => ({
+    const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { search?: string }) => ({
       torrents: options?.search === 'missing' ? [] : [saved],
     }));
     const rows = await search(encodeURIComponent('SHOW 1080P'));
-    assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, saved: true, search: 'SHOW 1080P' });
+    assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, retention: 'persisted', search: 'SHOW 1080P' });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].total, 1);
     assert.equal(rows[0].results[0].torrent.title, saved.title);
@@ -198,7 +198,7 @@ describe('DatabaseSearch', () => {
     enable();
     const fuzzyMatch = { ...saved, hash: 'b'.repeat(40), name: 'Sintl', title: 'Sintl' };
     const exactMatch = { ...saved, hash: 'c'.repeat(40), name: 'Sintel', title: 'Sintel' };
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [exactMatch, fuzzyMatch] }));
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [exactMatch, fuzzyMatch] }));
     const rows = await search('sintel');
     assert.deepEqual(rows[0].results.map((item: { torrentHash: string }) => item.torrentHash), [exactMatch.hash, fuzzyMatch.hash]);
   });
@@ -209,7 +209,7 @@ describe('DatabaseSearch', () => {
 
   it('hands every match to the row so the tab counts them all, and offers More past one page', async () => {
     enable();
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: Array.from({ length: 25 }, (_value, index) => ({ ...saved, hash: String(index) })) }));
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: Array.from({ length: 25 }, (_value, index) => ({ ...saved, hash: String(index) })) }));
     const rows = await search('test');
     assert.equal(rows[0].results.length, 25);
     assert.equal(rows[0].total, 25);
@@ -217,19 +217,19 @@ describe('DatabaseSearch', () => {
     let isClosed = false;
     source.onMore({ data: rows[0], query: 'test' }, () => { isClosed = true; });
     assert.equal(isClosed, true);
-    assert.equal(activities[0].component, 'torrplay_torrents');
+    assert.equal(activities[0].component, 'torst_torrents');
     assert.equal(activities[0].search, 'test');
   });
 
   it('preserves the decoded row query when More opens recalled results', async () => {
     enable();
     const query = 'Фильм 100%20';
-    const listing = mock.method(TorrPlayApi, 'getTorrents', async (_instance: TorrPlayInstance, _options?: object) => ({
+    const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, _options?: object) => ({
       torrents: [{ ...saved, title: query }],
     }));
     const rows = JSON.parse(JSON.stringify(await search(encodeURIComponent(query))));
     source.onRecall(rows);
-    assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, saved: true, search: query });
+    assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, retention: 'persisted', search: query });
     assert.equal(rows[0].results.length, 1);
     for (const nativeQuery of [undefined, '', 'other']) {
       source.onMore({ data: rows[0], query: nativeQuery }, () => {});
@@ -240,7 +240,7 @@ describe('DatabaseSearch', () => {
 
   it('settles failures and requests made through a source retained after disabling', async () => {
     enable();
-    mock.method(TorrPlayApi, 'getTorrents', async () => { throw new Error('offline'); });
+    mock.method(TorstApi, 'getTorrents', async () => { throw new Error('offline'); });
     assert.deepEqual(await search('test'), []);
     Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
     assert.deepEqual(await search('test'), []);
@@ -250,24 +250,24 @@ describe('DatabaseSearch', () => {
     new NetworkError('Failed to fetch'),
     new NetworkError('Network error (http://first.local): request timed out'),
     Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }),
-    new TorrPlayApiError('Unavailable', 503),
+    new TorstApiError('Unavailable', 503),
   ]) {
     it(`retries database listing on a fallback instance after ${error.name}: ${error.message}`, async () => {
       enable();
       const fallback = { ...instance, id: 'fallback', name: 'Backup', url: 'http://backup.local' };
       const requestedInstances: string[] = [];
-      mock.method(InstanceManager, 'failover', async (failed: TorrPlayInstance) => {
+      mock.method(InstanceManager, 'failover', async (failed: TorstInstance) => {
         assert.equal(failed, instance);
         return fallback;
       });
-      const listing = mock.method(TorrPlayApi, 'getTorrents', async (selected: TorrPlayInstance, _options?: object) => {
+      const listing = mock.method(TorstApi, 'getTorrents', async (selected: TorstInstance, _options?: object) => {
         requestedInstances.push(selected.id);
         if (selected === instance) throw error;
         return { torrents: [saved] };
       });
       const rows = await search('test');
       assert.deepEqual(requestedInstances, [instance.id, fallback.id]);
-      assert.deepEqual(listing.mock.calls[1].arguments[1], { fuzzy: true, saved: true, search: 'test' });
+      assert.deepEqual(listing.mock.calls[1].arguments[1], { fuzzy: true, retention: 'persisted', search: 'test' });
       assert.equal(rows[0].results[0].instanceId, fallback.id);
     });
   }
@@ -275,7 +275,7 @@ describe('DatabaseSearch', () => {
   it('does not reroute authentication or other client errors', async () => {
     enable();
     for (const status of [400, 401, 403, 404]) {
-      mock.method(TorrPlayApi, 'getTorrents', async () => { throw new TorrPlayApiError('Client error', status); });
+      mock.method(TorstApi, 'getTorrents', async () => { throw new TorstApiError('Client error', status); });
       assert.deepEqual(await search('test'), []);
     }
     assert.equal((InstanceManager.failover as any).mock.callCount(), 0);
@@ -284,12 +284,12 @@ describe('DatabaseSearch', () => {
   it('leaves the selected instance intact on Bearer credential and response parsing errors', async () => {
     enable();
     for (const error of [
-      new Error('Username and password required for Bearer authentication'),
+      new Error('Password required for Bearer authentication'),
       new Error('Bearer auth failed (401): Unauthorized'),
       new SyntaxError('Unexpected token in JSON'),
       new TypeError("Cannot read properties of undefined (reading 'torrents')"),
     ]) {
-      mock.method(TorrPlayApi, 'getTorrents', async () => { throw error; });
+      mock.method(TorstApi, 'getTorrents', async () => { throw error; });
       assert.deepEqual(await search('test'), []);
     }
     assert.equal((InstanceManager.failover as any).mock.callCount(), 0);
@@ -299,16 +299,16 @@ describe('DatabaseSearch', () => {
     enable();
     const fallback = { ...instance, id: 'fallback' };
     mock.method(InstanceManager, 'failover', async () => fallback);
-    mock.method(TorrPlayApi, 'getTorrents', async () => { throw new NetworkError('Network error (http://first.local)'); });
+    mock.method(TorstApi, 'getTorrents', async () => { throw new NetworkError('Network error (http://first.local)'); });
     assert.deepEqual(await search('test'), []);
-    assert.equal((TorrPlayApi.getTorrents as any).mock.callCount(), 2);
+    assert.equal((TorstApi.getTorrents as any).mock.callCount(), 2);
     assert.equal((InstanceManager.failover as any).mock.callCount(), 1);
   });
 
   it('does not start failover when the failing request has been canceled', async () => {
     enable();
     let fail: () => void = () => {};
-    mock.method(TorrPlayApi, 'getTorrents', () => new Promise((_resolve, reject) => {
+    mock.method(TorstApi, 'getTorrents', () => new Promise((_resolve, reject) => {
       fail = () => reject(new NetworkError('Network error (http://first.local)'));
     }));
     const pending = search('test');
@@ -322,13 +322,13 @@ describe('DatabaseSearch', () => {
 
   it('does not request fallback results after cancellation during failover discovery', async () => {
     enable();
-    let finish: (value: TorrPlayInstance) => void = () => {};
+    let finish: (value: TorstInstance) => void = () => {};
     let isAborted: (() => boolean) | undefined;
-    mock.method(InstanceManager, 'failover', (_failed: TorrPlayInstance, cancellation?: () => boolean) => {
+    mock.method(InstanceManager, 'failover', (_failed: TorstInstance, cancellation?: () => boolean) => {
       isAborted = cancellation;
-      return new Promise<TorrPlayInstance>(resolve => { finish = resolve; });
+      return new Promise<TorstInstance>(resolve => { finish = resolve; });
     });
-    mock.method(TorrPlayApi, 'getTorrents', async () => { throw new NetworkError('Network error (http://first.local)'); });
+    mock.method(TorstApi, 'getTorrents', async () => { throw new NetworkError('Network error (http://first.local)'); });
     const pending = search('test');
     await flush();
     source.onCancel();
@@ -336,7 +336,7 @@ describe('DatabaseSearch', () => {
     finish({ ...instance, id: 'fallback' });
     assert.deepEqual(await pending, []);
     await flush();
-    assert.equal((TorrPlayApi.getTorrents as any).mock.callCount(), 1);
+    assert.equal((TorstApi.getTorrents as any).mock.callCount(), 1);
   });
 
   it('discards fallback results that arrive after the search is canceled', async () => {
@@ -344,7 +344,7 @@ describe('DatabaseSearch', () => {
     const fallback = { ...instance, id: 'fallback' };
     let finish: (value: { torrents: Torrent[] }) => void = () => {};
     mock.method(InstanceManager, 'failover', async () => fallback);
-    mock.method(TorrPlayApi, 'getTorrents', (selected: TorrPlayInstance) => {
+    mock.method(TorstApi, 'getTorrents', (selected: TorstInstance) => {
       if (selected === instance) return Promise.reject(new NetworkError('Network error (http://first.local)'));
       return new Promise<{ torrents: Torrent[] }>(resolve => { finish = resolve; });
     });
@@ -362,7 +362,7 @@ describe('DatabaseSearch', () => {
     it(`discards late database responses after ${action}`, async () => {
       enable();
       let release: (value: { torrents: Torrent[] }) => void = () => {};
-      mock.method(TorrPlayApi, 'getTorrents', () => new Promise<{ torrents: Torrent[] }>(resolve => { release = resolve; }));
+      mock.method(TorstApi, 'getTorrents', () => new Promise<{ torrents: Torrent[] }>(resolve => { release = resolve; }));
       let completions = 0;
       const pending = new Promise(resolve => source.search({ query: 'test' }, (rows: unknown) => { completions++; resolve(rows); }));
       await flush();
@@ -388,7 +388,7 @@ describe('DatabaseSearch', () => {
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => { wasRestored = true; } } });
     await flush();
-    const playback = (TorrPlayEngine.startTorrentPlayback as any).mock.calls[0];
+    const playback = (TorstEngine.startTorrentPlayback as any).mock.calls[0];
     assert.equal(playback.arguments[0], saved);
     assert.equal(playback.arguments[1], 0);
     assert.equal(playback.arguments[3], instance);
@@ -422,7 +422,7 @@ describe('DatabaseSearch', () => {
     (globalThis as any).Lampa.Modal = { close: () => {}, open: (options: unknown) => { modal.options = options; } };
     (globalThis as any).Lampa.Utils.bytesToSize = (bytes: number) => `${bytes} B`;
     (globalThis as any).Lampa.Controller.collectionFocus = () => {};
-    mock.method(TorrPlayEngine, 'fetchSeasonEpisodes', async () => ({}));
+    mock.method(TorstEngine, 'fetchSeasonEpisodes', async () => ({}));
     return modal;
   }
 
@@ -433,7 +433,7 @@ describe('DatabaseSearch', () => {
       { length: 10, name: 'Show.S01E02.mkv', path: 'Show.S01E02.mkv' },
       { length: 10, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
     ] };
-    mock.method(TorrPlayApi, 'getTorrent', async () => multi);
+    mock.method(TorstApi, 'getTorrent', async () => multi);
     const modal = installFileList();
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
@@ -443,19 +443,19 @@ describe('DatabaseSearch', () => {
     assert.deepEqual(modal.files.map(file => file.data.fname), ['Show.S01E01', 'Show.S01E02']);
     modal.files[0].enter();
     await flush();
-    const playback = (TorrPlayEngine.startTorrentPlayback as any).mock.calls[0];
+    const playback = (TorstEngine.startTorrentPlayback as any).mock.calls[0];
     assert.equal(playback.arguments[1], 2);
     // The list stays open under the player, which hands focus back to it.
     assert.equal(playback.arguments[4], 'modal');
   });
 
-  it('lists a multi-file torrent in the same styled file list as the TorrPlay library', async () => {
+  it('lists a multi-file torrent in the same styled file list as the Torst library', async () => {
     enable();
     const multi = { ...saved, files: [
       { length: 2048, name: 'one.mkv', path: 'one.mkv' },
       { length: 10, name: 'two.avi', path: 'two.avi' },
     ] };
-    mock.method(TorrPlayApi, 'getTorrent', async () => multi);
+    mock.method(TorstApi, 'getTorrent', async () => multi);
     let selectCount = 0;
     mock.method(Lampa.Select, 'show', () => { selectCount++; });
     const modal = installFileList();
@@ -478,7 +478,7 @@ describe('DatabaseSearch', () => {
     mock.method(InstanceManager, 'getInstances', () => []);
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
     await flush();
-    assert.equal((TorrPlayEngine.startTorrentPlayback as any).mock.callCount(), 0);
+    assert.equal((TorstEngine.startTorrentPlayback as any).mock.callCount(), 0);
   });
 
   it('starts playback without borrowing a movie from an unrelated activity', async () => {
@@ -487,7 +487,7 @@ describe('DatabaseSearch', () => {
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
     await flush();
-    assert.equal((TorrPlayEngine.startTorrentPlayback as any).mock.calls[0].arguments[2], undefined);
+    assert.equal((TorstEngine.startTorrentPlayback as any).mock.calls[0].arguments[2], undefined);
   });
 
   it('resolves the listing instance from benchmarks already gathered', async () => {
@@ -495,21 +495,21 @@ describe('DatabaseSearch', () => {
     const rows = await search('test');
     assert.equal(rows[0].results[0].instanceId, instance.id);
     assert.equal((InstanceManager.getBestKnownInstance as any).mock.callCount(), 1);
-    assert.equal((TorrPlayApi.getTorrents as any).mock.calls[0].arguments[0], instance);
+    assert.equal((TorstApi.getTorrents as any).mock.calls[0].arguments[0], instance);
   });
 
   it('settles with no rows when no instance is configured', async () => {
     enable();
-    mock.method(InstanceManager, 'getBestKnownInstance', async () => { throw new Error('No TorrPlay instances configured'); });
+    mock.method(InstanceManager, 'getBestKnownInstance', async () => { throw new Error('No Torst instances configured'); });
     assert.deepEqual(await search('test'), []);
-    assert.equal((TorrPlayApi.getTorrents as any).mock.callCount(), 0);
+    assert.equal((TorstApi.getTorrents as any).mock.callCount(), 0);
   });
 
   it('opens More on the instance that produced the row', async () => {
     enable();
     const fallback = { ...instance, id: 'fallback', name: 'Backup', url: 'http://backup.local' };
     mock.method(InstanceManager, 'failover', async () => fallback);
-    mock.method(TorrPlayApi, 'getTorrents', async (selected: TorrPlayInstance) => {
+    mock.method(TorstApi, 'getTorrents', async (selected: TorstInstance) => {
       if (selected === instance) throw new NetworkError('Failed to fetch');
       return { torrents: [saved] };
     });
@@ -523,7 +523,7 @@ describe('DatabaseSearch', () => {
     const fallback = { ...instance, id: 'fallback', name: 'Backup', url: 'http://backup.local' };
     mock.method(InstanceManager, 'getInstances', () => [instance, fallback]);
     mock.method(InstanceManager, 'failover', async () => fallback);
-    mock.method(TorrPlayApi, 'getTorrents', async (selected: TorrPlayInstance) => {
+    mock.method(TorstApi, 'getTorrents', async (selected: TorstInstance) => {
       if (selected === instance) throw new NetworkError('Failed to fetch');
       return { torrents: [saved] };
     });
@@ -542,8 +542,8 @@ describe('DatabaseSearch', () => {
       { length: 10, name: '<img src=x onerror=alert(1)>one.mkv', path: 'one.mkv' },
       { length: 10, name: 'two.mkv', path: 'two.mkv' },
     ], title: '<b>Test</b> Show' };
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [hostile] }));
-    mock.method(TorrPlayApi, 'getTorrent', async () => hostile);
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [hostile] }));
+    mock.method(TorstApi, 'getTorrent', async () => hostile);
     const modal = installFileList();
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
@@ -556,11 +556,11 @@ describe('DatabaseSearch', () => {
     enable();
     const notices: string[] = [];
     mock.method(Lampa.Noty, 'show', (message: string) => notices.push(message));
-    mock.method(TorrPlayApi, 'getTorrent', async () => ({ ...saved, files: undefined as unknown as Torrent['files'] }));
+    mock.method(TorstApi, 'getTorrent', async () => ({ ...saved, files: undefined as unknown as Torrent['files'] }));
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
     await flush();
-    const playback = (TorrPlayEngine.startTorrentPlayback as any).mock.calls[0];
+    const playback = (TorstEngine.startTorrentPlayback as any).mock.calls[0];
     assert.equal(playback.arguments[1], 0);
     assert.deepEqual(notices, []);
   });
@@ -569,7 +569,7 @@ describe('DatabaseSearch', () => {
     enable();
     const notices: string[] = [];
     mock.method(Lampa.Noty, 'show', (message: string) => notices.push(message));
-    mock.method(TorrPlayEngine, 'startTorrentPlayback', async () => { throw new Error('Instance offline'); });
+    mock.method(TorstEngine, 'startTorrentPlayback', async () => { throw new Error('Instance offline'); });
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => {} } });
     await flush();
@@ -584,13 +584,13 @@ describe('DatabaseSearch', () => {
       { length: 10, name: 'one.mkv', path: 'one.mkv' },
       { length: 10, name: 'two.mkv', path: 'two.mkv' },
     ] };
-    mock.method(TorrPlayApi, 'getTorrent', async () => multi);
+    mock.method(TorstApi, 'getTorrent', async () => multi);
     const modal = installFileList();
     let controller = 'items_line';
     let restorations = 0;
     mock.method(Lampa.Controller, 'enabled', () => ({ name: controller }));
     mock.method(Lampa.Controller, 'toggle', (name: string) => { controller = name; });
-    mock.method(TorrPlayEngine, 'startTorrentPlayback', async () => {
+    mock.method(TorstEngine, 'startTorrentPlayback', async () => {
       controller = 'loading';
       return false;
     });
@@ -611,14 +611,14 @@ describe('DatabaseSearch', () => {
       { length: 10, name: 'one.mkv', path: 'one.mkv' },
       { length: 10, name: 'two.mkv', path: 'two.mkv' },
     ] };
-    mock.method(TorrPlayApi, 'getTorrent', async () => multi);
+    mock.method(TorstApi, 'getTorrent', async () => multi);
     const modal = installFileList();
     let closeCount = 0;
     (globalThis as any).Lampa.Modal.close = () => { closeCount++; };
     const toggled: string[] = [];
     mock.method(Lampa.Controller, 'toggle', (name: string) => { toggled.push(name); });
     let restorations = 0;
-    mock.method(TorrPlayEngine, 'startTorrentPlayback', async () => { throw new Error('offline'); });
+    mock.method(TorstEngine, 'startTorrentPlayback', async () => { throw new Error('offline'); });
     const rows = await search('test');
     source.onSelect({ element: rows[0].results[0], line: { toggle: () => { restorations++; } } });
     await flush();
@@ -645,7 +645,7 @@ describe('DatabaseSearch', () => {
     assert.ok(cards[0].markup.includes('<div class="card__title">Test Show</div>'));
   });
 
-  it('draws a match with the same card as the TorrPlay library', async () => {
+  it('draws a match with the same card as the Torst library', async () => {
     enable();
     const cards = installFakeJquery();
     (globalThis as any).Lampa.Utils.bytesToSize = (bytes: number) => `${bytes} B`;
@@ -655,8 +655,8 @@ describe('DatabaseSearch', () => {
     card.create();
     assert.equal(card.render(), cards[0]);
     assert.equal(card.render(true), cards[0][0]);
-    assert.ok(cards[0].markup.includes(`<div class="card__age">100 B · ${getTestTranslation('torrplay_card_file_count', { count: 1 })}</div>`));
-    assert.ok(cards[0].markup.includes(TORRPLAY_STORAGE_BADGE));
+    assert.ok(cards[0].markup.includes(`<div class="card__age">100 B · ${getTestTranslation('torst_card_file_count', { count: 1 })}</div>`));
+    assert.ok(cards[0].markup.includes(TORST_STORAGE_BADGE));
   });
 
   it('plays a card through the row\'s own selection', async () => {
@@ -703,6 +703,39 @@ describe('DatabaseSearch', () => {
     cards[0].listeners.get('hover:long')!();
     options.onBack();
     assert.deepEqual(toggled, ['items_line', 'items_line', 'items_line']);
+  });
+
+  it('hydrates a cold search card from its originating instance after routing changes', async () => {
+    enable();
+    const cards = installFakeJquery();
+    (globalThis as any).Lampa.Utils.bytesToSize = (bytes: number) => `${bytes} B`;
+    (globalThis as any).Lampa.Utils.hash = (value: string) => value;
+    (globalThis as any).Lampa.Timeline = {
+      render: () => 'timeline',
+      view: () => ({ percent: 40 }),
+    };
+    (globalThis as any).Lampa.Template = { get: () => ({ find: () => ({ append: () => {} }) }) };
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [{ ...saved, files: [] }] }));
+    const rows = await search('test');
+    const other = { ...instance, id: 'other', url: 'http://other.local' };
+    mock.method(InstanceManager, 'getBestInstance', async () => other);
+    mock.method(InstanceManager, 'getInstances', () => [other, instance]);
+    const read = mock.method(TorstApi, 'getTorrent', async () => saved);
+    const item = rows[0].results[0];
+    const card = item.params.createInstance(item);
+    card.create();
+    cards[0].classes.add('focus');
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      cards[0].listeners.get('hover:focus')!();
+      mock.timers.tick(500);
+      await flush();
+      assert.deepEqual(read.mock.calls[0].arguments, [instance, saved.hash]);
+      assert.equal(cards[0].overlays.length, 1);
+      card.destroy();
+    } finally {
+      mock.timers.reset();
+    }
   });
 
   it('removes its card and drops a pending watched overlay when destroyed', async () => {
@@ -760,7 +793,7 @@ describe('DatabaseSearch', () => {
       assert.deepEqual(rows, []);
       source.onSelect({ element: staleItem, line: { toggle: () => {} } });
       await flush();
-      assert.equal((TorrPlayEngine.startTorrentPlayback as any).mock.callCount(), 0);
+      assert.equal((TorstEngine.startTorrentPlayback as any).mock.callCount(), 0);
     });
   }
 
@@ -768,7 +801,7 @@ describe('DatabaseSearch', () => {
     it(`ignores ${shouldFail ? 'failed' : 'successful'} metadata arriving after search closes`, async () => {
       enable();
       let complete: () => void = () => {};
-      mock.method(TorrPlayApi, 'getTorrent', () => new Promise<Torrent>((resolve, reject) => {
+      mock.method(TorstApi, 'getTorrent', () => new Promise<Torrent>((resolve, reject) => {
         complete = () => shouldFail ? reject(new Error('offline')) : resolve(saved);
       }));
       let restorations = 0;
@@ -777,7 +810,7 @@ describe('DatabaseSearch', () => {
       source.onCancel();
       complete();
       await flush();
-      assert.equal((TorrPlayEngine.startTorrentPlayback as any).mock.callCount(), 0);
+      assert.equal((TorstEngine.startTorrentPlayback as any).mock.callCount(), 0);
       assert.equal(restorations, 0);
     });
   }

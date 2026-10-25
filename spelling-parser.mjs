@@ -128,7 +128,7 @@ function createParser(name, extract) {
 }
 
 export const spellingParsers = [
-  createParser('torrplay-source', extractSourceProse),
-  createParser('torrplay-markdown', extractMarkdownProse),
-  createParser('torrplay-css', extractCssProse),
+  createParser('torst-source', extractSourceProse),
+  createParser('torst-markdown', extractMarkdownProse),
+  createParser('torst-css', extractCssProse),
 ];

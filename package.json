@@ -1,8 +1,8 @@
 {
-  "name": "torrplay-plugin",
+  "name": "torst-plugin",
   "version": "1.0.0",
-  "description": "Official TorrPlay plugin for Lampa media client",
-  "main": "dist/torrplay.js",
+  "description": "Torst plugin for Lampa media client",
+  "main": "dist/torst.js",
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
     "bundle": "node build.mjs",
@@ -13,8 +13,6 @@
     "lint:spelling": "cspell lint --no-progress",
     "test": "tsx --test \"tests/**/*.test.ts\""
   },
-  "keywords": [],
-  "author": "",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -40,5 +38,9 @@
   },
   "dependencies": {
     "uuid": "^14.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/torrplay/torst-lampa.git"
   }
 }

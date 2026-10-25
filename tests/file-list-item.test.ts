@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
-import { ParsedFileInfo } from '../src/types/torrplay';
+import { ParsedFileInfo } from '../src/types/torst';
 import { buildFileListItemElement } from '../src/ui/file-list-item';
 
 describe('buildFileListItemElement', () => {

@@ -28,7 +28,7 @@ export function resolveBuildMetadata(
   };
 }
 
-export const DEFAULT_REPOSITORY = 'torrplay/lampa-plugin';
+export const DEFAULT_REPOSITORY = 'torrplay/torst-lampa';
 
 export function parseGitHubRepository(remoteUrl) {
   const match = /^(?:[a-z+]+:\/\/)?(?:[^@/]+@)?github\.com(?::\d+\/|[:/])([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(remoteUrl.trim());

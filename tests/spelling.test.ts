@@ -37,7 +37,7 @@ describe('American English spelling checks', () => {
 
   it('preserves project names, code references, Russian text, and encoded fixture data', () => {
     const result = checkSpelling(
-      '// TorrPlay uses `Lampa.Reguest` and `Lampa.Noty` with Jackett and Prowlarr.\n'
+      '// Torst uses `Lampa.Reguest` and `Lampa.Noty` with Jackett and Prowlarr.\n'
       + '// Русский текст остается без проверки.\n'
       + 'const encoded = "xt%3Durn%3Abtih%3A123";',
       'src/spelling-example.ts'

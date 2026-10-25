@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import { selectVideoFiles } from '../engine/file-parser';
-import { TorrPlayEngine } from '../engine/torrplay-engine';
-import { ParsedFileInfo, Torrent } from '../types/torrplay';
+import { TorstEngine } from '../engine/torst-engine';
+import { ParsedFileInfo, Torrent } from '../types/torst';
 
 interface TimelineView {
   duration?: number,
@@ -30,7 +30,7 @@ export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>,
   let latest: FileProgress | undefined;
 
   sortedFiles.forEach(file => {
-    const fileInfo = TorrPlayEngine.resolveFileInfo(file, movie, torrent.hash, sortedFiles);
+    const fileInfo = TorstEngine.resolveFileInfo(file, movie, torrent.hash, sortedFiles);
     const view: TimelineView | undefined = Lampa.Timeline.view(fileInfo.hash);
     if (!view || !view.percent) return;
     if (!latest || (view.updated || 0) >= (latest.view.updated || 0)) latest = { fileInfo, view };

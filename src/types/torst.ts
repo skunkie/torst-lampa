@@ -2,55 +2,54 @@
 //
 // SPDX-License-Identifier: MIT
 
+export type TorrentRetention = 'persisted' | 'temporary';
+
 export type TorrentStorage = 'memory' | 'file';
 
-type AuthType = 'none' | 'basic' | 'bearer';
+type AuthType = 'none' | 'bearer';
 
-export interface TorrPlayInstance {
+export interface TorstInstance {
+  accessToken?: string,
+  accessTokenExpiresAtMs?: number,
   authType: AuthType,
   checkedAtMs?: number,
   checkedUrl?: string,
   enableDownloader?: boolean,
-  fileStoragePath?: string,
   id: string,
-  jwtExpiresAtMs?: number,
-  jwtToken?: string,
   latencyMs?: number,
   name: string,
   password?: string,
   playbackToken?: string,
   playbackTokenExpiresAtMs?: number,
   status?: 'online' | 'offline' | 'checking' | 'unknown',
-  url: string,
-  username?: string
+  url: string
 }
 
-export interface TorrPlaySettings {
+export interface TorstSettings {
   [key: string]: unknown,
-  enable_downloader?: boolean,
-  file_storage_path?: string
+  background_downloads?: boolean
 }
 
 export interface TorrentFile {
+  fileId?: string,
   length: number,
   name: string,
-  path: string,
-  viewed_at?: string | null
+  path: string
 }
 
 export interface Torrent {
-  active?: boolean,
   created_at?: string,
+  file_count?: number,
   files: TorrentFile[],
   hash: string,
-  magnet?: string,
+  id?: string,
+  isPaused?: boolean,
   name: string,
-  piece_size?: number,
   poster?: string,
+  retention: TorrentRetention,
   storage: TorrentStorage,
   title?: string,
-  total_size: number,
-  updated_at?: string
+  total_size: number
 }
 
 export interface TorrentCategoryCount {
@@ -74,12 +73,9 @@ export interface TorrentAdd {
   hash?: string,
   magnet?: string,
   poster?: string,
+  retention?: TorrentRetention,
   storage?: TorrentStorage,
   title?: string
-}
-
-export interface TorrentResolutionRequest {
-  url: string
 }
 
 export interface TorrentUpdate {
@@ -89,41 +85,22 @@ export interface TorrentUpdate {
 export interface PreloadRequest {
   file_index?: number,
   file_path?: string,
-  magnet?: string,
-  playback_position_seconds?: number
+  playbackFraction?: number
 }
 
 export interface PreloadResponse {
   active_peers?: number,
   completed_bytes?: number,
-  connected_seeders?: number,
   download_rate?: number,
-  progress?: number,
+  preloadId?: string,
   status: 'evicted' | 'failed' | 'idle' | 'preloading' | 'queued' | 'ready',
   target_bytes?: number,
   total_peers?: number
 }
 
-export interface PieceInfo {
-  index: number,
-  size: number
-}
-
-export interface ReaderInfo {
-  end: number,
-  position: number,
-  start: number
-}
-
-export interface TorrentStats {
-  pieces?: PieceInfo[],
-  readers?: ReaderInfo[],
-  total_pieces?: number
-}
-
 export interface TokenResponse {
-  access_token: string,
-  expires_in?: number
+  expires_at: string | null,
+  secret: string
 }
 
 export interface ScopedToken {

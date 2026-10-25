@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ParsedFileInfo } from '../types/torrplay';
+import { ParsedFileInfo } from '../types/torst';
 
 export const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'avi', 'mov', 'm4v', 'ts', 'm2ts', 'webm', 'flv', 'vob'];
 
@@ -45,7 +45,7 @@ const naturalCollator = (typeof Intl !== 'undefined' && typeof Intl.Collator ===
 
 /**
  * Resolves a file's position within the torrent's complete file list, which is the
- * index TorrPlay's stream and preload routes address files by. Matches by object
+ * index Torst's stream and preload routes address files by. Matches by object
  * identity first, so callers holding an entry of that list stay correct when a
  * torrent repeats a path or omits one; the path comparison is the fallback for
  * callers passing a reconstructed file. Returns -1 when the file has no match.
@@ -144,7 +144,7 @@ export function resolveFileInfo(
       }
     } catch (error) {
       if (typeof console !== 'undefined' && console.debug) {
-        console.debug('[TorrPlay] Lampa.Torserver.parse failed, falling back to internal parser:', error);
+        console.debug('[Torst] Lampa.Torserver.parse failed, falling back to internal parser:', error);
       }
     }
   }

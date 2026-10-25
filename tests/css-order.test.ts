@@ -36,7 +36,7 @@ describe('CSS declaration ordering', () => {
       snippets.push(...collectEmbeddedStyles(fs.readFileSync(new URL(file, sourceDirectory), 'utf8')));
     }
     assert.ok(snippets.some(code => code.includes(':root')));
-    assert.ok(snippets.some(code => code.includes('.torrplay-active-dot')));
+    assert.ok(snippets.some(code => code.includes('.torst-torrents')));
 
     for (const code of snippets) {
       const result = await stylelint.lint({ code, configFile });

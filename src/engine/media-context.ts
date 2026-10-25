@@ -55,7 +55,7 @@ export function resolveMovieContext(movieContext?: unknown): LampaMovie | undefi
 }
 
 /**
- * Resolves an absolute, downloadable poster URL for TorrPlay database and preload screens.
+ * Resolves an absolute, downloadable poster URL for Torst database and preload screens.
  */
 export function resolvePosterUrl(torrentItem?: { img?: string, poster?: string }, movieContext?: unknown): string {
   const movie = resolveMovieContext(movieContext);

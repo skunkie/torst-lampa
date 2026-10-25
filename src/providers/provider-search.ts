@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { requestHttp } from '../api/http-client';
-import { normalizeInfoHash } from '../api/torrplay';
+import { normalizeInfoHash } from '../api/torst';
 import { ProviderManager } from '../providers/provider-manager';
 import { ProviderSearchInfo, ProviderSearchResult, TorrentProvider } from '../types/provider';
 

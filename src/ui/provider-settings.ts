@@ -47,32 +47,32 @@ export class ProviderSettingsUi {
     const menuItems: Array<LampaSelectItem<TorrentProvider>> = [
       {
         action: 'add',
-        subtitle: translate('torrplay_provider_add_descr', 'Add a Jackett or Prowlarr provider'),
-        title: iconLabel(ICON_PLUS, translate('torrplay_provider_add', 'Add Provider')),
+        subtitle: translate('torst_provider_add_descr', 'Add a Jackett or Prowlarr provider'),
+        title: iconLabel(ICON_PLUS, translate('torst_provider_add', 'Add Provider')),
       },
       {
         action: 'ping_all',
-        subtitle: translate('torrplay_provider_test_all_descr', 'Test latency across all providers'),
-        title: iconLabel(ICON_ZAP, translate('torrplay_provider_test_all', 'Test All Providers')),
+        subtitle: translate('torst_provider_test_all_descr', 'Test latency across all providers'),
+        title: iconLabel(ICON_ZAP, translate('torst_provider_test_all', 'Test All Providers')),
       },
     ];
 
     if (ParserHook.isProviderSearchToggleAvailable()) {
       const stateTag = readTriggerSetting(PROVIDER_SEARCH_ENABLED_STORAGE_KEY)
-        ? translate('torrplay_status_enabled', 'Enabled')
-        : translate('torrplay_status_disabled', 'Disabled');
+        ? translate('torst_status_enabled', 'Enabled')
+        : translate('torst_status_disabled', 'Disabled');
       menuItems.push({
         action: 'toggle_global_search',
-        subtitle: `${translate('torrplay_provider_search_descr', 'Results in a separate tab')} · ${stateTag}`,
-        title: iconLabel(ICON_SEARCH, translate('torrplay_provider_search_name', 'Show in Global Search')),
+        subtitle: `${translate('torst_provider_search_descr', 'Results in a separate tab')} · ${stateTag}`,
+        title: iconLabel(ICON_SEARCH, translate('torst_provider_search_name', 'Show in Global Search')),
       });
     }
 
     providers.forEach(provider => {
       const statusDescription = describeConnectionStatus(provider);
       const enabledTag = provider.isEnabled
-        ? translate('torrplay_status_enabled', 'Enabled')
-        : translate('torrplay_status_disabled', 'Disabled');
+        ? translate('torst_status_enabled', 'Enabled')
+        : translate('torst_status_disabled', 'Disabled');
 
       menuItems.push({
         action: 'provider',
@@ -85,8 +85,8 @@ export class ProviderSettingsUi {
 
     menuItems.push({
       action: 'back',
-      subtitle: translate('torrplay_back_to_settings', 'Return to TorrPlay settings'),
-      title: iconLabel(ICON_ARROW_LEFT, translate('torrplay_back', 'Back')),
+      subtitle: translate('torst_back_to_settings', 'Return to Torst settings'),
+      title: iconLabel(ICON_ARROW_LEFT, translate('torst_back', 'Back')),
     });
 
     Lampa.Select.show({
@@ -110,7 +110,7 @@ export class ProviderSettingsUi {
           );
           this.openPoolManager();
         } else if (selectedItem.action === 'ping_all') {
-          if (Lampa.Noty) Lampa.Noty.show(translate('torrplay_provider_noty_pinging_all', 'Testing all search providers...'));
+          if (Lampa.Noty) Lampa.Noty.show(translate('torst_provider_noty_pinging_all', 'Testing all search providers...'));
           ProviderManager.pingAll().then(() => {
             this.openPoolManager();
           });
@@ -118,7 +118,7 @@ export class ProviderSettingsUi {
           this.openProviderActions(selectedItem.data);
         }
       },
-      title: translate('torrplay_provider_pool_title', 'Torrent Search Providers'),
+      title: translate('torst_provider_pool_title', 'Torrent Search Providers'),
     });
   }
 
@@ -129,51 +129,51 @@ export class ProviderSettingsUi {
       {
         action: 'toggle_enabled',
         subtitle: provider.isEnabled
-          ? translate('torrplay_provider_disable_descr', 'Exclude this provider from search')
-          : translate('torrplay_provider_enable_descr', 'Include this provider in search'),
+          ? translate('torst_provider_disable_descr', 'Exclude this provider from search')
+          : translate('torst_provider_enable_descr', 'Include this provider in search'),
         title: iconLabel(
           ICON_DOWNLOAD,
           provider.isEnabled
-            ? translate('torrplay_provider_disable', 'Disable Provider')
-            : translate('torrplay_provider_enable', 'Enable Provider')
+            ? translate('torst_provider_disable', 'Disable Provider')
+            : translate('torst_provider_enable', 'Enable Provider')
         ),
       },
       {
         action: 'test',
-        subtitle: translate('torrplay_test_conn_descr', 'Check availability and measure latency'),
-        title: iconLabel(ICON_ZAP, translate('torrplay_test_conn', 'Test Connection')),
+        subtitle: translate('torst_test_conn_descr', 'Check availability and measure latency'),
+        title: iconLabel(ICON_ZAP, translate('torst_test_conn', 'Test Connection')),
       },
       {
         action: 'edit_name',
-        subtitle: translate('torrplay_current_value', `Current: ${provider.name}`, { value: provider.name }),
-        title: iconLabel(ICON_PENCIL, translate('torrplay_edit_name', 'Edit Name')),
+        subtitle: translate('torst_current_value', `Current: ${provider.name}`, { value: provider.name }),
+        title: iconLabel(ICON_PENCIL, translate('torst_edit_name', 'Edit Name')),
       },
       {
         action: 'edit_url',
-        subtitle: translate('torrplay_current_value', `Current: ${provider.url}`, { value: provider.url }),
-        title: iconLabel(ICON_PENCIL, translate('torrplay_provider_edit_url', 'Edit Provider URL')),
+        subtitle: translate('torst_current_value', `Current: ${provider.url}`, { value: provider.url }),
+        title: iconLabel(ICON_PENCIL, translate('torst_provider_edit_url', 'Edit Provider URL')),
       },
       {
         action: 'edit_api_key',
-        subtitle: provider.apiKey ? '••••••••' : translate('torrplay_value_none', '(none)'),
-        title: iconLabel(ICON_KEY, translate('torrplay_provider_edit_api_key', 'Edit API Key')),
+        subtitle: provider.apiKey ? '••••••••' : translate('torst_value_none', '(none)'),
+        title: iconLabel(ICON_KEY, translate('torst_provider_edit_api_key', 'Edit API Key')),
       },
       {
         action: 'switch_type',
-        subtitle: translate('torrplay_current_value', `Current: ${provider.type}`, {
+        subtitle: translate('torst_current_value', `Current: ${provider.type}`, {
           value: provider.type === 'prowlarr' ? 'Prowlarr' : 'Jackett',
         }),
-        title: iconLabel(ICON_PENCIL, translate('torrplay_provider_switch_type', 'Switch Provider Type')),
+        title: iconLabel(ICON_PENCIL, translate('torst_provider_switch_type', 'Switch Provider Type')),
       },
       {
         action: 'delete',
-        subtitle: translate('torrplay_provider_delete_descr', 'Remove this provider from the pool'),
-        title: iconLabel(ICON_TRASH, translate('torrplay_provider_delete', 'Delete Provider')),
+        subtitle: translate('torst_provider_delete_descr', 'Remove this provider from the pool'),
+        title: iconLabel(ICON_TRASH, translate('torst_provider_delete', 'Delete Provider')),
       },
       {
         action: 'back',
-        subtitle: translate('torrplay_provider_back_to_list', 'Return to provider list'),
-        title: iconLabel(ICON_ARROW_LEFT, translate('torrplay_back', 'Back')),
+        subtitle: translate('torst_provider_back_to_list', 'Return to provider list'),
+        title: iconLabel(ICON_ARROW_LEFT, translate('torst_back', 'Back')),
       },
     ];
 
@@ -189,17 +189,17 @@ export class ProviderSettingsUi {
           this.openProviderActions(provider);
         } else if (selectedItem.action === 'test') {
           if (Lampa.Noty) {
-            Lampa.Noty.show(translate('torrplay_noty_testing', `Testing ${provider.url}...`, { url: provider.url }));
+            Lampa.Noty.show(translate('torst_noty_testing', `Testing ${provider.url}...`, { url: provider.url }));
           }
           ProviderManager.checkHealth(provider).then(healthResult => {
             ProviderManager.updateProvider(provider);
             if (Lampa.Noty) {
               Lampa.Noty.show(
                 healthResult.isOk
-                  ? translate('torrplay_noty_connected', `Connected! Latency: ${healthResult.latencyMs} ms`, {
+                  ? translate('torst_noty_connected', `Connected! Latency: ${healthResult.latencyMs} ms`, {
                     latency: healthResult.latencyMs ?? 0,
                   })
-                  : translate('torrplay_noty_failed_connect', `Failed to connect to ${provider.url}`, { url: provider.url })
+                  : translate('torst_noty_failed_connect', `Failed to connect to ${provider.url}`, { url: provider.url })
               );
             }
             this.openProviderActions(provider);
@@ -209,7 +209,7 @@ export class ProviderSettingsUi {
             Lampa.Input.edit({
               free: true,
               nosave: true,
-              title: translate('torrplay_edit_name', 'Provider Name'),
+              title: translate('torst_edit_name', 'Provider Name'),
               value: provider.name,
             }, value => {
               if (value && value.trim()) {
@@ -227,7 +227,7 @@ export class ProviderSettingsUi {
               free: true,
               nosave: true,
               password: true,
-              title: translate('torrplay_provider_edit_api_key', 'API Key'),
+              title: translate('torst_provider_edit_api_key', 'API Key'),
               value: provider.apiKey || '',
             }, value => {
               const apiKey = value ? value.trim() : '';
@@ -265,7 +265,7 @@ export class ProviderSettingsUi {
     Lampa.Input.edit({
       free: true,
       nosave: true,
-      title: translate('torrplay_provider_edit_url', 'Edit Provider URL'),
+      title: translate('torst_provider_edit_url', 'Edit Provider URL'),
       value: currentUrl,
     }, value => {
       const rawInput = (value || '').trim();
@@ -278,7 +278,7 @@ export class ProviderSettingsUi {
       const cleanUrl = normalizeProviderUrl(rawInput);
       if (!cleanUrl) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
+          Lampa.Noty.show(translate('torst_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
         }
         this.promptEditProviderUrl(provider, rawInput);
         return;
@@ -294,7 +294,7 @@ export class ProviderSettingsUi {
       );
       if (isDuplicate) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_provider_noty_duplicate_url', 'A provider with this URL already exists'));
+          Lampa.Noty.show(translate('torst_provider_noty_duplicate_url', 'A provider with this URL already exists'));
         }
         this.promptEditProviderUrl(provider, rawInput);
         return;
@@ -305,7 +305,7 @@ export class ProviderSettingsUi {
       delete provider.latencyMs;
       ProviderManager.updateProvider(provider);
       if (Lampa.Noty) {
-        Lampa.Noty.show(translate('torrplay_provider_noty_url_updated', 'Provider URL updated'));
+        Lampa.Noty.show(translate('torst_provider_noty_url_updated', 'Provider URL updated'));
       }
       this.openProviderActions(provider);
     });
@@ -317,7 +317,7 @@ export class ProviderSettingsUi {
     Lampa.Input.edit({
       free: true,
       nosave: true,
-      title: translate('torrplay_provider_url_placeholder', 'Provider URL (e.g. http://192.168.1.100:9117)'),
+      title: translate('torst_provider_url_placeholder', 'Provider URL (e.g. http://192.168.1.100:9117)'),
       value: 'http://',
     }, providerUrlInput => {
       if (!providerUrlInput || !providerUrlInput.trim() || providerUrlInput.trim() === 'http://') {
@@ -327,7 +327,7 @@ export class ProviderSettingsUi {
       const normalizedUrl = normalizeProviderUrl(providerUrlInput);
       if (!normalizedUrl) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
+          Lampa.Noty.show(translate('torst_provider_noty_valid_url', 'Enter a valid HTTP or HTTPS provider URL'));
         }
         this.openPoolManager();
         return;
@@ -335,7 +335,7 @@ export class ProviderSettingsUi {
       const isDuplicate = ProviderManager.getProviders().some(candidate => candidate.url === normalizedUrl);
       if (isDuplicate) {
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_provider_noty_duplicate_url', 'A provider with this URL already exists'));
+          Lampa.Noty.show(translate('torst_provider_noty_duplicate_url', 'A provider with this URL already exists'));
         }
         this.openPoolManager();
         return;
@@ -354,7 +354,7 @@ export class ProviderSettingsUi {
       };
       ProviderManager.addProvider(newProvider);
       if (Lampa.Noty) {
-        Lampa.Noty.show(translate('torrplay_provider_noty_added', `Added ${newProvider.name} to pool`, { name: newProvider.name }));
+        Lampa.Noty.show(translate('torst_provider_noty_added', `Added ${newProvider.name} to pool`, { name: newProvider.name }));
       }
       this.openProviderActions(newProvider);
     });
@@ -367,13 +367,13 @@ export class ProviderSettingsUi {
       items: [
         {
           action: 'confirm_delete',
-          subtitle: translate('torrplay_provider_confirm_delete_descr', 'This also removes its saved API key'),
-          title: translate('torrplay_confirm_delete_name', `Delete ${provider.name}`, { name: provider.name }),
+          subtitle: translate('torst_provider_confirm_delete_descr', 'This also removes its saved API key'),
+          title: translate('torst_confirm_delete_name', `Delete ${provider.name}`, { name: provider.name }),
         },
         {
           action: 'cancel',
-          subtitle: translate('torrplay_provider_keep', 'Keep this provider'),
-          title: translate('torrplay_cancel', 'Cancel'),
+          subtitle: translate('torst_provider_keep', 'Keep this provider'),
+          title: translate('torst_cancel', 'Cancel'),
         },
       ],
       onBack: () => {
@@ -387,11 +387,11 @@ export class ProviderSettingsUi {
 
         ProviderManager.removeProvider(provider.id);
         if (Lampa.Noty) {
-          Lampa.Noty.show(translate('torrplay_provider_noty_deleted', `Deleted ${provider.name}`, { name: provider.name }));
+          Lampa.Noty.show(translate('torst_provider_noty_deleted', `Deleted ${provider.name}`, { name: provider.name }));
         }
         this.openPoolManager();
       },
-      title: translate('torrplay_provider_confirm_delete_title', 'Delete Provider?'),
+      title: translate('torst_provider_confirm_delete_title', 'Delete Provider?'),
     });
   }
 }

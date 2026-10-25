@@ -3,25 +3,25 @@
 // SPDX-License-Identifier: MIT
 
 import { isNetworkError } from '../api/http-client';
-import { TorrPlayApi, TorrPlayApiError } from '../api/torrplay';
+import { TorstApi, TorstApiError } from '../api/torst';
 import { searchDatabaseTorrents } from '../engine/database-search';
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
 import { isPersistedTorrent, SavedTorrents } from '../engine/saved-torrents';
-import { TorrPlayEngine } from '../engine/torrplay-engine';
+import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
-import { Torrent, TorrentStorage, TorrPlayInstance } from '../types/torrplay';
+import { Torrent, TorrentStorage, TorstInstance } from '../types/torst';
 import {
   buildSavedTorrentCard,
   describeViewedAction,
   setSavedTorrentCardViewed,
-  TORRPLAY_STORAGE_BADGE,
+  TORST_STORAGE_BADGE,
   WatchedOverlayScheduler,
 } from './saved-torrent-card';
 import { showSavedTorrentFiles } from './saved-torrent-files';
 
-export const TORRPLAY_TORRENTS_COMPONENT_ID = 'torrplay_torrents';
+export const TORST_TORRENTS_COMPONENT_ID = 'torst_torrents';
 
 export function getNavigator(): LampaNavigator | null {
   const globalNavigator = (globalThis as typeof globalThis & { Navigator?: LampaNavigator }).Navigator;
@@ -37,14 +37,11 @@ export function getNavigator(): LampaNavigator | null {
   return null;
 }
 
-export class TorrPlayTorrentsComponent {
+export class TorstTorrentsComponent {
   private static readonly POLL_INTERVAL_MS = 10_000;
-  // The server records a repeat view of a file, and lists its torrent first again, only once
-  // this long has passed since the previous one.
-  private static readonly VIEW_RECORD_INTERVAL_MS = 5 * 60_000;
 
   public componentActivity?: LampaComponentActivity;
-  private activeInstance: TorrPlayInstance | null = null;
+  private activeInstance: TorstInstance | null = null;
   private contentGrid: LampaDomElement;
   private contextMenuOpen = false;
   private contextMenuResumesPolling = false;
@@ -58,8 +55,6 @@ export class TorrPlayTorrentsComponent {
   private lastRenderedInstanceId: string | null = null;
   private lastRenderedSignature: string | null = null;
   private needsReload = false;
-  private pendingWatchedFilePath = '';
-  private pendingWatchedFileViewedAt: string | null = null;
   private pendingWatchedTorrentHash: string | null = null;
   private pollIntervalId: ReturnType<typeof setInterval> | null = null;
   private renderedCards = new Map<string, LampaDomElement>();
@@ -71,7 +66,7 @@ export class TorrPlayTorrentsComponent {
   private watchedOverlay = new WatchedOverlayScheduler();
 
   constructor(componentOptions?: LampaComponentOptions) {
-    TorrPlayTorrentsComponent.injectStyles();
+    TorstTorrentsComponent.injectStyles();
     this.componentActivity = componentOptions?.activity;
     this.searchInstanceId = componentOptions?.instanceId;
     this.searchQuery = componentOptions?.search;
@@ -80,68 +75,35 @@ export class TorrPlayTorrentsComponent {
       over: true,
       step: 250,
     });
-    this.rootElement = $('<div class="torrplay-torrents"></div>');
+    this.rootElement = $('<div class="torst-torrents"></div>');
     this.contentGrid = $('<div class="mapping--grid cols--6"></div>');
   }
 
-  private updateHeaderTitle(instance: TorrPlayInstance | null): void {
+  private updateHeaderTitle(instance: TorstInstance | null): void {
     if (typeof Lampa === 'undefined' || !Lampa.Head || typeof Lampa.Head.title !== 'function') return;
     const instanceName = instance ? instance.name || instance.url : '';
-    Lampa.Head.title(instanceName ? `TorrPlay (${instanceName})` : 'TorrPlay');
+    Lampa.Head.title(instanceName ? `Torst (${instanceName})` : 'Torst');
   }
 
   private static injectStyles(): void {
     if (typeof document === 'undefined') return;
-    const styleId = 'torrplay-torrents-style';
+    const styleId = 'torst-torrents-style';
     if (!document.getElementById(styleId)) {
       const style = document.createElement('style');
       style.id = styleId;
       style.textContent = `
-        .torrplay-torrents {
+        .torst-torrents {
           width: 100%;
           height: 100%;
         }
-        .torrplay-torrents--empty,
-        .torrplay-torrents--empty .scroll {
+        .torst-torrents--empty,
+        .torst-torrents--empty .scroll {
           overflow: hidden !important;
         }
-        .torrplay-torrents--empty .scroll > .scroll__content > .scroll__body:after {
+        .torst-torrents--empty .scroll > .scroll__content > .scroll__body:after {
           display: none !important;
         }
-        .torrplay-torrents .torrplay-active-dot {
-          position: relative;
-          display: flex;
-          width: 0.5em;
-          height: 0.5em;
-        }
-        .torrplay-torrents .torrplay-active-dot__ping {
-          position: absolute;
-          display: inline-flex;
-          width: 100%;
-          height: 100%;
-          background: #4ade80;
-          border-radius: 50%;
-          opacity: 0.75;
-          animation: torrplay-active-ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
-        }
-        .torrplay-torrents .torrplay-active-dot__core {
-          position: relative;
-          display: inline-flex;
-          width: 100%;
-          height: 100%;
-          background: #22c55e;
-          border-radius: 50%;
-        }
-        .no--animation .torrplay-torrents .torrplay-active-dot__ping {
-          animation: none;
-        }
-        @keyframes torrplay-active-ping {
-          75%, 100% {
-            opacity: 0;
-            transform: scale(2);
-          }
-        }
-        .torrplay-torrents .empty {
+        .torst-torrents .empty {
           box-sizing: border-box !important;
           display: flex !important;
           flex-direction: column !important;
@@ -151,10 +113,10 @@ export class TorrPlayTorrentsComponent {
           margin: 0 auto !important;
           text-align: center !important;
         }
-        .torrplay-torrents .empty__img {
+        .torst-torrents .empty__img {
           width: 100% !important;
         }
-        .torrplay-torrents .empty__title {
+        .torst-torrents .empty__title {
           box-sizing: border-box !important;
           width: 100% !important;
           max-width: 100% !important;
@@ -162,7 +124,7 @@ export class TorrPlayTorrentsComponent {
           line-height: 1.4 !important;
           text-align: center !important;
         }
-        .torrplay-torrents .empty__descr {
+        .torst-torrents .empty__descr {
           box-sizing: border-box !important;
           display: block !important;
           width: 100% !important;
@@ -173,7 +135,7 @@ export class TorrPlayTorrentsComponent {
           text-align: center !important;
           word-break: break-word !important;
         }
-        .torrplay-torrents .empty__footer {
+        .torst-torrents .empty__footer {
           display: flex !important;
           justify-content: center !important;
           width: 100% !important;
@@ -219,19 +181,15 @@ export class TorrPlayTorrentsComponent {
       const searchQuery = this.searchQuery;
       const [torrents, settings] = await Promise.all([
         searchQuery === undefined
-          ? TorrPlayApi.getTorrents(this.activeInstance).then(response => response.torrents || [])
+          ? TorstApi.getTorrents(this.activeInstance).then(response => response.torrents || [])
           : searchDatabaseTorrents(this.activeInstance, searchQuery),
-        TorrPlayApi.getSettings(this.activeInstance).catch(() => null),
+        TorstApi.getSettings(this.activeInstance).catch(() => null),
       ]);
       if (this.isDestroyed) return;
       if (settings) {
         let changed = false;
-        if (typeof settings.file_storage_path === 'string') {
-          this.activeInstance.fileStoragePath = settings.file_storage_path;
-          changed = true;
-        }
-        if (typeof settings.enable_downloader === 'boolean') {
-          this.activeInstance.enableDownloader = settings.enable_downloader;
+        if (typeof settings.background_downloads === 'boolean') {
+          this.activeInstance.enableDownloader = settings.background_downloads;
           changed = true;
         }
         if (changed) {
@@ -258,7 +216,7 @@ export class TorrPlayTorrentsComponent {
       if (this.isDestroyed) return;
       // Once the pinned instance stops answering, the search row it backed is stale anyway, so
       // the view falls back to regular instance selection instead of failing on every refresh.
-      const isUnreachable = isNetworkError(err) || (err instanceof TorrPlayApiError && err.status >= 500);
+      const isUnreachable = isNetworkError(err) || (err instanceof TorstApiError && err.status >= 500);
       if (searchInstance && isUnreachable) {
         this.searchInstanceId = undefined;
         this.isPinnedToSearchInstance = false;
@@ -279,29 +237,29 @@ export class TorrPlayTorrentsComponent {
       if (errorMessage.includes('unreachable') || errorMessage.includes('offline')) {
         this.renderEmptyState(
           translate(
-            'torrplay_empty_unreachable',
-            'All configured TorrPlay instances are unreachable.<br>Please check instance status in Settings → TorrPlay → Manage Instance Pool.'
+            'torst_empty_unreachable',
+            'All configured Torst instances are unreachable.<br>Please check instance status in Settings → Torst → Manage Instance Pool.'
           ),
-          translate('torrplay_empty_unreachable_title', 'TorrPlay: Instances Unreachable'),
+          translate('torst_empty_unreachable_title', 'Torst: Instances Unreachable'),
           silent
         );
-      } else if (errorMessage.includes('No TorrPlay instances')) {
+      } else if (errorMessage.includes('No Torst instances')) {
         this.renderEmptyState(
           translate(
-            'torrplay_empty_no_instances',
-            'No TorrPlay instances are configured.<br>Please add an instance in Settings → TorrPlay → Manage Instance Pool.'
+            'torst_empty_no_instances',
+            'No Torst instances are configured.<br>Please add an instance in Settings → Torst → Manage Instance Pool.'
           ),
-          translate('torrplay_empty_no_instances_title', 'TorrPlay: No Instances Configured'),
+          translate('torst_empty_no_instances_title', 'Torst: No Instances Configured'),
           silent
         );
       } else {
         this.renderEmptyState(
           translate(
-            'torrplay_empty_conn_error',
+            'torst_empty_conn_error',
             `Unable to load database torrents: ${errorMessage}<br>Please check your instance connection.`,
             { msg: errorMessage }
           ),
-          translate('torrplay_empty_conn_error_title', 'TorrPlay: Connection Error'),
+          translate('torst_empty_conn_error_title', 'Torst: Connection Error'),
           silent
         );
       }
@@ -318,7 +276,7 @@ export class TorrPlayTorrentsComponent {
    * The saved-torrent cache describes the database requests are routed to; a view pinned to a
    * different instance must not overwrite it with that instance's contents.
    */
-  private isRoutedInstance(instance: TorrPlayInstance): boolean {
+  private isRoutedInstance(instance: TorstInstance): boolean {
     if (instance.id === InstanceManager.getPrimaryInstance()?.id) return true;
     return !this.isPinnedToSearchInstance && instance.id === this.activeInstance?.id;
   }
@@ -327,9 +285,9 @@ export class TorrPlayTorrentsComponent {
     const query = Lampa.Utils.clearHtmlTags(this.searchQuery?.trim() || '');
     this.renderEmptyState(
       query
-        ? translate('torrplay_empty_search', 'No saved torrents match “{query}”', { query })
-        : translate('torrplay_empty_db', 'No torrents found in TorrPlay database'),
-      'TorrPlay',
+        ? translate('torst_empty_search', 'No saved torrents match “{query}”', { query })
+        : translate('torst_empty_db', 'No torrents found in Torst database'),
+      'Torst',
       silent
     );
   }
@@ -428,7 +386,7 @@ export class TorrPlayTorrentsComponent {
     this.stopPolling();
     this.pollIntervalId = setInterval(() => {
       this.load(true);
-    }, TorrPlayTorrentsComponent.POLL_INTERVAL_MS);
+    }, TorstTorrentsComponent.POLL_INTERVAL_MS);
   }
 
   private stopPolling(): void {
@@ -496,11 +454,9 @@ export class TorrPlayTorrentsComponent {
         torrent.hash,
         torrent.title || torrent.name || '',
         torrent.storage || '',
-        torrent.active ? '1' : '0',
         torrent.poster || '',
-        torrent.magnet || '',
         String(torrent.total_size || 0),
-        String(torrent.files ? torrent.files.length : 0),
+        String(torrent.file_count ?? (torrent.files ? torrent.files.length : 0)),
         viewedList.includes(torrent.hash) ? '1' : '0',
       ].join('\u0001'))
       .join('\u0002');
@@ -510,8 +466,8 @@ export class TorrPlayTorrentsComponent {
     return ['\u0003empty', title, description].join('\u0001');
   }
 
-  public renderEmptyState(description: string, title = 'TorrPlay', silent = false): void {
-    const signature = TorrPlayTorrentsComponent.buildEmptyStateSignature(title, description);
+  public renderEmptyState(description: string, title = 'Torst', silent = false): void {
+    const signature = TorstTorrentsComponent.buildEmptyStateSignature(title, description);
     // The same empty state is already on screen, and a silent refresh never clears the scroll
     // view — rendering again would stack another copy of it on every poll tick.
     if (silent && signature === this.lastRenderedSignature) return;
@@ -522,7 +478,7 @@ export class TorrPlayTorrentsComponent {
     this.renderedCards = new Map();
     this.renderedTorrents = [];
     if (typeof this.rootElement.addClass === 'function') {
-      this.rootElement.addClass('torrplay-torrents--empty');
+      this.rootElement.addClass('torst-torrents--empty');
     }
     if (!silent) {
       if (typeof this.scrollView.clear === 'function') {
@@ -571,9 +527,9 @@ export class TorrPlayTorrentsComponent {
     }
   }
 
-  public renderTorrents(listedTorrents: Torrent[], instance: TorrPlayInstance, silent = false): void {
+  public renderTorrents(listedTorrents: Torrent[], instance: TorstInstance, silent = false): void {
     const torrents = this.keepWatchedTorrentFirst(listedTorrents);
-    const signature = TorrPlayTorrentsComponent.buildTorrentsSignature(torrents);
+    const signature = TorstTorrentsComponent.buildTorrentsSignature(torrents);
     // Nothing on screen would change, so leave the live card elements in place rather than
     // detaching the one the navigator is steering by. The instance has to match too: the cards
     // close over it, so skipping a rebuild after a failover would leave every card acting on
@@ -588,7 +544,7 @@ export class TorrPlayTorrentsComponent {
     this.renderedTorrents = torrents;
     this.emptyState = null;
     if (typeof this.rootElement.removeClass === 'function') {
-      this.rootElement.removeClass('torrplay-torrents--empty');
+      this.rootElement.removeClass('torst-torrents--empty');
     }
     if (typeof this.scrollView.clear === 'function') {
       this.scrollView.clear();
@@ -625,7 +581,7 @@ export class TorrPlayTorrentsComponent {
         if (torrent.poster) {
           Lampa.Background.change(torrent.poster);
         }
-        this.watchedOverlay.schedule(card, torrent);
+        this.watchedOverlay.schedule(card, torrent, instance);
       });
 
       card.on('hover:hover hover:touch', (event: LampaDomEvent) => {
@@ -694,54 +650,44 @@ export class TorrPlayTorrentsComponent {
   private playTorrentFileSafely(
     torrent: Torrent,
     fileIndex: number,
-    sourceInstance?: TorrPlayInstance,
+    sourceInstance?: TorstInstance,
     returnController?: string
   ): void {
     const resolvedReturnController = returnController || Lampa.Controller?.enabled?.().name || 'content';
 
-    TorrPlayEngine.startTorrentPlayback(
+    TorstEngine.startTorrentPlayback(
       torrent,
       fileIndex,
       undefined,
       sourceInstance,
       resolvedReturnController
     ).then(isHandedOff => {
-      if (isHandedOff && !this.isDestroyed) this.moveWatchedTorrentFirst(torrent.hash, fileIndex);
+      if (isHandedOff && !this.isDestroyed) this.moveWatchedTorrentFirst(torrent.hash);
     }).catch((err: unknown) => {
-      console.error('[TorrPlay] Playback failed:', err);
+      console.error('[Torst] Playback failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (typeof Lampa !== 'undefined') {
         if (Lampa.Loading) Lampa.Loading.stop();
         if (!this.isDestroyed && Lampa.Controller) Lampa.Controller.toggle(resolvedReturnController);
         if (Lampa.Noty) {
           Lampa.Noty.show(
-            translate('torrplay_noty_error', `TorrPlay: ${errorMessage}`, { msg: errorMessage })
+            translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
           );
         }
       }
     });
   }
 
-  /**
-   * Streaming a saved torrent's file records a view, which makes the server list the torrent
-   * first. Reorder the grid the same way while the player still covers it, so the next refresh
-   * changes nothing visible instead of moving the card, and the cursor with it, out of view.
-   */
-  private moveWatchedTorrentFirst(torrentHash: string, fileIndex: number): void {
+  private moveWatchedTorrentFirst(torrentHash: string): void {
     const watchedTorrent = this.renderedTorrents.find(torrent => torrent.hash === torrentHash);
-    const watchedFile = watchedTorrent?.files?.[fileIndex];
     const card = this.renderedCards.get(torrentHash);
-    if (!watchedTorrent || !watchedFile || !card || !watchedTorrent.created_at) return;
-    const previousViewedAtMs = watchedFile.viewed_at ? Date.parse(watchedFile.viewed_at) : NaN;
-    if (Date.now() - previousViewedAtMs < TorrPlayTorrentsComponent.VIEW_RECORD_INTERVAL_MS) return;
+    if (!watchedTorrent || !card || !isPersistedTorrent(watchedTorrent)) return;
 
     this.pendingWatchedTorrentHash = torrentHash;
-    this.pendingWatchedFilePath = watchedFile.path;
-    this.pendingWatchedFileViewedAt = watchedFile.viewed_at || null;
-    const reorderedTorrents = TorrPlayTorrentsComponent.placeFirstAmongSaved(this.renderedTorrents, watchedTorrent);
+    const reorderedTorrents = TorstTorrentsComponent.placeFirstAmongSaved(this.renderedTorrents, watchedTorrent);
     if (reorderedTorrents !== this.renderedTorrents) {
       this.renderedTorrents = reorderedTorrents;
-      this.lastRenderedSignature = TorrPlayTorrentsComponent.buildTorrentsSignature(reorderedTorrents);
+      this.lastRenderedSignature = TorstTorrentsComponent.buildTorrentsSignature(reorderedTorrents);
       const nextCard = this.renderedCards.get(reorderedTorrents[reorderedTorrents.indexOf(watchedTorrent) + 1].hash);
       if (nextCard) nextCard.before(card);
     }
@@ -751,30 +697,20 @@ export class TorrPlayTorrentsComponent {
     this.scrollView.update(card, true);
   }
 
-  /**
-   * Listings fetched before the server records the view still carry the old order, so keep the
-   * watched torrent first until the played file's view time changes, from which point the
-   * server's own order already accounts for it.
-   */
+  /** Torst lists by creation time, so the current view keeps its last played torrent first. */
   private keepWatchedTorrentFirst(torrents: Torrent[]): Torrent[] {
     if (!this.pendingWatchedTorrentHash) return torrents;
     const watchedTorrent = torrents.find(torrent => torrent.hash === this.pendingWatchedTorrentHash);
-    const watchedFile = watchedTorrent?.files?.find(file => file.path === this.pendingWatchedFilePath);
-    if (
-      !watchedTorrent ||
-      !watchedTorrent.created_at ||
-      !watchedFile ||
-      (watchedFile.viewed_at || null) !== this.pendingWatchedFileViewedAt
-    ) {
+    if (!watchedTorrent || !isPersistedTorrent(watchedTorrent)) {
       this.pendingWatchedTorrentHash = null;
       return torrents;
     }
-    return TorrPlayTorrentsComponent.placeFirstAmongSaved(torrents, watchedTorrent);
+    return TorstTorrentsComponent.placeFirstAmongSaved(torrents, watchedTorrent);
   }
 
   /** Returns `torrents` itself when `watchedTorrent` already leads the saved torrents. */
   private static placeFirstAmongSaved(torrents: Torrent[], watchedTorrent: Torrent): Torrent[] {
-    const firstSavedIndex = torrents.findIndex(torrent => !!torrent.created_at);
+    const firstSavedIndex = torrents.findIndex(torrent => isPersistedTorrent(torrent));
     if (torrents[firstSavedIndex] === watchedTorrent) return torrents;
     const reorderedTorrents = torrents.filter(torrent => torrent !== watchedTorrent);
     reorderedTorrents.splice(firstSavedIndex, 0, watchedTorrent);
@@ -783,11 +719,11 @@ export class TorrPlayTorrentsComponent {
 
   private openTorrentSafely(torrent: Torrent): void {
     void this.openTorrent(torrent).catch((err: unknown) => {
-      console.error('[TorrPlay] Failed to open torrent:', err);
+      console.error('[Torst] Failed to open torrent:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (Lampa.Noty) {
         Lampa.Noty.show(
-          translate('torrplay_noty_error', `TorrPlay: ${errorMessage}`, { msg: errorMessage })
+          translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
         );
       }
     });
@@ -796,12 +732,16 @@ export class TorrPlayTorrentsComponent {
   public async openTorrent(torrent: Torrent): Promise<void> {
     const fileListRequestId = ++this.fileListRequestId;
     const sourceInstance = this.activeInstance || undefined;
+    if (!torrent.files?.length && sourceInstance) {
+      torrent = await TorstApi.getTorrent(sourceInstance, torrent.hash);
+      if (fileListRequestId !== this.fileListRequestId || this.isDestroyed) return;
+    }
     const torrentFiles = torrent.files || [];
     const sortedFiles = selectVideoFiles(torrentFiles);
 
     if (torrentFiles.length > 0 && sortedFiles.length === 0) {
       if (Lampa.Noty) {
-        Lampa.Noty.show(translate('torrplay_noty_no_video', 'No video files found in torrent'));
+        Lampa.Noty.show(translate('torst_noty_no_video', 'No video files found in torrent'));
       }
       return;
     }
@@ -832,7 +772,7 @@ export class TorrPlayTorrentsComponent {
     });
   }
 
-  public async openContextMenu(torrent: Torrent, instance: TorrPlayInstance, cardElement: LampaDomElement): Promise<void> {
+  public async openContextMenu(torrent: Torrent, instance: TorstInstance, cardElement: LampaDomElement): Promise<void> {
     // A card binds this to both a long press and a context menu event, so a single gesture can
     // enter here twice. Only the first entry sees the real polling state; a later one would
     // record a stopped poller and leave refreshes suspended after the menu closes.
@@ -843,17 +783,13 @@ export class TorrPlayTorrentsComponent {
     this.contextMenuOpen = true;
     this.stopPolling();
 
-    if (instance && (typeof instance.fileStoragePath !== 'string' || typeof instance.enableDownloader !== 'boolean')) {
+    if (instance && (typeof instance.enableDownloader !== 'boolean')) {
       try {
-        const instanceSettings = await TorrPlayApi.getSettings(instance);
+        const instanceSettings = await TorstApi.getSettings(instance);
         if (instanceSettings) {
           let changed = false;
-          if (typeof instanceSettings.file_storage_path === 'string') {
-            instance.fileStoragePath = instanceSettings.file_storage_path;
-            changed = true;
-          }
-          if (typeof instanceSettings.enable_downloader === 'boolean') {
-            instance.enableDownloader = instanceSettings.enable_downloader;
+          if (typeof instanceSettings.background_downloads === 'boolean') {
+            instance.enableDownloader = instanceSettings.background_downloads;
             changed = true;
           }
           if (changed) {
@@ -863,35 +799,30 @@ export class TorrPlayTorrentsComponent {
       } catch {} // Best-effort settings prefetch — failure is non-fatal; context menu opens with defaults.
     }
 
-    const rawStoragePath = instance && typeof instance.fileStoragePath === 'string' ? instance.fileStoragePath : '';
-    const fileStoragePath = String(rawStoragePath).trim();
-    const isFileStorageConfigured = fileStoragePath.length > 0;
     const hasKnownStorage = torrent.storage === 'memory' || torrent.storage === 'file';
-    // The listing also covers torrents merely loaded in the torrent client. Those have no
-    // database row for the server to patch, so a storage switch would only fail on them.
     const isPersisted = isPersistedTorrent(torrent);
 
     const items: Array<{ action: string, subtitle?: string, title: string }> = [];
 
     items.push(describeViewedAction(isTorrentViewed(torrent.hash)));
 
-    if (isPersisted && hasKnownStorage && isFileStorageConfigured) {
+    if (isPersisted && hasKnownStorage) {
       const isFile = torrent.storage === 'file';
       items.push({
         action: 'switch-storage',
         subtitle: isFile
-          ? translate('torrplay_menu_switch_ram_descr', 'Currently stored on disk')
-          : translate('torrplay_menu_switch_disk_descr', 'Currently stored in RAM'),
+          ? translate('torst_menu_switch_ram_descr', 'Currently stored on disk')
+          : translate('torst_menu_switch_disk_descr', 'Currently stored in RAM'),
         title: isFile
-          ? translate('torrplay_menu_switch_ram', 'Switch to RAM')
-          : translate('torrplay_menu_switch_disk', 'Switch to Disk'),
+          ? translate('torst_menu_switch_ram', 'Switch to RAM')
+          : translate('torst_menu_switch_disk', 'Switch to Disk'),
       });
     }
 
     items.push({
       action: 'delete',
-      subtitle: translate('torrplay_menu_delete_descr', 'Remove torrent and its downloaded data'),
-      title: translate('torrplay_menu_delete', 'Delete from TorrPlay'),
+      subtitle: translate('torst_menu_delete_descr', 'Remove torrent and its downloaded data'),
+      title: translate('torst_menu_delete', 'Delete from Torst'),
     });
 
     const menuTitle = typeof Lampa !== 'undefined' && Lampa.Lang?.translate
@@ -914,7 +845,7 @@ export class TorrPlayTorrentsComponent {
         } else if (selectedItem.action === 'switch-storage') {
           const nextStorage: TorrentStorage = torrent.storage === 'memory' ? 'file' : 'memory';
           try {
-            await TorrPlayApi.updateTorrent(instance, torrent.hash, { storage: nextStorage });
+            await TorstApi.updateTorrent(instance, torrent.hash, { storage: nextStorage });
             torrent.storage = nextStorage;
             if (cardElement && typeof cardElement.find === 'function') {
               if (nextStorage === 'file') {
@@ -922,7 +853,7 @@ export class TorrPlayTorrentsComponent {
                 if (!cardType || cardType.length === 0) {
                   const cardView = cardElement.find('.card__view');
                   if (cardView && typeof cardView.append === 'function') {
-                    cardView.append(TORRPLAY_STORAGE_BADGE);
+                    cardView.append(TORST_STORAGE_BADGE);
                   }
                 }
               } else {
@@ -933,28 +864,28 @@ export class TorrPlayTorrentsComponent {
               }
             }
             const storageLabel = nextStorage === 'file'
-              ? translate('torrplay_storage_type_disk', 'Disk')
-              : translate('torrplay_storage_type_ram', 'RAM');
-            Lampa.Noty.show(translate('torrplay_noty_storage_switched', `Storage switched to ${storageLabel}`, { storage: storageLabel }));
+              ? translate('torst_storage_type_disk', 'Disk')
+              : translate('torst_storage_type_ram', 'RAM');
+            Lampa.Noty.show(translate('torst_noty_storage_switched', `Storage switched to ${storageLabel}`, { storage: storageLabel }));
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : String(err);
-            Lampa.Noty.show(translate('torrplay_noty_storage_switch_failed', `Failed to switch storage: ${errorMessage}`, { msg: errorMessage }));
+            Lampa.Noty.show(translate('torst_noty_storage_switch_failed', `Failed to switch storage: ${errorMessage}`, { msg: errorMessage }));
           }
           this.returnToContent();
         } else if (selectedItem.action === 'delete') {
           try {
-            await TorrPlayApi.deleteTorrent(instance, torrent.hash);
+            await TorstApi.deleteTorrent(instance, torrent.hash);
             if (this.isRoutedInstance(instance)) SavedTorrents.markUnsaved(torrent.hash, instance.id);
             if (cardElement && typeof cardElement.remove === 'function') {
               cardElement.remove();
             }
-            Lampa.Noty.show(translate('torrplay_noty_deleted_from_tp', 'Torrent deleted from TorrPlay'));
+            Lampa.Noty.show(translate('torst_noty_deleted_from_tp', 'Torrent deleted from Torst'));
             if (this.contentGrid.find('.card').length === 0) {
               this.renderNoTorrentsState();
             }
           } catch (err: unknown) {
             const errorMessage = err instanceof Error ? err.message : String(err);
-            Lampa.Noty.show(translate('torrplay_noty_delete_failed', `Failed to delete: ${errorMessage}`, { msg: errorMessage }));
+            Lampa.Noty.show(translate('torst_noty_delete_failed', `Failed to delete: ${errorMessage}`, { msg: errorMessage }));
           }
           this.returnToContent();
         }

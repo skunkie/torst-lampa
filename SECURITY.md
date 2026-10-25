@@ -8,18 +8,14 @@ SPDX-License-Identifier: MIT
 
 ## Supported versions
 
-Security fixes go into the next
-[release](https://github.com/torrplay/lampa-plugin/releases), and an older
-release is not patched separately. The plugin address published with the
-project always serves the latest release, so Lampa picks a fix up the next
-time it starts; the development channel gets it as soon as it is merged. A
-self-hosted copy of the script keeps running whatever version was copied, so
-replace it after a fix is released.
+Torst and this plugin are unreleased and in active development. Security fixes
+target the current development branch; older development snapshots are not
+maintained. Update self-hosted copies of the plugin after a fix is merged.
 
 ## Reporting a vulnerability
 
 Report a vulnerability privately, through GitHub's [private vulnerability
-reporting](https://github.com/torrplay/lampa-plugin/security/advisories/new),
+reporting](https://github.com/torrplay/torst-lampa/security/advisories/new),
 not in a public issue, pull request or discussion. If that form is
 unavailable to you, contact a maintainer directly through the contact details
 on their GitHub profile, or open an issue that asks for a private channel and
@@ -28,7 +24,7 @@ leaves the details out of it.
 A useful report includes:
 
 - the plugin version, build date and commit, shown in Lampa under
-  Settings → TorrPlay → About Plugin;
+  Settings → Torst → About Plugin;
 - the platform (Android TV, Tizen, webOS or a desktop browser), the device
   and the Lampa build;
 - the settings involved, such as the authentication mode and playback mode,
@@ -36,7 +32,7 @@ A useful report includes:
 - the steps or the server response that trigger the problem, and what
   happened;
 - what an attacker gains, and what they need first, such as control of a
-  TorrPlay instance, a search provider, or another plugin loaded in the same
+  Torst instance, a search provider, or another plugin loaded in the same
   Lampa.
 
 Leave out passwords, tokens, provider API keys and private instance
@@ -49,15 +45,15 @@ accepted. An accepted report is fixed in a release and disclosed in a GitHub
 security advisory, which credits you unless you ask otherwise. Please keep the
 details private until that advisory is published.
 
-A vulnerability in the TorrPlay server itself belongs to the
-[TorrPlay project](https://github.com/torrplay/torrplay); report it to that
+A vulnerability in the Torst server itself belongs to the
+[Torst project](https://github.com/torrplay/torst); report it to that
 project privately, not here and not in a public issue.
 
 ## Scope
 
 In scope is anything that lets data the plugin receives do more than display
 or play what it describes. Torrent names, file lists, search results and
-server responses come from TorrPlay instances, Jackett or Prowlarr providers,
+server responses come from Torst instances, Jackett or Prowlarr providers,
 trackers and TMDB, none of which the plugin trusts with Lampa itself. For
 example:
 
@@ -83,10 +79,10 @@ Out of scope:
   goes by design: to an external player, and into Lampa's own watch history;
 - an instance or provider reached over plain HTTP, which the user chose when
   adding it;
-- an attacker who already controls the TorrPlay instance or search provider
+- an attacker who already controls the Torst instance or search provider
   the user configured, for anything beyond the cases listed as in scope, such
   as serving a different stream or wrong search results;
-- vulnerabilities in Lampa, in the TorrPlay server, in Jackett, Prowlarr or a
+- vulnerabilities in Lampa, in the Torst server, in Jackett, Prowlarr or a
   tracker, which belong to their own projects;
 - findings from automated scanners with no demonstrated impact;
 - anything about the content a tracker indexes.

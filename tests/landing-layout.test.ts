@@ -36,7 +36,7 @@ interface LayoutResult extends LayoutCase {
 const CHROME_EXECUTABLE = process.env.CHROME_BIN || 'google-chrome';
 
 function measureNavbarLayouts(cases: LayoutCase[]): LayoutResult[] {
-  const directory = mkdtempSync(join(tmpdir(), 'torrplay-layout-'));
+  const directory = mkdtempSync(join(tmpdir(), 'torst-layout-'));
   try {
     const frames = cases.map(testCase => {
       const html = generateLandingPage(testCase.version, undefined, testCase.channel);

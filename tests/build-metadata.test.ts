@@ -67,7 +67,7 @@ describe('Build Metadata', () => {
     assert.equal(resolveRepository({}, () => {
       throw new Error('No remote');
     }), DEFAULT_REPOSITORY);
-    assert.equal(DEFAULT_REPOSITORY, 'torrplay/lampa-plugin');
+    assert.equal(DEFAULT_REPOSITORY, 'torrplay/torst-lampa');
   });
 
   it('rejects remote URLs that do not name a repository on GitHub', () => {

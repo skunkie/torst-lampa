@@ -14,7 +14,7 @@ body:
     id: version
     attributes:
       label: Plugin version
-      description: Shown in Lampa under Settings → TorrPlay → About Plugin, with the build date and commit.
+      description: Shown in Lampa under Settings → Torst → About Plugin, with the build date and commit.
     validations:
       required: true
   - type: dropdown
@@ -39,13 +39,13 @@ body:
   - type: input
     id: server
     attributes:
-      label: TorrPlay server version
+      label: Torst server version
       description: Leave empty if the problem does not involve playback or the torrent list.
   - type: textarea
     id: settings
     attributes:
       label: Settings involved
-      description: Anything from Settings → TorrPlay that bears on the problem, such as the player choice, storage type, database persistence, preload, the authentication mode of the instance, or the search providers configured.
+      description: Anything from Settings → Torst that bears on the problem, such as the player choice, storage type, database persistence, preload, the authentication mode of the instance, or the search providers configured.
   - type: textarea
     id: steps
     attributes:

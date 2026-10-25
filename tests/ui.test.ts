@@ -6,35 +6,35 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { NetworkError } from '../src/api/http-client';
-import { TorrPlayApi } from '../src/api/torrplay';
+import { TorstApi } from '../src/api/torst';
 import { DATABASE_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/database-search';
 import { SavedTorrents } from '../src/engine/saved-torrents';
-import { TorrPlayEngine } from '../src/engine/torrplay-engine';
+import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
 import { PROVIDER_SEARCH_ENABLED_STORAGE_KEY, ProviderManager } from '../src/providers/provider-manager';
-import type { TorrPlayInstance } from '../src/types/torrplay';
+import type { TorrentUpdate, TorstInstance } from '../src/types/torst';
 import { CatalogChoice } from '../src/ui/catalog-choice';
 import { InstancePoolUi } from '../src/ui/instance-pool';
 import { SAVE_TO_DATABASE_STORAGE_KEY } from '../src/ui/play-dialog';
 import {
-  TORRPLAY_ACTIVE_BADGE,
-  TORRPLAY_STORAGE_BADGE,
-  TORRPLAY_STORAGE_BADGE_ICON,
+  TORST_STORAGE_BADGE,
+  TORST_STORAGE_BADGE_ICON,
 } from '../src/ui/saved-torrent-card';
 import {
   describeConnectionStatus,
   PLAYBACK_MODE_STORAGE_KEY,
   SettingsUi,
-  TORRPLAY_ENABLED_STORAGE_KEY,
-  TORRPLAY_ICON,
-  TORRPLAY_SETTINGS_COMPONENT_ID,
+  TORST_ENABLED_STORAGE_KEY,
+  TORST_ICON,
+  TORST_SETTINGS_COMPONENT_ID,
 } from '../src/ui/settings';
 import { SidebarManager } from '../src/ui/sidebar';
 import {
   getNavigator,
-  TORRPLAY_TORRENTS_COMPONENT_ID,
-  TorrPlayTorrentsComponent,
-} from '../src/ui/torrplay-torrents';
+  TORST_TORRENTS_COMPONENT_ID,
+  TorstTorrentsComponent,
+} from '../src/ui/torst-torrents';
+import { createTorstTorrent } from './support/torst';
 import { createTestLanguage, getTestTranslation } from './support/translations';
 
 const NATIVE_TRANSLATIONS = {
@@ -75,7 +75,7 @@ describe('UI & Settings Integration', () => {
       Input: {
         edit: (options: any, callback: any) => {
           lastInputOptions = options;
-          callback('http://192.168.1.200:8090');
+          callback('http://192.168.1.200:8080');
         },
       },
       Lang: createTestLanguage('en', NATIVE_TRANSLATIONS),
@@ -116,47 +116,48 @@ describe('UI & Settings Integration', () => {
   });
 
   afterEach(() => {
-    TorrPlayApi.resetForTesting();
+    mock.restoreAll();
+    TorstApi.resetForTesting();
     globalThis.fetch = originalFetch;
   });
 
-  it('registers TorrPlay settings component and pool-only parameters', () => {
+  it('registers Torst settings component and pool-only parameters', () => {
     SettingsUi.init();
 
-    assert.ok(registeredComponents.has(TORRPLAY_SETTINGS_COMPONENT_ID));
-    const settingsComponent = registeredComponents.get(TORRPLAY_SETTINGS_COMPONENT_ID);
-    assert.equal(settingsComponent.name, 'TorrPlay');
+    assert.ok(registeredComponents.has(TORST_SETTINGS_COMPONENT_ID));
+    const settingsComponent = registeredComponents.get(TORST_SETTINGS_COMPONENT_ID);
+    assert.equal(settingsComponent.name, 'Torst');
     assert.equal(settingsComponent.before, 'tmdb');
     assert.ok(settingsComponent.icon.includes('viewBox="0 0 24 24"'));
     assert.ok(settingsComponent.icon.includes('stroke="white"'));
     assert.ok(settingsComponent.icon.includes('fill="white"'));
     assert.ok(settingsComponent.icon.includes('fill-rule="evenodd"'));
     assert.ok(!settingsComponent.icon.includes('#00e676'));
-    assert.equal(settingsComponent.icon, TORRPLAY_ICON);
+    assert.equal(settingsComponent.icon, TORST_ICON);
 
     const parameterNames = registeredParams.map(parameter => parameter.param.name);
-    assert.ok(parameterNames.includes(TORRPLAY_ENABLED_STORAGE_KEY));
+    assert.ok(parameterNames.includes(TORST_ENABLED_STORAGE_KEY));
     assert.ok(parameterNames.includes(DATABASE_SEARCH_ENABLED_STORAGE_KEY));
     const databaseSearchParam = registeredParams.find(parameter => parameter.param.name === DATABASE_SEARCH_ENABLED_STORAGE_KEY);
     assert.equal(databaseSearchParam.param.type, 'trigger');
     assert.equal(databaseSearchParam.param.default, false);
     assert.ok(!parameterNames.includes(PROVIDER_SEARCH_ENABLED_STORAGE_KEY));
-    assert.ok(parameterNames.includes('torrplay_selection_mode'));
-    assert.ok(parameterNames.includes('torrplay_instances_btn'));
-    assert.ok(parameterNames.includes('torrplay_providers_btn'));
-    assert.ok(parameterNames.includes('torrplay_about_btn'));
-    assert.ok(!parameterNames.includes('torrplay_ping_btn'));
-    assert.ok(!parameterNames.includes('torrplay_preload_enabled'));
+    assert.ok(parameterNames.includes('torst_selection_mode'));
+    assert.ok(parameterNames.includes('torst_instances_btn'));
+    assert.ok(parameterNames.includes('torst_providers_btn'));
+    assert.ok(parameterNames.includes('torst_about_btn'));
+    assert.ok(!parameterNames.includes('torst_ping_btn'));
+    assert.ok(!parameterNames.includes('torst_preload_enabled'));
     const playbackModeParam = registeredParams.find(parameter => parameter.param.name === PLAYBACK_MODE_STORAGE_KEY);
     assert.ok(playbackModeParam);
-    assert.equal(playbackModeParam.param.default, 'torrplay');
-    assert.ok(!parameterNames.includes('torrplay_file_storage_path'));
+    assert.equal(playbackModeParam.param.default, 'torst');
+    assert.ok(!parameterNames.includes('torst_file_storage_path'));
 
     const saveToDbParam = registeredParams.find(parameter => parameter.param.name === SAVE_TO_DATABASE_STORAGE_KEY);
     assert.ok(saveToDbParam);
     assert.equal(saveToDbParam.param.default, 'false');
-    assert.equal(saveToDbParam.field.name, getTestTranslation('torrplay_save_to_db_name'));
-    assert.deepEqual(saveToDbParam.param.values, { ask: getTestTranslation('torrplay_save_to_db_ask'), false: getTestTranslation('torrplay_save_to_db_false'), true: getTestTranslation('torrplay_save_to_db_true') });
+    assert.equal(saveToDbParam.field.name, getTestTranslation('torst_save_to_db_name'));
+    assert.deepEqual(saveToDbParam.param.values, { ask: getTestTranslation('torst_save_to_db_ask'), false: getTestTranslation('torst_save_to_db_false'), true: getTestTranslation('torst_save_to_db_true') });
 
     // Verify button parameters use onChange without redundant onRender click handlers
     const buttonParams = registeredParams.filter(parameter => parameter.param.type === 'button');
@@ -170,7 +171,7 @@ describe('UI & Settings Integration', () => {
   it('shows plugin version and build info via the About Plugin button', () => {
     SettingsUi.init();
 
-    const aboutButton = registeredParams.find(parameter => parameter.param.name === 'torrplay_about_btn');
+    const aboutButton = registeredParams.find(parameter => parameter.param.name === 'torst_about_btn');
     assert.ok(aboutButton && aboutButton.onChange);
 
     let toggledController = '';
@@ -181,17 +182,17 @@ describe('UI & Settings Integration', () => {
 
     aboutButton.onChange();
     assert.ok(lastSelectOptions);
-    assert.ok(lastSelectOptions.title.includes(getTestTranslation('torrplay_about_title')));
+    assert.ok(lastSelectOptions.title.includes(getTestTranslation('torst_about_title')));
 
-    const versionItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torrplay_about_version'));
+    const versionItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_version'));
     assert.ok(versionItem, 'About screen must show the plugin version');
     assert.equal(typeof versionItem.subtitle, 'string');
     assert.ok(versionItem.subtitle.length > 0);
 
-    const buildDateItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torrplay_about_build_date'));
+    const buildDateItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_build_date'));
     assert.ok(buildDateItem, 'About screen must show the build date');
 
-    const commitItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torrplay_about_build_commit'));
+    const commitItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_build_commit'));
     assert.ok(commitItem, 'About screen must show the build commit');
 
     const backAction = lastSelectOptions.items.find((i: any) => i.action === 'back');
@@ -211,22 +212,22 @@ describe('UI & Settings Integration', () => {
   it('opens TV-friendly instance pool manager via Lampa.Select', () => {
     SettingsUi.init();
 
-    const poolButton = registeredParams.find(parameter => parameter.param.name === 'torrplay_instances_btn');
+    const poolButton = registeredParams.find(parameter => parameter.param.name === 'torst_instances_btn');
     assert.ok(poolButton && poolButton.onChange);
 
     poolButton.onChange();
     assert.ok(lastSelectOptions);
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_pool_title', { mode: getTestTranslation('torrplay_pool_auto_mode') }));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_pool_title', { mode: getTestTranslation('torst_pool_auto_mode') }));
     assert.ok(lastSelectOptions.items.length >= 4); // Add instance, Test all, at least 1 instance, and Back
     assert.equal(typeof lastSelectOptions.onBack, 'function');
 
     const backAction = lastSelectOptions.items.find((i: any) => i.action === 'back');
     assert.ok(backAction);
-    assert.ok(backAction.title.includes(getTestTranslation('torrplay_back')));
+    assert.ok(backAction.title.includes(getTestTranslation('torst_back')));
 
     const addAction = lastSelectOptions.items.find((i: any) => i.action === 'add');
     assert.ok(addAction);
-    assert.ok(addAction.title.includes(getTestTranslation('torrplay_add_instance')));
+    assert.ok(addAction.title.includes(getTestTranslation('torst_add_instance')));
 
     const instanceItem = lastSelectOptions.items.find((i: any) => i.action === 'instance');
     assert.ok(instanceItem);
@@ -242,7 +243,8 @@ describe('UI & Settings Integration', () => {
     assert.ok(actionNames.includes('edit_name'));
     assert.ok(actionNames.includes('edit_url'));
     assert.ok(actionNames.includes('edit_auth'));
-    assert.ok(actionNames.includes('edit_storage_path'));
+    assert.ok(!actionNames.includes('edit_storage_path'));
+    assert.ok(!actionNames.includes('edit_username'));
     assert.ok(actionNames.includes('toggle_downloader'));
     assert.ok(!actionNames.includes('toggle_enabled'));
     assert.ok(actionNames.includes('delete'));
@@ -254,17 +256,17 @@ describe('UI & Settings Integration', () => {
     assert.ok(addInstanceBtn);
     lastSelectOptions.onSelect(addInstanceBtn);
     assert.ok(lastInputOptions);
-    assert.equal(lastInputOptions.title, getTestTranslation('torrplay_edit_name'));
+    assert.equal(lastInputOptions.title, getTestTranslation('torst_edit_name'));
   });
 
   it('displays active instance indicators in the pool list across modes', () => {
     const instances = InstanceManager.getInstances();
     const firstInstance = instances[0];
-    const secondInstance: TorrPlayInstance = {
+    const secondInstance: TorstInstance = {
       authType: 'none',
       id: 'inst-2',
       name: 'Second Node',
-      url: 'http://second.local:8090',
+      url: 'http://second.local:8080',
     };
     InstanceManager.addInstance(secondInstance);
 
@@ -275,9 +277,9 @@ describe('UI & Settings Integration', () => {
     InstancePoolUi.openPoolManager();
     const firstItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === firstInstance.id);
     const secondItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === secondInstance.id);
-    assert.ok(firstItem.title.includes(getTestTranslation('torrplay_active_badge')));
+    assert.ok(firstItem.title.includes(getTestTranslation('torst_active_badge')));
     assert.equal(firstItem.selected, true);
-    assert.equal(secondItem.title.includes(getTestTranslation('torrplay_active_badge')), false);
+    assert.equal(secondItem.title.includes(getTestTranslation('torst_active_badge')), false);
     assert.equal(secondItem.selected, false);
 
     // "Change Active Instance" is only offered in manual mode
@@ -295,7 +297,7 @@ describe('UI & Settings Integration', () => {
 
     InstancePoolUi.openPoolManager();
     const autoFirstItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === firstInstance.id);
-    assert.ok(autoFirstItem.title.includes(getTestTranslation('torrplay_active_auto_badge')));
+    assert.ok(autoFirstItem.title.includes(getTestTranslation('torst_active_auto_badge')));
     assert.equal(autoFirstItem.selected, true);
     assert.ok(!lastSelectOptions.items.some((item: any) => item.action === 'set_active'));
 
@@ -303,20 +305,19 @@ describe('UI & Settings Integration', () => {
   });
 
   it('describes connection status from status and latency', () => {
-    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'online' }), getTestTranslation('torrplay_latency_ms', { latency: 42 }));
-    assert.equal(describeConnectionStatus({ latencyMs: Infinity, status: 'online' }), getTestTranslation('torrplay_status_unknown'));
-    assert.equal(describeConnectionStatus({ status: 'online' }), getTestTranslation('torrplay_status_unknown'));
-    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'offline' }), getTestTranslation('torrplay_status_offline'));
-    assert.equal(describeConnectionStatus({ status: 'checking' }), getTestTranslation('torrplay_status_checking'));
-    assert.equal(describeConnectionStatus({}), getTestTranslation('torrplay_status_unknown'));
+    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'online' }), getTestTranslation('torst_latency_ms', { latency: 42 }));
+    assert.equal(describeConnectionStatus({ latencyMs: Infinity, status: 'online' }), getTestTranslation('torst_status_unknown'));
+    assert.equal(describeConnectionStatus({ status: 'online' }), getTestTranslation('torst_status_unknown'));
+    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'offline' }), getTestTranslation('torst_status_offline'));
+    assert.equal(describeConnectionStatus({ status: 'checking' }), getTestTranslation('torst_status_checking'));
+    assert.equal(describeConnectionStatus({}), getTestTranslation('torst_status_unknown'));
   });
 
   it('shows the current authentication mode in the instance actions', () => {
     const instance = InstanceManager.getInstances()[0];
-    const expectedModes: Array<[TorrPlayInstance['authType'], string]> = [
-      ['none', getTestTranslation('torrplay_current_value', { value: getTestTranslation('torrplay_auth_none') })],
-      ['basic', getTestTranslation('torrplay_current_value', { value: 'Basic' })],
-      ['bearer', getTestTranslation('torrplay_current_value', { value: 'Bearer' })],
+    const expectedModes: Array<[TorstInstance['authType'], string]> = [
+      ['none', getTestTranslation('torst_current_value', { value: getTestTranslation('torst_auth_none') })],
+      ['bearer', getTestTranslation('torst_current_value', { value: 'Bearer' })],
     ];
 
     for (const [authType, expectedSubtitle] of expectedModes) {
@@ -335,7 +336,7 @@ describe('UI & Settings Integration', () => {
 
     InstancePoolUi.openPoolManager();
     const poolItem = lastSelectOptions.items.find((item: any) => item.action === 'instance');
-    assert.equal(poolItem.subtitle, `${instance.url} · ${getTestTranslation('torrplay_status_unknown')}`);
+    assert.equal(poolItem.subtitle, `${instance.url} · ${getTestTranslation('torst_status_unknown')}`);
   });
 
   it('shows the authentication mode in English when no translation is available', () => {
@@ -351,7 +352,7 @@ describe('UI & Settings Integration', () => {
 
   it('localizes the latency unit and authentication tag in the pool list and the active instance picker', () => {
     const instance = InstanceManager.getInstances()[0];
-    instance.authType = 'basic';
+    instance.authType = 'bearer';
     instance.status = 'online';
     instance.latencyMs = 20;
     InstanceManager.updateInstance(instance);
@@ -360,7 +361,7 @@ describe('UI & Settings Integration', () => {
     try {
       InstancePoolUi.openPoolManager();
       const poolItem = lastSelectOptions.items.find((item: any) => item.action === 'instance');
-      const expectedSubtitle = `${instance.url} · ${getTestTranslation('torrplay_latency_ms', { latency: 20 }, 'ru')} · ${getTestTranslation('torrplay_auth_tag', { mode: 'Basic' }, 'ru')}`;
+      const expectedSubtitle = `${instance.url} · ${getTestTranslation('torst_latency_ms', { latency: 20 }, 'ru')} · ${getTestTranslation('torst_auth_tag', { mode: 'Bearer' }, 'ru')}`;
       assert.equal(poolItem.subtitle, expectedSubtitle);
 
       InstanceManager.setMode('manual');
@@ -374,11 +375,11 @@ describe('UI & Settings Integration', () => {
   it('picks the active instance via promptSelectActiveInstance', () => {
     const instances = InstanceManager.getInstances();
     const firstInstance = instances[0];
-    const secondInstance: TorrPlayInstance = {
+    const secondInstance: TorstInstance = {
       authType: 'none',
       id: 'inst-2',
       name: 'Second Node',
-      url: 'http://second.local:8090',
+      url: 'http://second.local:8080',
     };
     InstanceManager.addInstance(secondInstance);
 
@@ -386,10 +387,10 @@ describe('UI & Settings Integration', () => {
     InstanceManager.setSelectedId(firstInstance.id);
 
     InstancePoolUi.promptSelectActiveInstance();
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_select_active_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_select_active_title'));
     const activeItem = lastSelectOptions.items.find((item: any) => item.data.id === firstInstance.id);
     const inactiveItem = lastSelectOptions.items.find((item: any) => item.data.id === secondInstance.id);
-    assert.ok(activeItem.title.includes(getTestTranslation('torrplay_active_badge')));
+    assert.ok(activeItem.title.includes(getTestTranslation('torst_active_badge')));
     assert.equal(activeItem.selected, true);
     assert.equal(inactiveItem.selected, false);
 
@@ -402,7 +403,7 @@ describe('UI & Settings Integration', () => {
   it('switching Instance Selection to manual opens the active instance picker', () => {
     SettingsUi.init();
 
-    const selectionModeParam = registeredParams.find(parameter => parameter.param.name === 'torrplay_selection_mode');
+    const selectionModeParam = registeredParams.find(parameter => parameter.param.name === 'torst_selection_mode');
     assert.ok(selectionModeParam && selectionModeParam.onChange);
 
     lastSelectOptions = null;
@@ -413,12 +414,12 @@ describe('UI & Settings Integration', () => {
     selectionModeParam.onChange('manual');
     assert.equal(InstanceManager.getMode(), 'manual');
     assert.ok(lastSelectOptions);
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_select_active_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_select_active_title'));
   });
 
   it('masks passwords in the native Lampa input', () => {
     const instance = InstanceManager.getInstances()[0];
-    instance.authType = 'basic';
+    instance.authType = 'bearer';
     instance.password = 'secret';
     (globalThis as any).Lampa.Input.edit = (options: any) => {
       lastInputOptions = options;
@@ -432,70 +433,34 @@ describe('UI & Settings Integration', () => {
     assert.equal(lastInputOptions.value, 'secret');
   });
 
-  for (const action of ['edit_auth', 'edit_username', 'edit_password']) {
+  for (const action of ['edit_auth', 'edit_password']) {
     it(`invalidates cached authentication and playback tokens on ${action}`, () => {
       const instance = InstanceManager.getInstances()[0];
       Object.assign(instance, {
-        authType: 'bearer', enableDownloader: false, fileStoragePath: '/storage',
-        jwtExpiresAtMs: Date.now() + 60000, jwtToken: 'jwt', password: 'old-password',
-        playbackToken: 'playback', playbackTokenExpiresAtMs: Date.now() + 60000, username: 'old-user',
+        accessToken: 'access-token', accessTokenExpiresAtMs: Date.now() + 60000, authType: 'bearer',
+        enableDownloader: false, password: 'old-password',
+        playbackToken: 'playback', playbackTokenExpiresAtMs: Date.now() + 60000,
       });
       (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => callback('new-value');
 
       InstancePoolUi.openInstanceActions(instance);
       lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === action));
       if (action === 'edit_auth') {
-        lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.auth === 'basic'));
-        assert.equal(instance.authType, 'basic');
+        lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.auth === 'none'));
+        assert.equal(instance.authType, 'none');
       } else {
-        assert.equal(action === 'edit_username' ? instance.username : instance.password, 'new-value');
+        assert.equal(instance.password, 'new-value');
       }
 
-      assert.equal(instance.jwtToken, undefined);
-      assert.equal(instance.jwtExpiresAtMs, undefined);
+      assert.equal(instance.accessToken, undefined);
+      assert.equal(instance.accessTokenExpiresAtMs, undefined);
       assert.equal(instance.playbackToken, undefined);
       assert.equal(instance.playbackTokenExpiresAtMs, undefined);
     });
   }
 
-  it('edits file storage path in instance actions and updates TorrPlay instance', async () => {
-    const instance = InstanceManager.getInstances()[0];
-    instance.fileStoragePath = '/initial/path';
-    let patchedBody = '';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/settings')) {
-        if (init?.method === 'PATCH') {
-          patchedBody = String(init.body || '');
-          return new Response(null, { status: 204 });
-        }
-        return new Response(JSON.stringify({ file_storage_path: '/initial/path' }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    (globalThis as any).Lampa.Input.edit = (options: any, callback: any) => {
-      lastInputOptions = options;
-      callback('/new/storage/path');
-    };
-
-    InstancePoolUi.openInstanceActions(instance);
-    const storagePathAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_storage_path');
-    assert.ok(storagePathAction);
-    assert.ok(storagePathAction.subtitle.includes('/initial/path'));
-
-    lastSelectOptions.onSelect(storagePathAction);
-    await new Promise(resolve => setTimeout(resolve, 20));
-
-    assert.equal(lastInputOptions.value, '/initial/path');
-    assert.equal(instance.fileStoragePath, '/new/storage/path');
-    assert.equal(patchedBody, JSON.stringify({ file_storage_path: '/new/storage/path' }));
-  });
-
-  it('toggles enable downloader in instance actions and updates TorrPlay instance', async () => {
+  it('toggles enable downloader in instance actions and updates Torst instance', async () => {
+    (globalThis as any).Lampa.Lang = createTestLanguage('ru', NATIVE_TRANSLATIONS);
     const instance = InstanceManager.getInstances()[0];
     instance.enableDownloader = false;
     let patchedBody = '';
@@ -508,41 +473,41 @@ describe('UI & Settings Integration', () => {
         patchedBody = String(init.body || '');
         return new Response(null, { status: 204 });
       }
-      return new Response(null, { status: 200 });
+      return new Response('{}', { headers: { ETag: '"set-test"' }, status: 200 });
     };
 
     InstancePoolUi.openInstanceActions(instance);
     const downloaderAction = lastSelectOptions.items.find((item: any) => item.action === 'toggle_downloader');
     assert.ok(downloaderAction);
-    assert.ok(downloaderAction.subtitle.includes(getTestTranslation('torrplay_status_disabled')));
-    assert.ok(downloaderAction.title.includes(getTestTranslation('torrplay_enable_downloader')));
+    assert.ok(downloaderAction.subtitle.includes(getTestTranslation('torst_status_disabled', {}, 'ru')));
+    assert.ok(downloaderAction.title.includes(getTestTranslation('torst_enable_downloader', {}, 'ru')));
 
     // Toggle to enabled
     lastSelectOptions.onSelect(downloaderAction);
     await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.equal(patchedBody, JSON.stringify({ enable_downloader: true }));
+    assert.equal(patchedBody, JSON.stringify({ background_downloads: true }));
     assert.equal(instance.enableDownloader, true);
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_downloader_enabled', { name: instance.name })));
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_enabled', { name: instance.name }, 'ru')));
 
     // Re-verify menu shows Enabled and title changes to Disable Background Downloader
     const updatedAction = lastSelectOptions.items.find((item: any) => item.action === 'toggle_downloader');
     assert.ok(updatedAction);
-    assert.ok(updatedAction.subtitle.includes(getTestTranslation('torrplay_status_enabled')));
-    assert.ok(updatedAction.title.includes(getTestTranslation('torrplay_disable_downloader')));
+    assert.ok(updatedAction.subtitle.includes(getTestTranslation('torst_status_enabled', {}, 'ru')));
+    assert.ok(updatedAction.title.includes(getTestTranslation('torst_disable_downloader', {}, 'ru')));
 
     // Toggle back to disabled
     lastSelectOptions.onSelect(updatedAction);
     await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.equal(patchedBody, JSON.stringify({ enable_downloader: false }));
+    assert.equal(patchedBody, JSON.stringify({ background_downloads: false }));
     assert.equal(instance.enableDownloader, false);
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_downloader_disabled', { name: instance.name })));
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_disabled', { name: instance.name }, 'ru')));
   });
 
   it('requires confirmation before adding an instance and lets Back cancel', () => {
     const before = InstanceManager.getInstances().length;
-    const values = ['http://bedroom.local:8090', 'Bedroom'];
+    const values = ['http://bedroom.local:8080', 'Bedroom'];
     (globalThis as any).Lampa.Input.edit = (options: any, callback: any) => {
       lastInputOptions = options;
       callback(values.shift());
@@ -550,7 +515,7 @@ describe('UI & Settings Integration', () => {
 
     InstancePoolUi.promptAddInstance();
 
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_confirm_add_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_confirm_add_title'));
     assert.equal(InstanceManager.getInstances().length, before);
     lastSelectOptions.onBack();
     assert.equal(InstanceManager.getInstances().length, before);
@@ -570,7 +535,7 @@ describe('UI & Settings Integration', () => {
 
     InstancePoolUi.promptAddInstance();
     assert.equal(InstanceManager.getInstances().length, before);
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_valid_url')));
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_valid_url')));
 
     InstancePoolUi.openInstanceActions(instance);
     const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
@@ -604,25 +569,25 @@ describe('UI & Settings Integration', () => {
     instance.status = 'online';
     instance.latencyMs = 42;
     instance.playbackToken = 'old-token';
-    instance.jwtToken = 'old-jwt';
+    instance.accessToken = 'old-access-token';
 
     const notyMessages: string[] = [];
     (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
 
     (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
-      callback('192.168.1.150:8090///');
+      callback('192.168.1.150:8080///');
     };
 
     InstancePoolUi.openInstanceActions(instance);
     const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
     lastSelectOptions.onSelect(editUrlAction);
 
-    assert.equal(instance.url, 'http://192.168.1.150:8090');
+    assert.equal(instance.url, 'http://192.168.1.150:8080');
     assert.equal(instance.status, 'unknown');
     assert.equal(instance.latencyMs, undefined);
     assert.equal(instance.playbackToken, undefined);
-    assert.equal(instance.jwtToken, undefined);
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_url_updated')));
+    assert.equal(instance.accessToken, undefined);
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_url_updated')));
   });
 
   it('allows correcting typos via re-prompting with previous input when URL is invalid', () => {
@@ -631,7 +596,7 @@ describe('UI & Settings Integration', () => {
     const notyMessages: string[] = [];
     (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
 
-    const inputs = ['http://typo:invalid-port', 'http://fixed.local:8090'];
+    const inputs = ['http://typo:invalid-port', 'http://fixed.local:8080'];
     const presentedValues: string[] = [];
 
     (globalThis as any).Lampa.Input.edit = (options: any, callback: any) => {
@@ -645,9 +610,9 @@ describe('UI & Settings Integration', () => {
 
     assert.equal(presentedValues[0], originalUrl);
     assert.equal(presentedValues[1], 'http://typo:invalid-port');
-    assert.equal(instance.url, 'http://fixed.local:8090');
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_valid_url')));
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_url_updated')));
+    assert.equal(instance.url, 'http://fixed.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_valid_url')));
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_url_updated')));
   });
 
   it('shows warning notification when edited instance is offline or unreachable', async () => {
@@ -661,7 +626,7 @@ describe('UI & Settings Integration', () => {
     };
 
     (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
-      callback('http://unreachable-host.local:8090');
+      callback('http://unreachable-host.local:8080');
     };
 
     InstancePoolUi.openInstanceActions(instance);
@@ -671,8 +636,8 @@ describe('UI & Settings Integration', () => {
     // Wait for health check promise
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    assert.equal(instance.url, 'http://unreachable-host.local:8090');
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_offline_warning')));
+    assert.equal(instance.url, 'http://unreachable-host.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_offline_warning')));
   });
 
   it('rejects duplicate URLs when adding or editing an instance', () => {
@@ -682,7 +647,7 @@ describe('UI & Settings Integration', () => {
       authType: 'none' as const,
       id: 'second-inst',
       name: 'Second Instance',
-      url: 'http://second.local:8090',
+      url: 'http://second.local:8080',
     };
     InstanceManager.addInstance(secondInstance);
 
@@ -698,8 +663,8 @@ describe('UI & Settings Integration', () => {
     const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
     lastSelectOptions.onSelect(editUrlAction);
 
-    assert.equal(secondInstance.url, 'http://second.local:8090');
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_duplicate_url')));
+    assert.equal(secondInstance.url, 'http://second.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_duplicate_url')));
 
     // Try to add an instance with already existing URL
     const beforeCount = InstanceManager.getInstances().length;
@@ -735,7 +700,7 @@ describe('UI & Settings Integration', () => {
       authType: 'none' as const,
       id: 'removable',
       name: 'Removable',
-      url: 'http://removable.local:8090',
+      url: 'http://removable.local:8080',
     };
     InstanceManager.addInstance(removable);
 
@@ -743,18 +708,18 @@ describe('UI & Settings Integration', () => {
     const deleteAction = lastSelectOptions.items.find((item: any) => item.action === 'delete');
     lastSelectOptions.onSelect(deleteAction);
 
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_confirm_delete_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_confirm_delete_title'));
     assert.ok(InstanceManager.getInstances().some(instance => instance.id === removable.id));
     const confirmAction = lastSelectOptions.items.find((item: any) => item.action === 'confirm_delete');
     lastSelectOptions.onSelect(confirmAction);
     assert.ok(!InstanceManager.getInstances().some(instance => instance.id === removable.id));
   });
 
-  it('registers TorrPlay Torrents component', () => {
+  it('registers Torst Torrents component', () => {
     (SidebarManager as any).isRegistered = false;
     SidebarManager.init();
 
-    assert.ok(customComponents.has(TORRPLAY_TORRENTS_COMPONENT_ID));
+    assert.ok(customComponents.has(TORST_TORRENTS_COMPONENT_ID));
   });
 
   function makeMenuJqMock(menuItems: Array<{ dataAction?: string, label: string }>) {
@@ -790,8 +755,8 @@ describe('UI & Settings Integration', () => {
         wrapper.__item = { dataAction: dataActionMatch ? dataActionMatch[1] : undefined, label: labelMatch ? labelMatch[1] : '' };
         return wrapper;
       }
-      if (selectorOrHtml.includes('torrplay')) {
-        const foundIndex = menuItems.findIndex(item => item.dataAction === 'torrplay');
+      if (selectorOrHtml.includes('torst')) {
+        const foundIndex = menuItems.findIndex(item => item.dataAction === 'torst');
         return makeWrapper(foundIndex === -1 ? [] : [foundIndex]);
       }
       if (selectorOrHtml.includes('menu__list')) {
@@ -801,9 +766,9 @@ describe('UI & Settings Integration', () => {
     };
   }
 
-  it('positions the TorrPlay sidebar entry as the second menu item and registers it in Lampa\'s persisted menu order', () => {
+  it('positions the Torst sidebar entry as the second menu item and registers it in Lampa\'s persisted menu order', () => {
     // Realistic starting state: Lampa's own menu editor has already auto-recorded
-    // the native items into 'menu_sort' from earlier sessions, before TorrPlay
+    // the native items into 'menu_sort' from earlier sessions, before Torst
     // was ever installed.
     storageMap.set('menu_sort', ['Home', 'Search', 'Torrents']);
 
@@ -827,17 +792,17 @@ describe('UI & Settings Integration', () => {
 
     appListener({ type: 'ready' });
 
-    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torrplay', 'search', 'mytorrents']);
+    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torst', 'search', 'mytorrents']);
 
     // Lampa's own menu editor (interaction/menu/menu.js + editor.js) persists a custom
     // item order under 'menu_sort' and re-appends anything not already in it to the
     // end — silently dragging a brand-new item to the bottom regardless of DOM
     // position. Registering it ourselves, right after the anchor item, prevents that.
-    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'TorrPlay', 'Search', 'Torrents']);
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
   });
 
-  it('moves a TorrPlay entry stored at the bottom of menu_sort back to second place', () => {
-    storageMap.set('menu_sort', ['Home', 'Search', 'Torrents', 'TorrPlay']);
+  it('moves a Torst entry stored at the bottom of menu_sort back to second place', () => {
+    storageMap.set('menu_sort', ['Home', 'Search', 'Torrents', 'Torst']);
 
     const menuItems = [
       { dataAction: 'home', label: 'Home' },
@@ -857,7 +822,7 @@ describe('UI & Settings Integration', () => {
     SidebarManager.init();
     appListener({ type: 'ready' });
 
-    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'TorrPlay', 'Search', 'Torrents']);
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
   });
 
   it('does not insert prematurely (and permanently at the bottom) when the menu list is not yet populated', () => {
@@ -895,13 +860,13 @@ describe('UI & Settings Integration', () => {
     );
 
     // A later retrigger (e.g. the user opening the menu) must now succeed and land
-    // TorrPlay as the second item, not appended at the end.
+    // Torst as the second item, not appended at the end.
     menuListener({ type: 'start' });
-    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torrplay', 'search', 'mytorrents']);
-    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'TorrPlay', 'Search', 'Torrents']);
+    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torst', 'search', 'mytorrents']);
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
   });
 
-  it('manages TorrPlayTorrentsComponent lifecycle (create, render, start, pause, stop, destroy)', async () => {
+  it('manages TorstTorrentsComponent lifecycle (create, render, start, pause, stop, destroy)', async () => {
     let activeController = '';
     const controllers = new Map<string, any>();
 
@@ -949,8 +914,8 @@ describe('UI & Settings Integration', () => {
       }
     }
 
-    globalThis.fetch = async () => new Response(JSON.stringify({
-      torrents: [],
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
+      links: {},
       total: 0,
     }), {
       headers: { 'Content-Type': 'application/json' },
@@ -987,7 +952,7 @@ describe('UI & Settings Integration', () => {
     (SidebarManager as any).isRegistered = false;
     SidebarManager.init();
 
-    const ComponentClass = customComponents.get(TORRPLAY_TORRENTS_COMPONENT_ID);
+    const ComponentClass = customComponents.get(TORST_TORRENTS_COMPONENT_ID);
     assert.ok(ComponentClass);
 
     const component = new ComponentClass();
@@ -1096,11 +1061,11 @@ describe('UI & Settings Integration', () => {
           : resolve(stage === 'selection' ? instance : { facets: { categories: [], total: 0, version: 'v1' }, torrents: [] });
       });
       mock.method(InstanceManager, 'getBestInstance', async () => stage === 'selection' ? pending : instance);
-      const list = mock.method(TorrPlayApi, 'getTorrents', async () => pending);
-      mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+      const list = mock.method(TorstApi, 'getTorrents', async () => pending);
+      mock.method(TorstApi, 'getSettings', async () => ({}));
       const sync = mock.method(SavedTorrents, 'syncFromListing', () => {});
       const interval = mock.method(globalThis, 'setInterval', () => 1 as unknown as ReturnType<typeof setInterval>);
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       const renderEmpty = mock.method(component, 'renderEmptyState', () => {});
       const renderTorrents = mock.method(component, 'renderTorrents', () => {});
       const toggle = mock.fn();
@@ -1182,18 +1147,18 @@ describe('UI & Settings Integration', () => {
       public render() { return createMockElement('div'); }
     };
 
-    const instanceA = { authType: 'none', id: 'a', name: 'Instance A', status: 'unknown', url: 'http://a.local:8090' };
-    const instanceB = { authType: 'none', id: 'b', name: 'Instance B', status: 'unknown', url: 'http://b.local:8090' };
+    const instanceA = { authType: 'none', id: 'a', name: 'Instance A', status: 'unknown', url: 'http://a.local:8080' };
+    const instanceB = { authType: 'none', id: 'b', name: 'Instance B', status: 'unknown', url: 'http://b.local:8080' };
     (InstanceManager as any).instances = [instanceA, instanceB];
-    storageMap.set('torrplay_selection_mode', 'manual');
-    storageMap.set('torrplay_selected_instance', 'a');
+    storageMap.set('torst_selection_mode', 'manual');
+    storageMap.set('torst_selected_instance', 'a');
 
-    globalThis.fetch = async () => new Response(JSON.stringify({ torrents: [], total: 0 }), {
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),  links: {}, total: 0 }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
     });
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     component.create();
     await new Promise(resolve => setImmediate(resolve));
     while ((component as any).isLoading) {
@@ -1202,7 +1167,7 @@ describe('UI & Settings Integration', () => {
 
     assert.equal(
       lastHeadTitle,
-      'TorrPlay (Instance A)',
+      'Torst (Instance A)',
       'header title must show the initially active instance'
     );
 
@@ -1211,7 +1176,7 @@ describe('UI & Settings Integration', () => {
     assert.ok((component as any).pollIntervalId !== null, 'polling must be active after start()');
 
     // Switch the active instance, mirroring what happens when the user changes it in Settings.
-    storageMap.set('torrplay_selected_instance', 'b');
+    storageMap.set('torst_selected_instance', 'b');
 
     // Returning from Settings pauses (rather than stops) the underlying component; without
     // marking it for reload, resuming would keep showing the previous instance's torrents.
@@ -1232,7 +1197,7 @@ describe('UI & Settings Integration', () => {
 
     assert.equal(
       lastHeadTitle,
-      'TorrPlay (Instance B)',
+      'Torst (Instance B)',
       'header title must switch to the newly active instance after resuming'
     );
     assert.ok(
@@ -1310,32 +1275,32 @@ describe('UI & Settings Integration', () => {
     try {
       // 1. Unreachable instances error
       InstanceManager.getBestInstance = async () => {
-        throw new Error('All configured TorrPlay instances are unreachable');
+        throw new Error('All configured Torst instances are unreachable');
       };
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       await component.load();
       assert.ok(lastEmptyParams);
-      assert.equal(lastEmptyParams.title, getTestTranslation('torrplay_empty_unreachable_title'));
-      assert.equal(lastEmptyParams.descr, getTestTranslation('torrplay_empty_unreachable'));
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_unreachable_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_unreachable'));
       assert.ok(clearCalls > 0, 'scrollView.clear should be called');
       assert.ok(nopaddingCalls > 0, 'scrollView.nopadding should be called');
       assert.ok(resetCalls > 0, 'scrollView.reset should be called');
 
       // 2. No instances configured error
       InstanceManager.getBestInstance = async () => {
-        throw new Error('No TorrPlay instances configured');
+        throw new Error('No Torst instances configured');
       };
       await component.load();
-      assert.equal(lastEmptyParams.title, getTestTranslation('torrplay_empty_no_instances_title'));
-      assert.equal(lastEmptyParams.descr, getTestTranslation('torrplay_empty_no_instances'));
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_no_instances_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_no_instances'));
 
       // 3. Generic connection error
       InstanceManager.getBestInstance = async () => {
         throw new Error('Network timeout (ETIMEDOUT)');
       };
       await component.load();
-      assert.equal(lastEmptyParams.title, getTestTranslation('torrplay_empty_conn_error_title'));
-      assert.equal(lastEmptyParams.descr, getTestTranslation('torrplay_empty_conn_error', { msg: 'Network timeout (ETIMEDOUT)' }));
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_conn_error_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_conn_error', { msg: 'Network timeout (ETIMEDOUT)' }));
     } finally {
       InstanceManager.getBestInstance = originalGetBest;
     }
@@ -1395,8 +1360,8 @@ describe('UI & Settings Integration', () => {
       }
     }
 
-    globalThis.fetch = async () => new Response(JSON.stringify({
-      torrents: [],
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
+      links: {},
       total: 0,
     }), {
       headers: { 'Content-Type': 'application/json' },
@@ -1427,7 +1392,7 @@ describe('UI & Settings Integration', () => {
     (SidebarManager as any).isRegistered = false;
     SidebarManager.init();
 
-    const ComponentClass = customComponents.get(TORRPLAY_TORRENTS_COMPONENT_ID);
+    const ComponentClass = customComponents.get(TORST_TORRENTS_COMPONENT_ID);
     assert.ok(ComponentClass);
 
     const component = new ComponentClass();
@@ -1443,26 +1408,25 @@ describe('UI & Settings Integration', () => {
         hash: 'abc123456789',
         name: 'Example Animation (2026)',
         poster: 'https://example.com/poster.jpg',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Example Animation',
         total_size: 1048576,
       },
       {
-        active: true,
         files: [
           { length: 1048576, name: 'video-1.mp4', path: 'video-1.mp4' },
           { length: 1048576, name: 'video-2.mp4', path: 'video-2.mp4' },
         ],
         hash: 'def987654321',
         name: 'Example Short (2026)',
-        storage: 'file',
+        retention: 'temporary' as const, storage: 'file',
         total_size: 2097152,
       },
       {
         files: [],
         hash: 'empty12345678',
         name: 'Empty Torrent',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         total_size: 0,
       },
       {
@@ -1473,7 +1437,7 @@ describe('UI & Settings Integration', () => {
         ],
         hash: 'unknown123456',
         name: 'Unknown Storage',
-        storage: 'cache',
+        retention: 'temporary' as const, storage: 'cache',
         total_size: 3145728,
       },
     ];
@@ -1482,7 +1446,7 @@ describe('UI & Settings Integration', () => {
       authType: 'none',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     });
     assert.equal(component.contentGrid.children.length, 4);
 
@@ -1500,35 +1464,28 @@ describe('UI & Settings Integration', () => {
     // Memory storage must NOT display the storage badge
     assert.ok(!firstCardHtml.includes('<div class="card__type">'));
     assert.ok(!firstCardHtml.includes('MEMORY'));
-    // An idle torrent must NOT display the active badge
-    assert.ok(!firstCardHtml.includes('data-testid="active-torrent-badge"'));
     assert.ok(firstCardHtml.includes('<div class="card__title">Example Animation</div>'));
-    assert.ok(firstCardHtml.includes(`<div class="card__age">1 MB · ${getTestTranslation('torrplay_card_file_count', { count: 1 })}</div>`));
+    assert.ok(firstCardHtml.includes(`<div class="card__age">1 MB · ${getTestTranslation('torst_card_file_count', { count: 1 })}</div>`));
     assert.ok(!firstCardHtml.includes('style="width: 13.5em'));
     assert.ok(!firstCardHtml.includes('padding-bottom: 150%'));
 
     const secondCardHtml = component.contentGrid.children[1].htmlString;
     assert.ok(secondCardHtml.includes('class="card card--loaded selector layer--visible layer--render"'));
     // File storage must display the storage badge
-    assert.ok(secondCardHtml.includes(TORRPLAY_STORAGE_BADGE));
+    assert.ok(secondCardHtml.includes(TORST_STORAGE_BADGE));
     assert.ok(secondCardHtml.includes('data-testid="file-storage-badge"'));
     assert.ok(secondCardHtml.includes('right: 0.5em'));
-    // An actively streaming or downloading torrent must display the active badge opposite it
-    assert.ok(secondCardHtml.includes(TORRPLAY_ACTIVE_BADGE));
-    assert.ok(secondCardHtml.includes('data-testid="active-torrent-badge"'));
-    assert.ok(secondCardHtml.includes('left: 0.5em'));
-    assert.ok(secondCardHtml.includes('torrplay-active-dot__ping'));
     assert.ok(secondCardHtml.includes('<div class="card__title">Example Short (2026)</div>'));
-    assert.ok(secondCardHtml.includes(`<div class="card__age">2 MB · ${getTestTranslation('torrplay_card_file_count', { count: 2 })}</div>`));
+    assert.ok(secondCardHtml.includes(`<div class="card__age">2 MB · ${getTestTranslation('torst_card_file_count', { count: 2 })}</div>`));
 
     const emptyCardHtml = component.contentGrid.children[2].htmlString;
     // Memory storage must NOT display the storage badge
     assert.ok(!emptyCardHtml.includes('<div class="card__type">'));
-    assert.ok(emptyCardHtml.includes(`<div class="card__age">${getTestTranslation('torrplay_card_file_count', { count: 0 })}</div>`));
+    assert.ok(emptyCardHtml.includes(`<div class="card__age">${getTestTranslation('torst_card_file_count', { count: 0 })}</div>`));
 
     const unknownStorageCardHtml = component.contentGrid.children[3].htmlString;
     assert.ok(!unknownStorageCardHtml.includes('<div class="card__type">'));
-    assert.ok(unknownStorageCardHtml.includes(`<div class="card__age">3 MB · ${getTestTranslation('torrplay_card_file_count', { count: 3 })}</div>`));
+    assert.ok(unknownStorageCardHtml.includes(`<div class="card__age">3 MB · ${getTestTranslation('torst_card_file_count', { count: 3 })}</div>`));
     assert.ok(!unknownStorageCardHtml.includes('CACHE'));
 
     assert.equal(isCollectionSetCalled, true);
@@ -1591,7 +1548,7 @@ describe('UI & Settings Integration', () => {
       clearHtmlTags: (value: string) => value.replace(/<[^>]*>/g, ''),
     };
 
-    const component = new TorrPlayTorrentsComponent() as any;
+    const component = new TorstTorrentsComponent() as any;
     component.scrollView.minus();
     component.scrollView.append(component.contentGrid);
     component.rootElement.append(component.scrollView.render());
@@ -1601,7 +1558,7 @@ describe('UI & Settings Integration', () => {
         files: [{ length: 1048576, name: '<img src=x onerror=alert(1)>episode.mkv', path: 'episode.mkv' }],
         hash: 'hash1',
         name: 'Fallback Name',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: '<img src=x onerror=alert(1)>Malicious Torrent',
         total_size: 1048576,
       },
@@ -1609,7 +1566,7 @@ describe('UI & Settings Integration', () => {
       authType: 'none',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     });
 
     const cardHtml = component.contentGrid.children[0].htmlString;
@@ -1663,24 +1620,23 @@ describe('UI & Settings Integration', () => {
       remove: () => {},
     });
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
-      created_at: '2026-01-15T10:30:00Z',
-      files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
+      created_at: '2026-01-15T10:30:00Z', files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: 'abc123456789',
       name: 'Example Animation',
+      retention: 'persisted' as const,
       storage: 'memory',
       total_size: 1048576,
     };
     let isCardTypeRemoved = false;
-    let isActiveBadgeRemoved = false;
+    let isUnrelatedCardTypeRemoved = false;
     let appendedToCardView = '';
     const mockCardType = {
       length: 0,
@@ -1692,7 +1648,7 @@ describe('UI & Settings Integration', () => {
     const cardElement = {
       find: (selector: string) => {
         if (selector === '.card__type--storage') return mockCardType;
-        if (selector === '.card__type') return { length: 1, remove: () => { isActiveBadgeRemoved = true; } };
+        if (selector === '.card__type') return { length: 1, remove: () => { isUnrelatedCardTypeRemoved = true; } };
         if (selector === '.card__view') return mockCardView;
         return { length: 0 };
       },
@@ -1704,40 +1660,30 @@ describe('UI & Settings Integration', () => {
     assert.equal(lastSelectOptions.title, NATIVE_TRANSLATIONS.title_action, 'context menu title must match native title_action');
 
     const switchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
-    assert.ok(switchAction, 'switch-storage action must be present for known storage when storage path is set');
-    assert.equal(switchAction.title, getTestTranslation('torrplay_menu_switch_disk'));
-    assert.equal(switchAction.subtitle, getTestTranslation('torrplay_menu_switch_disk_descr'));
+    assert.ok(switchAction, 'switch-storage action must be present for known storage for a saved torrent');
+    assert.equal(switchAction.title, getTestTranslation('torst_menu_switch_disk'));
+    assert.equal(switchAction.subtitle, getTestTranslation('torst_menu_switch_disk_descr'));
 
     const deleteAction = lastSelectOptions.items.find((item: any) => item.action === 'delete');
     assert.ok(deleteAction, 'delete action must be present in context menu');
-    assert.equal(deleteAction.title, getTestTranslation('torrplay_menu_delete'));
-    assert.equal(deleteAction.subtitle, getTestTranslation('torrplay_menu_delete_descr'));
+    assert.equal(deleteAction.title, getTestTranslation('torst_menu_delete'));
+    assert.equal(deleteAction.subtitle, getTestTranslation('torst_menu_delete_descr'));
 
-    let patchMethod = '';
-    let patchBody = '';
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      assert.ok(String(input).endsWith('/api/v1/torrents/abc123456789'));
-      patchMethod = init?.method || '';
-      patchBody = String(init?.body || '');
-      return new Response(JSON.stringify({ ...torrent, storage: 'file' }), {
-        headers: { 'Content-Type': 'application/json' },
-        status: 200,
-      });
-    };
-
+    const update = mock.method(TorstApi, 'updateTorrent', async (_instance: TorstInstance, hash: string, change: TorrentUpdate) => {
+      assert.equal(hash, torrent.hash);
+      return { ...torrent, storage: change.storage };
+    });
     await lastSelectOptions.onSelect(switchAction);
-
-    assert.equal(patchMethod, 'PATCH');
-    assert.equal(patchBody, JSON.stringify({ storage: 'file' }));
+    assert.equal(update.mock.callCount(), 1);
     assert.equal(torrent.storage, 'file');
-    assert.ok(appendedToCardView.includes(TORRPLAY_STORAGE_BADGE_ICON), 'switching to file storage must append badge to card');
-    assert.ok(notyMessages.includes(getTestTranslation('torrplay_noty_storage_switched', { storage: getTestTranslation('torrplay_storage_type_disk') })));
+    assert.ok(appendedToCardView.includes(TORST_STORAGE_BADGE_ICON), 'switching to file storage must append badge to card');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_storage_switched', { storage: getTestTranslation('torst_storage_type_disk') })));
 
     // A subsequent long-press or right-click must recompute the item for the new storage state
     await component.openContextMenu(torrent, instance as any, cardElement as any);
     const secondSwitchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
-    assert.equal(secondSwitchAction.title, getTestTranslation('torrplay_menu_switch_ram'));
-    assert.equal(secondSwitchAction.subtitle, getTestTranslation('torrplay_menu_switch_ram_descr'));
+    assert.equal(secondSwitchAction.title, getTestTranslation('torst_menu_switch_ram'));
+    assert.equal(secondSwitchAction.subtitle, getTestTranslation('torst_menu_switch_ram_descr'));
 
     // Switching back to memory removes the badge
     globalThis.fetch = async () => new Response(JSON.stringify({ ...torrent, storage: 'memory' }), {
@@ -1748,7 +1694,7 @@ describe('UI & Settings Integration', () => {
     await lastSelectOptions.onSelect(secondSwitchAction);
     assert.equal(torrent.storage, 'memory');
     assert.equal(isCardTypeRemoved, true, 'switching back to memory storage must remove badge from card');
-    assert.equal(isActiveBadgeRemoved, false, 'storage changes must preserve the active badge');
+    assert.equal(isUnrelatedCardTypeRemoved, false, 'storage changes must preserve unrelated card decorations');
   });
 
   it('context menu reports failure and keeps storage unchanged when PATCH fails', async () => {
@@ -1762,19 +1708,18 @@ describe('UI & Settings Integration', () => {
       public update() {}
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
-      created_at: '2026-01-15T10:30:00Z',
-      files: [],
+      created_at: '2026-01-15T10:30:00Z', files: [],
       hash: 'def987654321',
       name: 'Example Short',
+      retention: 'persisted' as const,
       storage: 'file',
       total_size: 0,
     };
@@ -1787,7 +1732,7 @@ describe('UI & Settings Integration', () => {
     await lastSelectOptions.onSelect(switchAction);
 
     assert.equal(torrent.storage, 'file');
-    assert.deepEqual(notyMessages, [getTestTranslation('torrplay_noty_storage_switch_failed', { msg: 'TorrPlay API error (/api/v1/torrents/def987654321): 500' })]);
+    assert.deepEqual(notyMessages, [getTestTranslation('torst_noty_storage_switch_failed', { msg: 'Torst API error (/api/v1/torrents?page_size=200&retention=any&info_hash=def987654321): 500' })]);
   });
 
   it('context menu omits switch-storage action for unknown storage', async () => {
@@ -1799,19 +1744,18 @@ describe('UI & Settings Integration', () => {
       public update() {}
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
       files: [],
       hash: 'unknown123456',
       name: 'Unknown Storage',
-      storage: 'cache',
+      retention: 'temporary' as const, storage: 'cache',
       total_size: 0,
     };
     const cardElement = { remove: () => {} };
@@ -1821,60 +1765,15 @@ describe('UI & Settings Integration', () => {
     assert.ok(!switchAction, 'switch-storage action must be omitted for unknown storage');
   });
 
-  it('context menu omits switch-storage action when file storage path is empty or not set', async () => {
+  it('offers disk storage without an editable server storage path', async () => {
     (globalThis as any).Lampa.Scroll = class {
-      public append(_e: any) {}
-      public destroy() {}
-      public minus() {}
-      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
-      public update() {}
+      public render() { return (globalThis as any).$('<div>'); }
     };
-
-    const component = new TorrPlayTorrentsComponent();
-    const instance = {
-      authType: 'none',
-      fileStoragePath: '',
-      id: 'test',
-      name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
-    };
-    const torrent: any = {
-      created_at: '2026-01-15T10:30:00Z',
-      files: [],
-      hash: 'file123456',
-      name: 'Sample Torrent',
-      storage: 'memory',
-      total_size: 0,
-    };
-    const cardElement = { remove: () => {} };
-
-    await component.openContextMenu(torrent, instance as any, cardElement as any);
-    const switchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
-    assert.ok(!switchAction, 'switch-storage action must be omitted when file storage path is empty');
-
-    const deleteAction = lastSelectOptions.items.find((item: any) => item.action === 'delete');
-    assert.ok(deleteAction, 'delete action must remain present');
-
-    // Also verify when instance has no fileStoragePath property at all
-    delete (instance as any).fileStoragePath;
-    await component.openContextMenu(torrent, instance as any, cardElement as any);
-    const switchActionAfter = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
-    assert.ok(!switchActionAfter, 'switch-storage action must be omitted when fileStoragePath is undefined');
-
-    // When instance returns file_storage_path via GET /api/v1/settings, switch-storage becomes active
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      if (String(input).endsWith('/api/v1/settings')) {
-        return new Response(JSON.stringify({ file_storage_path: '/server/storage/dir' }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-    delete (instance as any).fileStoragePath;
-    await component.openContextMenu(torrent, instance as any, cardElement as any);
-    const switchActionFetched = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
-    assert.ok(switchActionFetched, 'switch-storage action must appear when fileStoragePath is retrieved from instance');
+    const component = new TorstTorrentsComponent();
+    const instance = InstanceManager.getInstances()[0];
+    const torrent: any = { created_at: '2026-10-24', files: [], hash: 'test', name: 'Sintel', retention: 'persisted' as const, storage: 'memory', total_size: 0 };
+    await component.openContextMenu(torrent, instance, {} as any);
+    assert.ok(lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'));
   });
 
   it('keeps show-more database results filtered while leaving the sidebar listing complete', async () => {
@@ -1885,25 +1784,25 @@ describe('UI & Settings Integration', () => {
     };
     const instance = InstanceManager.getInstances()[0];
     const torrents: any[] = [
-      { created_at: '2026-10-11', files: [], hash: 'a'.repeat(40), name: 'Matching Show', storage: 'memory', total_size: 10 },
-      { files: [], hash: 'b'.repeat(40), name: 'Matching Show', storage: 'memory', total_size: 10 },
-      { created_at: '2026-10-11', files: [], hash: 'c'.repeat(40), name: 'Other', storage: 'memory', total_size: 10 },
+      { created_at: '2026-10-11', files: [], hash: 'a'.repeat(40), name: 'Matching Show', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
+      { files: [], hash: 'b'.repeat(40), name: 'Matching Show', retention: 'temporary' as const, storage: 'memory', total_size: 10 },
+      { created_at: '2026-10-11', files: [], hash: 'c'.repeat(40), name: 'Other', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
     ];
     mock.method(InstanceManager, 'getBestInstance', async () => instance);
-    const listing = mock.method(TorrPlayApi, 'getTorrents', async (_instance: TorrPlayInstance, options?: { search?: string }) => ({
+    const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { search?: string }) => ({
       torrents: options?.search ? [torrents[0]] : torrents,
     }));
-    mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
     try {
-      const filtered = new TorrPlayTorrentsComponent({ search: 'matching' });
+      const filtered = new TorstTorrentsComponent({ search: 'matching' });
       let results: any[] = [];
       filtered.renderTorrents = list => { results = list; };
       await filtered.load(true);
-      assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, saved: true, search: 'matching' });
+      assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, retention: 'persisted', search: 'matching' });
       assert.deepEqual(results, [torrents[0]]);
       await filtered.load(true);
       assert.deepEqual(results, [torrents[0]]);
-      const sidebar = new TorrPlayTorrentsComponent();
+      const sidebar = new TorstTorrentsComponent();
       sidebar.renderTorrents = list => { results = list; };
       await sidebar.load(true);
       assert.equal(listing.mock.calls[2].arguments[1], undefined);
@@ -1924,15 +1823,15 @@ describe('UI & Settings Integration', () => {
     const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
     mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
     const bestInstance = mock.method(InstanceManager, 'getBestInstance', async () => primary);
-    const listed = mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [] }));
-    mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+    const listed = mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
     try {
-      const pinned = new TorrPlayTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      const pinned = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
       pinned.renderEmptyState = () => {};
       await pinned.load(true);
       assert.equal(listed.mock.calls[0].arguments[0], backup);
       assert.equal(bestInstance.mock.callCount(), 0);
-      const orphaned = new TorrPlayTorrentsComponent({ instanceId: 'removed', search: 'show' });
+      const orphaned = new TorstTorrentsComponent({ instanceId: 'removed', search: 'show' });
       orphaned.renderEmptyState = () => {};
       await orphaned.load(true);
       assert.equal(listed.mock.calls[1].arguments[0], primary);
@@ -1950,19 +1849,19 @@ describe('UI & Settings Integration', () => {
     };
     const [primary] = InstanceManager.getInstances();
     const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
-    const listing = [{ created_at: '2026-10-11', files: [], hash: 'd'.repeat(40), name: 'Show', storage: 'memory', total_size: 1 }];
+    const listing = [{ created_at: '2026-10-11', files: [], hash: 'd'.repeat(40), name: 'Show', retention: 'persisted' as const, storage: 'memory', total_size: 1 }];
     mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
     mock.method(InstanceManager, 'getPrimaryInstance', () => primary);
     mock.method(InstanceManager, 'getBestInstance', async () => primary);
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: listing }));
-    mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: listing }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
     const synced = mock.method(SavedTorrents, 'syncFromListing', () => {});
     try {
-      const pinnedElsewhere = new TorrPlayTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      const pinnedElsewhere = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
       pinnedElsewhere.renderTorrents = () => {};
       await pinnedElsewhere.load(true);
       assert.equal(synced.mock.callCount(), 0);
-      const pinnedToPrimary = new TorrPlayTorrentsComponent({ instanceId: primary.id, search: 'show' });
+      const pinnedToPrimary = new TorstTorrentsComponent({ instanceId: primary.id, search: 'show' });
       pinnedToPrimary.renderTorrents = () => {};
       await pinnedToPrimary.load(true);
       assert.equal(synced.mock.callCount(), 1);
@@ -1984,7 +1883,7 @@ describe('UI & Settings Integration', () => {
     };
     mock.method(InstanceManager, 'getPrimaryInstance', () => primary);
     try {
-      const component: any = new TorrPlayTorrentsComponent();
+      const component: any = new TorstTorrentsComponent();
       component.isPinnedToSearchInstance = true;
       component.activeInstance = backup;
       assert.equal(component.isRoutedInstance(primary), true);
@@ -2014,14 +1913,14 @@ describe('UI & Settings Integration', () => {
     const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
     mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
     const bestInstance = mock.method(InstanceManager, 'getBestInstance', async () => primary);
-    const listed = mock.method(TorrPlayApi, 'getTorrents', async (selected: TorrPlayInstance) => {
+    const listed = mock.method(TorstApi, 'getTorrents', async (selected: TorstInstance) => {
       if (selected === backup) throw new NetworkError('Failed to fetch');
       return { torrents: [] };
     });
-    mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
     try {
       const messages: string[] = [];
-      const pinned = new TorrPlayTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      const pinned = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
       pinned.renderEmptyState = (message: string) => { messages.push(message); };
       await pinned.load(true);
       assert.deepEqual(listed.mock.calls.map(call => call.arguments[0]), [backup, primary]);
@@ -2047,21 +1946,21 @@ describe('UI & Settings Integration', () => {
     (globalThis as any).Lampa.Utils = { ...originalUtils, clearHtmlTags: (text: string) => text.replace(/<[^>]*>/g, '') };
     const instance = InstanceManager.getInstances()[0];
     mock.method(InstanceManager, 'getBestInstance', async () => instance);
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [] }));
-    mock.method(TorrPlayApi, 'getSettings', async () => ({}));
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
     try {
       const messages: string[] = [];
-      const filtered = new TorrPlayTorrentsComponent({ search: ' <b>missing</b> ' });
+      const filtered = new TorstTorrentsComponent({ search: ' <b>missing</b> ' });
       filtered.renderEmptyState = (message: string) => { messages.push(message); };
       await filtered.load(true);
-      const sidebar = new TorrPlayTorrentsComponent();
+      const sidebar = new TorstTorrentsComponent();
       sidebar.renderEmptyState = (message: string) => { messages.push(message); };
       await sidebar.load(true);
       assert.equal(messages.length, 2);
       assert.ok(messages[0].includes('missing'));
       assert.ok(!messages[0].includes('<b>'));
-      assert.equal(messages[0], getTestTranslation('torrplay_empty_search', { query: 'missing' }));
-      assert.equal(messages[1], getTestTranslation('torrplay_empty_db'));
+      assert.equal(messages[0], getTestTranslation('torst_empty_search', { query: 'missing' }));
+      assert.equal(messages[1], getTestTranslation('torst_empty_db'));
     } finally {
       (globalThis as any).$ = originalJquery;
       (globalThis as any).Lampa.Utils = originalUtils;
@@ -2114,15 +2013,15 @@ describe('UI & Settings Integration', () => {
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       const grid: any = (component as any).contentGrid;
       const instance = {
         authType: 'none',
         id: 'test',
         name: 'Test Node',
-        url: 'http://127.0.0.1:8090',
+        url: 'http://127.0.0.1:8080',
       };
-      const torrent = { files: [], hash: 'unchanged123', name: 'Sintel', storage: 'memory', total_size: 0 };
+      const torrent = { files: [], hash: 'unchanged123', name: 'Sintel', retention: 'temporary' as const, storage: 'memory', total_size: 0 };
 
       const sentTags: (string | undefined)[] = [];
       globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -2131,8 +2030,9 @@ describe('UI & Settings Integration', () => {
         }
         const ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
         sentTags.push(ifNoneMatch);
-        if (ifNoneMatch === 'W/"v1"') return new Response(null, { status: 304 });
-        return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' }, torrents: [torrent] }), {
+        if (ifNoneMatch === '"list-v1"') return new Response(null, { status: 304 });
+        return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
+          headers: { ETag: '"list-v1"' },
           status: 200,
         });
       };
@@ -2144,7 +2044,7 @@ describe('UI & Settings Integration', () => {
 
       await component.load(true);
 
-      assert.deepEqual(sentTags, [undefined, 'W/"v1"']);
+      assert.deepEqual(sentTags, [undefined, '"list-v1"']);
       assert.deepEqual(grid[0].children, initialCards, 'an unchanged listing must leave the live cards in place');
       component.destroy();
     } finally {
@@ -2172,19 +2072,18 @@ describe('UI & Settings Integration', () => {
       toggle: (name: string) => { toggledControllers.push(name); },
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
       files: [],
       hash: 'poll123456789',
       name: 'Polled Torrent',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       total_size: 0,
     };
     const cardElement = { remove: () => {} };
@@ -2194,12 +2093,12 @@ describe('UI & Settings Integration', () => {
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
       if (String(input).endsWith('/api/v1/settings')) {
-        return new Response(JSON.stringify({ file_storage_path: '/var/torrplay/storage' }), {
+        return new Response(JSON.stringify({ background_downloads: false }), {
           headers: { 'Content-Type': 'application/json' },
           status: 200,
         });
       }
-      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' }, torrents: [torrent] }), {
+      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -2249,20 +2148,19 @@ describe('UI & Settings Integration', () => {
       toggle: () => {},
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
       enableDownloader: true,
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
       files: [],
       hash: 'reentrant12345',
       name: 'Reentrant Torrent',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       total_size: 0,
     };
 
@@ -2349,7 +2247,7 @@ describe('UI & Settings Integration', () => {
       update() {}
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const multiFileTorrent: any = {
       files: [
         { length: 734003200, name: 'episode.S01E01.mkv', path: 'episode.S01E01.mkv' },
@@ -2417,13 +2315,13 @@ describe('UI & Settings Integration', () => {
       public render() { return {}; }
     };
 
-    const originalFetchSeasonEpisodes = TorrPlayEngine.fetchSeasonEpisodes;
-    (TorrPlayEngine as any).fetchSeasonEpisodes = () => new Promise(resolve => {
+    const originalFetchSeasonEpisodes = TorstEngine.fetchSeasonEpisodes;
+    (TorstEngine as any).fetchSeasonEpisodes = () => new Promise(resolve => {
       resolveSeasons = resolve;
     });
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       const opening = component.openTorrent({
         files: [
           { length: 1, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
@@ -2431,7 +2329,7 @@ describe('UI & Settings Integration', () => {
         ],
         hash: 'delayed-list',
         name: 'Show',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         total_size: 2,
       });
 
@@ -2442,7 +2340,7 @@ describe('UI & Settings Integration', () => {
 
       assert.equal(modalOpenCount, 0);
     } finally {
-      TorrPlayEngine.fetchSeasonEpisodes = originalFetchSeasonEpisodes;
+      TorstEngine.fetchSeasonEpisodes = originalFetchSeasonEpisodes;
     }
   });
 
@@ -2457,7 +2355,7 @@ describe('UI & Settings Integration', () => {
       public render() { return {}; }
     };
 
-    const component = new TorrPlayTorrentsComponent() as any;
+    const component = new TorstTorrentsComponent() as any;
     component.openTorrent = async () => { throw new Error('metadata rendering failed'); };
     component.openTorrentSafely({ hash: 'broken' });
     await new Promise(resolve => setImmediate(resolve));
@@ -2481,7 +2379,7 @@ describe('UI & Settings Integration', () => {
       hash: (value: string) => value,
     };
     (globalThis as any).Lampa.Controller = {
-      enabled: () => ({ name: 'torrplay_torrents' }),
+      enabled: () => ({ name: 'torst_torrents' }),
       toggle: () => {},
     };
     (globalThis as any).$ = (_html?: string) => {
@@ -2511,8 +2409,8 @@ describe('UI & Settings Integration', () => {
 
     let capturedReturnController: string | undefined;
     let capturedMovie: any;
-    const originalStartTorrentPlayback = TorrPlayEngine.startTorrentPlayback;
-    (TorrPlayEngine as any).startTorrentPlayback = async (
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (
       _torrent: any,
       _fileIndex: number,
       movie: any,
@@ -2524,7 +2422,7 @@ describe('UI & Settings Integration', () => {
     };
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       const multiFileTorrent: any = {
         files: [
           { length: 734003200, name: 'episode.S01E01.mkv', path: 'episode.S01E01.mkv' },
@@ -2550,7 +2448,7 @@ describe('UI & Settings Integration', () => {
       assert.equal(modalOpenCount, 1, 'the modal must not be recreated');
       assert.equal(capturedMovie, undefined, 'a saved torrent carries no catalog card to hand to playback');
     } finally {
-      TorrPlayEngine.startTorrentPlayback = originalStartTorrentPlayback;
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
     }
   });
 
@@ -2562,7 +2460,7 @@ describe('UI & Settings Integration', () => {
       clearHtmlTags: (value: string) => value,
       hash: (value: string) => value,
     };
-    (globalThis as any).Lampa.Controller = { enabled: () => ({ name: 'torrplay_torrents' }), toggle: () => {} };
+    (globalThis as any).Lampa.Controller = { enabled: () => ({ name: 'torst_torrents' }), toggle: () => {} };
     (globalThis as any).$ = (_html?: string) => {
       const el: any = { 0: { style: {} }, append: () => el, find: () => el, on: () => el };
       return el;
@@ -2579,7 +2477,7 @@ describe('UI & Settings Integration', () => {
       view: (hash: string) => { viewedHashes.push(hash); return { hash }; },
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     await component.openTorrent({
       files: [
         { length: 1, name: 'My.Show.S01E01.mkv', path: 'My.Show.S01E01.mkv' },
@@ -2587,7 +2485,7 @@ describe('UI & Settings Integration', () => {
       ],
       hash: 'cardless',
       name: 'My.Show.S01',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       title: 'My Show',
       total_size: 2,
     });
@@ -2602,7 +2500,7 @@ describe('UI & Settings Integration', () => {
       files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: 'watched-hash',
       name: 'Movie',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       title: 'Movie',
       total_size: 1,
     };
@@ -2645,9 +2543,9 @@ describe('UI & Settings Integration', () => {
       card.listeners['hover:focus']({ currentTarget: card[0] });
     };
 
-    const renderCard = () => {
-      const component = new TorrPlayTorrentsComponent() as any;
-      component.renderTorrents([progressTorrent], { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8090' }, true);
+    const renderCard = (listedTorrent = progressTorrent) => {
+      const component = new TorstTorrentsComponent() as any;
+      component.renderTorrents([listedTorrent], { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8080' }, true);
       return { card: cards[cards.length - 1], component };
     };
 
@@ -2700,6 +2598,21 @@ describe('UI & Settings Integration', () => {
       assert.equal(prepended.length, 1, 'an existing overlay must not be added again');
     });
 
+    it('loads cold card files from the grid instance before drawing watched progress', async () => {
+      const read = mock.method(TorstApi, 'getTorrent', async () => progressTorrent);
+      const { card, component } = renderCard({ ...progressTorrent, files: [] });
+      focusCard(card);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      const sourceInstance = read.mock.calls[0].arguments[0];
+      assert.ok(sourceInstance);
+      assert.equal(sourceInstance.id, 'test');
+      assert.equal(read.mock.calls[0].arguments[1], progressTorrent.hash);
+      assert.equal(prepended.length, 1);
+      component.destroy();
+    });
+
     it('skips a card that lost focus before the delay elapsed', () => {
       const { card } = renderCard();
       focusCard(card);
@@ -2739,7 +2652,7 @@ describe('UI & Settings Integration', () => {
       hash: (value: string) => value,
     };
     (globalThis as any).Lampa.Controller = {
-      enabled: () => ({ name: 'torrplay_torrents' }),
+      enabled: () => ({ name: 'torst_torrents' }),
       toggle: () => {},
     };
     (globalThis as any).$ = (_html?: string) => {
@@ -2767,13 +2680,13 @@ describe('UI & Settings Integration', () => {
       update() {}
     };
 
-    const originalStartTorrentPlayback = TorrPlayEngine.startTorrentPlayback;
-    (TorrPlayEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
       requestedFileIndexes.push(fileIndex);
     };
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       // Non-video entries and an out-of-order episode make the video-only sorted
       // list disagree with the torrent's own file order in both directions.
       await component.openTorrent({
@@ -2786,7 +2699,7 @@ describe('UI & Settings Integration', () => {
         ],
         hash: 'multi-file-index',
         name: 'Show S01',
-        storage: 'file',
+        retention: 'temporary' as const, storage: 'file',
         total_size: 5,
       } as any);
 
@@ -2802,7 +2715,7 @@ describe('UI & Settings Integration', () => {
         'rows are sorted E01, E02, E10 and must resolve to their own positions in the full file list'
       );
     } finally {
-      TorrPlayEngine.startTorrentPlayback = originalStartTorrentPlayback;
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
     }
   });
 
@@ -2825,13 +2738,13 @@ describe('UI & Settings Integration', () => {
       update() {}
     };
 
-    const originalStartTorrentPlayback = TorrPlayEngine.startTorrentPlayback;
-    (TorrPlayEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
       requestedFileIndexes.push(fileIndex);
     };
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       await component.openTorrent({
         files: [
           { length: 1, name: 'poster.jpg', path: 'Movie/poster.jpg' },
@@ -2840,13 +2753,13 @@ describe('UI & Settings Integration', () => {
         ],
         hash: 'single-video-index',
         name: 'Movie',
-        storage: 'file',
+        retention: 'temporary' as const, storage: 'file',
         total_size: 3,
       } as any);
 
       assert.deepEqual(requestedFileIndexes, [2]);
     } finally {
-      TorrPlayEngine.startTorrentPlayback = originalStartTorrentPlayback;
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
     }
   });
 
@@ -2867,7 +2780,7 @@ describe('UI & Settings Integration', () => {
     (globalThis as any).Lampa.Noty.show = (message: string) => { notyMessages.push(message); };
     (globalThis as any).Lampa.Loading = { stop: () => { loadingStopped = true; } };
     (globalThis as any).Lampa.Controller = {
-      enabled: () => ({ name: 'torrplay_torrents' }),
+      enabled: () => ({ name: 'torst_torrents' }),
       toggle: (name: string) => { toggledController = name; },
     };
     (globalThis as any).Lampa.Scroll = class {
@@ -2877,20 +2790,20 @@ describe('UI & Settings Integration', () => {
       update() {}
     };
 
-    const originalStartTorrentPlayback = TorrPlayEngine.startTorrentPlayback;
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
     let playbackSourceInstance: any = null;
-    (TorrPlayEngine as any).startTorrentPlayback = async (
+    (TorstEngine as any).startTorrentPlayback = async (
       _torrent: any,
       _fileIndex: number,
       _movie: any,
       sourceInstance: any
     ) => {
       playbackSourceInstance = sourceInstance;
-      throw new Error('All configured TorrPlay instances are unreachable');
+      throw new Error('All configured Torst instances are unreachable');
     };
 
     try {
-      const component = new TorrPlayTorrentsComponent();
+      const component = new TorstTorrentsComponent();
       const activeInstance = {
         authType: 'none',
         id: 'database-instance',
@@ -2911,17 +2824,17 @@ describe('UI & Settings Integration', () => {
 
       assert.equal(loadingStopped, true, 'Loading screen must be stopped on failure');
       assert.equal(playbackSourceInstance, activeInstance, 'Playback must stay on the instance that supplied the card');
-      assert.equal(toggledController, 'torrplay_torrents', 'Launching controller must be restored on failure');
+      assert.equal(toggledController, 'torst_torrents', 'Launching controller must be restored on failure');
       assert.ok(
-        notyMessages.some(message => message.includes('All configured TorrPlay instances are unreachable')),
+        notyMessages.some(message => message.includes('All configured Torst instances are unreachable')),
         'An error notice must be shown when playback fails'
       );
     } finally {
-      TorrPlayEngine.startTorrentPlayback = originalStartTorrentPlayback;
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
     }
   });
 
-  it('filters out native TorrServer items from context menu when playback mode is Always TorrPlay', () => {
+  it('filters out native TorrServer items from context menu when playback mode is Always Torst', () => {
     let torrentListener: any = null;
     (globalThis as any).Lampa.Listener = {
       follow: (event: string, callback: any) => {
@@ -2934,7 +2847,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(torrentListener, 'Torrent listener must be registered');
 
     // Test in 'ask' mode: `tomy` item is retained
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
     const askMenu: any[] = [
       { mark: true, title: 'Mark' },
@@ -2947,8 +2860,8 @@ describe('UI & Settings Integration', () => {
       menu: askMenu,
       type: 'onlong',
     });
-    assert.equal(askMenu[0].title, getTestTranslation('torrplay_play_via'), 'Play via TorrPlay must be first action');
-    assert.equal(askMenu[1].title, getTestTranslation('torrplay_save_to'), 'Save to TorrPlay must be second action');
+    assert.equal(askMenu[0].title, getTestTranslation('torst_play_via'), 'Play via Torst must be first action');
+    assert.equal(askMenu[1].title, getTestTranslation('torst_save_to'), 'Save to Torst must be second action');
     assert.ok(askMenu.some(item => item.tomy), 'Native TorrServer item must be kept in ask mode');
     assert.ok(askMenu.some(item => item.mark), 'Mark action must be kept when unviewed');
     assert.equal(askMenu.some(item => item.unmark), false, 'Unmark action must be filtered when unviewed');
@@ -2968,9 +2881,9 @@ describe('UI & Settings Integration', () => {
     assert.ok(viewedMenu.some(item => item.unmark), 'Unmark action must be kept when already viewed');
     assert.equal(viewedMenu.some(item => item.mark), false, 'Mark action must be filtered when already viewed');
 
-    // Test in 'torrplay' mode: `tomy` item is stripped
-    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
-    const torrplayMenu: any[] = [
+    // Test in 'torst' mode: `tomy` item is stripped
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+    const torstMenu: any[] = [
       { title: 'Add to TorrServer', tomy: true },
       { mark: true, title: 'Mark' },
       { title: 'Remove Mark', unmark: true },
@@ -2978,20 +2891,20 @@ describe('UI & Settings Integration', () => {
     torrentListener({
       element: { title: 'Test Torrent' },
       item: {},
-      menu: torrplayMenu,
+      menu: torstMenu,
       type: 'onlong',
     });
-    assert.equal(torrplayMenu.some(item => item.tomy), false, 'Native TorrServer item must be removed in torrplay mode');
-    assert.equal(torrplayMenu[0].title, getTestTranslation('torrplay_play_via'));
-    assert.equal(torrplayMenu[0].subtitle, getTestTranslation('torrplay_play_via_descr'));
-    assert.equal(torrplayMenu[1].title, getTestTranslation('torrplay_save_to'));
-    assert.equal(torrplayMenu[1].subtitle, getTestTranslation('torrplay_save_to_descr'));
-    assert.ok(torrplayMenu.some(item => item.mark), 'Mark item should be preserved when unviewed');
+    assert.equal(torstMenu.some(item => item.tomy), false, 'Native TorrServer item must be removed in torst mode');
+    assert.equal(torstMenu[0].title, getTestTranslation('torst_play_via'));
+    assert.equal(torstMenu[0].subtitle, getTestTranslation('torst_play_via_descr'));
+    assert.equal(torstMenu[1].title, getTestTranslation('torst_save_to'));
+    assert.equal(torstMenu[1].subtitle, getTestTranslation('torst_save_to_descr'));
+    assert.ok(torstMenu.some(item => item.mark), 'Mark item should be preserved when unviewed');
 
-    // Verify selecting 'Save to TorrPlay' passes resolved movie instead of DOM item
+    // Verify selecting 'Save to Torst' passes resolved movie instead of DOM item
     let savedMovie: any = null;
-    const origSaveToDb = TorrPlayEngine.saveToDatabase;
-    TorrPlayEngine.saveToDatabase = async (_element: any, movie: any) => {
+    const origSaveToDb = TorstEngine.saveToDatabase;
+    TorstEngine.saveToDatabase = async (_element: any, movie: any) => {
       savedMovie = movie;
     };
 
@@ -3011,11 +2924,11 @@ describe('UI & Settings Integration', () => {
       type: 'onlong',
     });
 
-    const saveOption = contextMenu.find(item => item.title === getTestTranslation('torrplay_save_to'));
+    const saveOption = contextMenu.find(item => item.title === getTestTranslation('torst_save_to'));
     assert.ok(saveOption);
     saveOption.onSelect();
     assert.deepEqual(savedMovie, mockMovie, 'Must pass active activity movie context instead of DOM element');
-    TorrPlayEngine.saveToDatabase = origSaveToDb;
+    TorstEngine.saveToDatabase = origSaveToDb;
   });
 
   it('prefers the card a search result sends over the page behind the search screen', () => {
@@ -3025,7 +2938,7 @@ describe('UI & Settings Integration', () => {
         if (event === 'torrent') torrentListener = callback;
       },
     };
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
     (CatalogChoice as any).isRegistered = false;
     CatalogChoice.init();
@@ -3034,23 +2947,23 @@ describe('UI & Settings Integration', () => {
     };
     const playedMovies: unknown[] = [];
     const savedMovies: unknown[] = [];
-    const originalPlayDirect = TorrPlayEngine.playTorrentDirect;
-    const originalSave = TorrPlayEngine.saveToDatabase;
-    TorrPlayEngine.playTorrentDirect = (_element: any, movie: any) => { playedMovies.push(movie); };
-    TorrPlayEngine.saveToDatabase = async (_element: any, movie: any) => { savedMovies.push(movie); };
+    const originalPlayDirect = TorstEngine.playTorrentDirect;
+    const originalSave = TorstEngine.saveToDatabase;
+    TorstEngine.playTorrentDirect = (_element: any, movie: any) => { playedMovies.push(movie); };
+    TorstEngine.saveToDatabase = async (_element: any, movie: any) => { savedMovies.push(movie); };
 
     try {
       const searchCard = { title: 'Search Result Title' };
       const menu: any[] = [];
       torrentListener({ element: { title: 'Search Result Title' }, item: {}, menu, movie: searchCard, type: 'onlong' });
-      menu.find(item => item.title === getTestTranslation('torrplay_play_via')).onSelect();
-      menu.find(item => item.title === getTestTranslation('torrplay_save_to')).onSelect();
+      menu.find(item => item.title === getTestTranslation('torst_play_via')).onSelect();
+      menu.find(item => item.title === getTestTranslation('torst_save_to')).onSelect();
 
       assert.deepEqual(playedMovies, [searchCard]);
       assert.deepEqual(savedMovies, [searchCard]);
     } finally {
-      TorrPlayEngine.playTorrentDirect = originalPlayDirect;
-      TorrPlayEngine.saveToDatabase = originalSave;
+      TorstEngine.playTorrentDirect = originalPlayDirect;
+      TorstEngine.saveToDatabase = originalSave;
     }
   });
 
@@ -3062,7 +2975,7 @@ describe('UI & Settings Integration', () => {
       },
     };
 
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
     (CatalogChoice as any).isRegistered = false;
     CatalogChoice.init();
@@ -3081,12 +2994,12 @@ describe('UI & Settings Integration', () => {
       type: 'onlong',
     });
 
-    const savedNotice = savedMenu.find(item => item.title === getTestTranslation('torrplay_already_saved'));
+    const savedNotice = savedMenu.find(item => item.title === getTestTranslation('torst_already_saved'));
     assert.ok(savedNotice, 'A stored torrent must be reported as already stored');
     assert.equal(savedNotice.ghost, true, 'The notice must be drawn as inactive');
     assert.equal(savedNotice.noenter, true, 'The notice must not be selectable');
     assert.equal(
-      savedMenu.some(item => item.title === getTestTranslation('torrplay_save_to')),
+      savedMenu.some(item => item.title === getTestTranslation('torst_save_to')),
       false,
       'A stored torrent must not be offered for saving again'
     );
@@ -3099,7 +3012,7 @@ describe('UI & Settings Integration', () => {
       type: 'onlong',
     });
     assert.ok(
-      unsavedMenu.some(item => item.title === getTestTranslation('torrplay_save_to')),
+      unsavedMenu.some(item => item.title === getTestTranslation('torst_save_to')),
       'A torrent absent from the database must still be offered for saving'
     );
 
@@ -3111,7 +3024,7 @@ describe('UI & Settings Integration', () => {
       type: 'onlong',
     });
     assert.ok(
-      unknownMenu.some(item => item.title === getTestTranslation('torrplay_save_to')),
+      unknownMenu.some(item => item.title === getTestTranslation('torst_save_to')),
       'A torrent whose state never resolved must keep the save action'
     );
 
@@ -3126,7 +3039,7 @@ describe('UI & Settings Integration', () => {
       },
     };
 
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     (CatalogChoice as any).isRegistered = false;
     CatalogChoice.init();
 
@@ -3135,12 +3048,11 @@ describe('UI & Settings Integration', () => {
     const requestedUrls: string[] = [];
     globalThis.fetch = async (input: RequestInfo | URL) => {
       requestedUrls.push(String(input));
-      return new Response(JSON.stringify({
-        facets: { categories: [], total: 2, version: 'v1' },
-        torrents: [
-          { created_at: '2026-01-15T10:30:00Z', files: [], hash: storedHash, name: 'Stored', storage: 'memory', total_size: 0 },
-          { files: [], hash: clientOnlyHash, name: 'Client only', storage: 'memory', total_size: 0 },
-        ],
+      return new Response(JSON.stringify({ facets: { categories: [], total: 2, version: 'v1' },
+        items: ([
+          { created_at: '2026-01-15T10:30:00Z', files: [], hash: storedHash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+        ]).map(createTorstTorrent),
+        links: {},
       }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
     };
 
@@ -3196,11 +3108,11 @@ describe('UI & Settings Integration', () => {
       const url = String(input);
       requestedUrls.push(url);
       if (shouldFail && url.includes('/api/v1/torrents')) return new Response('boom', { status: 500 });
-      return new Response(JSON.stringify({
-        facets: { categories: [], total: 1, version: 'v1' },
-        torrents: [
-          { created_at: '2026-01-15T10:30:00Z', files: [], hash, name: 'Stored', storage: 'memory', total_size: 0 },
-        ],
+      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },
+        items: ([
+          { created_at: '2026-01-15T10:30:00Z', files: [], hash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+        ]).map(createTorstTorrent),
+        links: {},
       }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
     };
 
@@ -3214,8 +3126,8 @@ describe('UI & Settings Integration', () => {
       'A failed lookup must not be recorded as an answer'
     );
     assert.ok(
-      requestedUrls.some(url => /[?&]limit=/.test(url)),
-      'A lookup must cap the listing in case the server does not know the hash filter'
+      requestedUrls.some(url => /[?&]page_size=/.test(url)),
+      'A lookup must use Torst page sizes'
     );
 
     shouldFail = false;
@@ -3240,20 +3152,19 @@ describe('UI & Settings Integration', () => {
       public update() {}
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
       enableDownloader: true,
-      fileStoragePath: '/var/torrplay/storage',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const clientOnlyTorrent: any = {
       files: [],
       hash: 'f'.repeat(40),
       name: 'Client Only Torrent',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       total_size: 0,
     };
     const cardElement = { remove: () => {} };
@@ -3286,16 +3197,16 @@ describe('UI & Settings Integration', () => {
       toggle: (name: string) => { toggledControllers.push(name); },
     };
 
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
     (CatalogChoice as any).isRegistered = false;
     CatalogChoice.init();
 
-    const origSaveToDb = TorrPlayEngine.saveToDatabase;
-    const origPlayDirect = TorrPlayEngine.playTorrentDirect;
+    const origSaveToDb = TorstEngine.saveToDatabase;
+    const origPlayDirect = TorstEngine.playTorrentDirect;
     let playReturnController: string | undefined;
-    TorrPlayEngine.saveToDatabase = async () => {};
-    TorrPlayEngine.playTorrentDirect = (_element: any, _movie: any, returnController?: string) => {
+    TorstEngine.saveToDatabase = async () => {};
+    TorstEngine.playTorrentDirect = (_element: any, _movie: any, returnController?: string) => {
       playReturnController = returnController;
     };
 
@@ -3312,18 +3223,18 @@ describe('UI & Settings Integration', () => {
       // handlers must use the one captured when the menu was built.
       enabledController = 'select';
 
-      menu.find(item => item.title === getTestTranslation('torrplay_save_to')).onSelect();
+      menu.find(item => item.title === getTestTranslation('torst_save_to')).onSelect();
       assert.deepEqual(toggledControllers, ['content'], 'saving must hand focus back to the card list');
 
-      menu.find(item => item.title === getTestTranslation('torrplay_play_via')).onSelect();
+      menu.find(item => item.title === getTestTranslation('torst_play_via')).onSelect();
       assert.equal(playReturnController, 'content', 'playback must fall back to the card list, not the closed menu');
     } finally {
-      TorrPlayEngine.saveToDatabase = origSaveToDb;
-      TorrPlayEngine.playTorrentDirect = origPlayDirect;
+      TorstEngine.saveToDatabase = origSaveToDb;
+      TorstEngine.playTorrentDirect = origPlayDirect;
     }
   });
 
-  it('injects TorrPlay button into movie card details and opens torrents activity with torrplay flag', () => {
+  it('injects Torst button into movie card details and opens torrents activity with torst flag', () => {
     let fullListener: any = null;
     (globalThis as any).Lampa.Listener = {
       follow: (event: string, callback: any) => {
@@ -3338,7 +3249,7 @@ describe('UI & Settings Integration', () => {
       },
     };
 
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
     storageMap.set('parse_lang', 'df');
 
     (CatalogChoice as any).isRegistered = false;
@@ -3365,8 +3276,8 @@ describe('UI & Settings Integration', () => {
           },
           data: (key: string) => (key === 'subtitle' ? subtitleVal : undefined),
           find: (selector: string) => {
-            if (selector === '.view--torrplay') {
-              const matched = injectedElements.filter(e => e.__html && e.__html.includes('view--torrplay'));
+            if (selector === '.view--torst') {
+              const matched = injectedElements.filter(e => e.__html && e.__html.includes('view--torst'));
               return {
                 data: (k: string) => (matched[0] ? matched[0].data(k) : undefined),
                 length: matched.length,
@@ -3408,7 +3319,7 @@ describe('UI & Settings Integration', () => {
             listeners[eventName] = handler;
             return el;
           },
-          text: () => (arg.includes('TorrPlay') ? 'TorrPlay' : ''),
+          text: () => (arg.includes('Torst') ? 'Torst' : ''),
           trigger: (evt: string) => {
             if (listeners[evt]) listeners[evt]();
           },
@@ -3445,18 +3356,18 @@ describe('UI & Settings Integration', () => {
       type: 'complite',
     };
 
-    // When in Always TorrPlay mode, native .view--torrent is hidden
-    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
+    // When in Always Torst mode, native .view--torrent is hidden
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
     fullListener(mockEvent);
 
-    assert.equal(injectedElements[0].__html.includes('view--torrplay'), true, 'TorrPlay must be first in list');
-    const torrplayBtn = mockBody.find('.view--torrplay');
-    assert.equal(torrplayBtn.length, 1, 'TorrPlay button must be injected');
-    assert.equal(torrplayBtn.data('subtitle'), getTestTranslation('torrplay_btn_subtitle'));
-    assert.equal(torrplayBtn.text().trim(), 'TorrPlay');
+    assert.equal(injectedElements[0].__html.includes('view--torst'), true, 'Torst must be first in list');
+    const torstBtn = mockBody.find('.view--torst');
+    assert.equal(torstBtn.length, 1, 'Torst button must be injected');
+    assert.equal(torstBtn.data('subtitle'), getTestTranslation('torst_btn_subtitle'));
+    assert.equal(torstBtn.text().trim(), 'Torst');
     assert.equal(groupButtonsEmitted, true, 'groupButtons must be re-emitted');
-    assert.equal(torrentClasses.has('hide'), true, 'Native button must have hide class in Always TorrPlay');
-    assert.equal(torrentClasses.has('selector'), false, 'Native button must remove selector class in Always TorrPlay');
+    assert.equal(torrentClasses.has('hide'), true, 'Native button must have hide class in Always Torst');
+    assert.equal(torrentClasses.has('selector'), false, 'Native button must remove selector class in Always Torst');
 
     // When in context/ask mode, native .view--torrent is not hidden
     torrentClasses.clear();
@@ -3474,28 +3385,28 @@ describe('UI & Settings Integration', () => {
     // Verify duplicate injection is prevented
     groupButtonsEmitted = false;
     fullListener(mockEvent);
-    assert.equal(mockBody.find('.view--torrplay').length, 1, 'Duplicate button should not be injected');
+    assert.equal(mockBody.find('.view--torst').length, 1, 'Duplicate button should not be injected');
     assert.equal(groupButtonsEmitted, false, 'groupButtons should not be emitted on duplicate');
 
     // Test button click (hover:enter)
-    torrplayBtn.trigger('hover:enter');
+    torstBtn.trigger('hover:enter');
     assert.ok(pushedActivity, 'Activity.push must be called on click');
     assert.equal(pushedActivity.component, 'torrents');
-    assert.equal(pushedActivity.torrplay, true);
-    assert.equal(pushedActivity.title, 'TorrPlay');
-    assert.equal(pushedActivity.movie.torrplay, true);
+    assert.equal(pushedActivity.torst, true);
+    assert.equal(pushedActivity.title, 'Torst');
+    assert.equal(pushedActivity.movie.torst, true);
     assert.equal(pushedActivity.movie.title, 'Localized Title');
     assert.equal(pushedActivity.search, 'Original Title');
 
     // Test disabled state
     injectedElements.length = 0;
     const disabledBody = mock$('<div><div class="buttons--container"><div class="view--torrent"></div></div></div>');
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, false);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
     fullListener({
       ...mockEvent,
       body: disabledBody,
     });
-    assert.equal(disabledBody.find('.view--torrplay').length, 0, 'Button must not be injected when plugin is disabled');
+    assert.equal(disabledBody.find('.view--torst').length, 0, 'Button must not be injected when plugin is disabled');
   });
 
   it('offers dynamic mark/unmark in the database context menu', async () => {
@@ -3512,12 +3423,12 @@ describe('UI & Settings Integration', () => {
       remove: () => {},
     });
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance = {
       authType: 'none',
       id: 'test',
       name: 'Test Node',
-      url: 'http://127.0.0.1:8090',
+      url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
       hash: 'torrent_db_123',
@@ -3566,7 +3477,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(isRemoved, true);
   });
 
-  it('toggles torrplay--hide-torrserver body class and hides sidebar mytorrents when Always TorrPlay is active', () => {
+  it('toggles torst--hide-torrserver body class and hides sidebar mytorrents when Always Torst is active', () => {
     const classSet = new Set<string>();
     const mockBody = {
       classList: {
@@ -3628,10 +3539,10 @@ describe('UI & Settings Integration', () => {
     (globalThis as any).document = mockDocument;
 
     try {
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
-      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
       SettingsUi.updateTorrServerVisibility();
-      assert.equal(classSet.has('torrplay--hide-torrserver'), true);
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
       assert.ok(injectedCss.includes('.settings-folder[data-component="server"]'));
       assert.ok(injectedCss.includes('.settings-folder[data-component="parser"]'));
       assert.ok(injectedCss.includes('[data-action="mytorrents"]'));
@@ -3649,8 +3560,8 @@ describe('UI & Settings Integration', () => {
       });
       storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
       SettingsUi.updateTorrServerVisibility();
-      assert.equal(classSet.has('torrplay--hide-torrserver'), false);
-      assert.equal(classSet.has('torrplay--hide-native-parser'), true);
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
+      assert.equal(classSet.has('torst--hide-native-parser'), true);
       assert.equal(myTorrentsClasses.has('hide'), false);
       assert.ok(myTorrentsClasses.has('selector'));
       assert.equal(viewTorrentClasses.has('hide'), false);
@@ -3658,11 +3569,11 @@ describe('UI & Settings Integration', () => {
       assert.equal(parserFolderClasses.has('hide'), false);
       assert.ok(parserFolderClasses.has('selector'));
 
-      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, false);
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
       SettingsUi.updateTorrServerVisibility();
-      assert.equal(classSet.has('torrplay--hide-native-parser'), false);
-      assert.equal(classSet.has('torrplay--hide-torrserver'), false);
+      assert.equal(classSet.has('torst--hide-native-parser'), false);
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
       assert.equal(myTorrentsClasses.has('hide'), false);
       assert.ok(myTorrentsClasses.has('selector'));
       assert.equal(viewTorrentClasses.has('hide'), false);
@@ -3724,26 +3635,26 @@ describe('UI & Settings Integration', () => {
       assert.ok(menuListener, 'menu listener must be registered');
       assert.ok(activityListener, 'activity listener must be registered');
 
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
-      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
 
       // Trigger menu start event
       menuListener({ type: 'start' });
-      assert.equal(classSet.has('torrplay--hide-torrserver'), true);
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
       assert.ok(myTorrentsClasses.has('hide'));
       assert.equal(myTorrentsClasses.has('selector'), false);
 
       // Trigger menu toggle event with ask mode
       storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
       menuListener({ type: 'toggle' });
-      assert.equal(classSet.has('torrplay--hide-torrserver'), false);
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
       assert.equal(myTorrentsClasses.has('hide'), false);
       assert.ok(myTorrentsClasses.has('selector'));
 
-      // Trigger activity event with torrplay mode
-      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
+      // Trigger activity event with torst mode
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
       activityListener();
-      assert.equal(classSet.has('torrplay--hide-torrserver'), true);
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
       assert.ok(myTorrentsClasses.has('hide'));
       assert.equal(myTorrentsClasses.has('selector'), false);
     } finally {
@@ -3779,7 +3690,7 @@ describe('UI & Settings Integration', () => {
       toggle: () => {},
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     let loadCallCount = 0;
     component.load = async () => {
       loadCallCount++;
@@ -3804,7 +3715,7 @@ describe('UI & Settings Integration', () => {
     (globalThis as any).$ = () => ({ append: () => {}, empty: () => {}, remove: () => {} });
     (InstanceManager as any).instances = [];
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     let renderEmptyStateCallCount = 0;
     component.renderEmptyState = () => { renderEmptyStateCallCount++; };
 
@@ -3850,10 +3761,10 @@ describe('UI & Settings Integration', () => {
     };
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
     const torrents: any[] = [
-      { files: [], hash: 'h1', name: 'Torrent One', storage: 'memory', total_size: 0 },
+      { files: [], hash: 'h1', name: 'Torrent One', retention: 'temporary' as const, storage: 'memory', total_size: 0 },
     ];
 
     component.renderTorrents(torrents, instance, true);
@@ -3867,7 +3778,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(collectionFocusCalls, 1);
   });
 
-  it('adds and removes the active badge as a background refresh sees the torrent start and stop', () => {
+  it('updates the storage badge when a background refresh sees a storage change', () => {
     const buildDom = (tag: any) => {
       const node: any = { children: [] as any[], contains: () => false };
       const el: any = {
@@ -3908,24 +3819,24 @@ describe('UI & Settings Integration', () => {
     };
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '1 MB', clearHtmlTags: (value: string) => value };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const grid: any = (component as any).contentGrid;
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrent = (active: boolean) => ([{ active, files: [], hash: 'h1', name: 'One', storage: 'memory', total_size: 0 }] as any[]);
+    const torrent = (storage: 'memory' | 'file') => ([{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage, total_size: 0 }] as any[]);
 
-    component.renderTorrents(torrent(false), instance, false);
-    assert.ok(!grid.children[0].htmlString.includes('data-testid="active-torrent-badge"'));
+    component.renderTorrents(torrent('memory'), instance, false);
+    assert.ok(!grid.children[0].htmlString.includes('data-testid="file-storage-badge"'));
 
-    component.renderTorrents(torrent(true), instance, true);
+    component.renderTorrents(torrent('file'), instance, true);
     assert.ok(
-      grid.children[0].htmlString.includes('data-testid="active-torrent-badge"'),
-      'a background refresh must show the badge once the torrent starts'
+      grid.children[0].htmlString.includes('data-testid="file-storage-badge"'),
+      'a background refresh must show the disk badge after switching to file storage'
     );
 
-    component.renderTorrents(torrent(false), instance, true);
+    component.renderTorrents(torrent('memory'), instance, true);
     assert.ok(
-      !grid.children[0].htmlString.includes('data-testid="active-torrent-badge"'),
-      'a background refresh must drop the badge once the torrent stops'
+      !grid.children[0].htmlString.includes('data-testid="file-storage-badge"'),
+      'a background refresh must drop the disk badge after switching to memory'
     );
 
     component.destroy();
@@ -3994,10 +3905,10 @@ describe('UI & Settings Integration', () => {
       move: () => {},
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const grid: any = (component as any).contentGrid;
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrent = (hash: string, name: string) => ({ files: [], hash, name, storage: 'memory', total_size: 0 });
+    const torrent = (hash: string, name: string) => ({ files: [], hash, name, retention: 'temporary' as const, storage: 'memory', total_size: 0 });
     const torrents: any[] = [torrent('h1', 'One'), torrent('h2', 'Two')];
 
     component.renderTorrents(torrents, instance, false);
@@ -4105,14 +4016,14 @@ describe('UI & Settings Integration', () => {
     });
 
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrent = (hash: string, isSaved: boolean, { isActive = false, viewedAt = null as string | null } = {}) => ({
-      active: isActive,
-      ...(isSaved ? { created_at: '2026-01-01T00:00:00Z' } : {}),
-      files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv', viewed_at: viewedAt }],
+    const torrent = (hash: string, isSaved: boolean, { sizeBytes = 0 } = {}) => ({
+      created_at: '2026-01-01T00:00:00Z',
+      files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv' }],
       hash,
       name: hash,
+      retention: isSaved ? 'persisted' : 'temporary',
       storage: 'memory',
-      total_size: 0,
+      total_size: sizeBytes,
     });
     const cardHashes = (component: any) => component.contentGrid[0].children.map((child: any) => {
       for (const [hash, card] of component.renderedCards) if (card[0] === child) return hash;
@@ -4120,18 +4031,18 @@ describe('UI & Settings Integration', () => {
     });
 
     const playFrom = async (component: any, played: any, isHandedOff: boolean) => {
-      const originalStartTorrentPlayback = TorrPlayEngine.startTorrentPlayback;
-      (TorrPlayEngine as any).startTorrentPlayback = async () => isHandedOff;
+      const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+      (TorstEngine as any).startTorrentPlayback = async () => isHandedOff;
       try {
         component.playTorrentFileSafely(played, 0);
         await new Promise(resolve => setImmediate(resolve));
       } finally {
-        TorrPlayEngine.startTorrentPlayback = originalStartTorrentPlayback;
+        TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
       }
     };
 
     it('moves a played saved torrent to the top of the saved ones and scrolls to it', async () => {
-      const component: any = new TorrPlayTorrentsComponent();
+      const component: any = new TorstTorrentsComponent();
       const torrents = [torrent('loaded', false), torrent('first', true), torrent('played', true)];
       component.renderTorrents(torrents, instance, false);
       const playedCard = component.renderedCards.get('played');
@@ -4139,7 +4050,7 @@ describe('UI & Settings Integration', () => {
 
       await playFrom(component, torrents[2], true);
 
-      assert.deepEqual(cardHashes(component), ['loaded', 'played', 'first'], 'the server lists the last watched saved torrent after the loaded-only ones');
+      assert.deepEqual(cardHashes(component), ['loaded', 'played', 'first'], 'the view moves a played persisted torrent ahead of the other persisted entries');
       assert.deepEqual(scrolledTo, [playedCard[0]], 'the view must follow the moved card');
       assert.equal(component.lastFocusedElement, playedCard[0]);
       assert.equal(component.lastFocusedTorrentHash, 'played');
@@ -4152,42 +4063,30 @@ describe('UI & Settings Integration', () => {
       component.destroy();
     });
 
-    it('keeps a played torrent first until the server records the view', async () => {
-      const component: any = new TorrPlayTorrentsComponent();
-      const lastViewedAt = new Date(Date.now() - 60 * 60_000).toISOString();
-      component.renderTorrents([torrent('first', true), torrent('played', true, { viewedAt: lastViewedAt })], instance, false);
+    it('keeps the last played torrent first across Torst creation-order refreshes', async () => {
+      const component: any = new TorstTorrentsComponent();
+      component.renderTorrents([torrent('first', true), torrent('played', true)], instance, false);
       await playFrom(component, torrent('played', true), true);
-
-      // Listed before the server recorded the view, even while a preload keeps it active.
-      component.renderTorrents([torrent('first', true), torrent('played', true, { viewedAt: lastViewedAt })], instance, true);
-      assert.deepEqual(cardHashes(component), ['played', 'first'], 'a stale listing must not move the card back');
-      component.renderTorrents([torrent('first', true, { isActive: true }), torrent('played', true, { isActive: true, viewedAt: lastViewedAt })], instance, true);
+      component.renderTorrents([torrent('first', true), { ...torrent('played', true), files: [] }], instance, true);
       assert.deepEqual(cardHashes(component), ['played', 'first']);
-
-      // Once the view is recorded the server's own order is final, wherever it puts the torrent.
-      const recordedViewedAt = new Date().toISOString();
-      component.renderTorrents([torrent('first', true), torrent('played', true, { viewedAt: recordedViewedAt })], instance, true);
-      assert.deepEqual(cardHashes(component), ['first', 'played']);
-
+      component.renderTorrents([torrent('first', true)], instance, true);
+      assert.deepEqual(cardHashes(component), ['first']);
       component.destroy();
     });
 
-    it('leaves the order alone when the server will not record a repeat view yet', async () => {
-      const component: any = new TorrPlayTorrentsComponent();
-      const recentViewedAt = new Date(Date.now() - 60_000).toISOString();
-      component.renderTorrents([torrent('first', true), torrent('played', true, { viewedAt: recentViewedAt })], instance, false);
-      scrolledTo = [];
-
-      await playFrom(component, torrent('played', true), true);
-
+    it('updates the local order on repeat playback without server view timestamps', async () => {
+      const component: any = new TorstTorrentsComponent();
+      const torrents = [torrent('first', true), torrent('played', true)];
+      component.renderTorrents(torrents, instance, false);
+      await playFrom(component, torrents[1], true);
+      assert.deepEqual(cardHashes(component), ['played', 'first']);
+      await playFrom(component, torrents[0], true);
       assert.deepEqual(cardHashes(component), ['first', 'played']);
-      assert.deepEqual(scrolledTo, []);
-
       component.destroy();
     });
 
     it('leaves the order alone when playback is not handed off or the torrent is not saved', async () => {
-      const component: any = new TorrPlayTorrentsComponent();
+      const component: any = new TorstTorrentsComponent();
       const torrents = [torrent('first', true), torrent('played', true), torrent('loaded', false)];
       component.renderTorrents(torrents, instance, false);
       scrolledTo = [];
@@ -4202,7 +4101,7 @@ describe('UI & Settings Integration', () => {
     });
 
     it('scrolls to the focused card when a silent refresh moves it', () => {
-      const component: any = new TorrPlayTorrentsComponent();
+      const component: any = new TorstTorrentsComponent();
       component.renderTorrents([torrent('first', true), torrent('watched', true)], instance, false);
       const watchedCard = component.renderedCards.get('watched');
       watchedCard.handlers.get('hover:focus')({ currentTarget: watchedCard[0] });
@@ -4210,7 +4109,7 @@ describe('UI & Settings Integration', () => {
 
       // A changed listing that keeps the focused card in place leaves the view alone.
       scrolledTo = [];
-      component.renderTorrents([torrent('first', true, { isActive: true }), torrent('watched', true)], instance, true);
+      component.renderTorrents([torrent('first', true, { sizeBytes: 1 }), torrent('watched', true)], instance, true);
       assert.deepEqual(scrolledTo, []);
 
       component.renderTorrents([torrent('watched', true), torrent('first', true)], instance, true);
@@ -4279,12 +4178,12 @@ describe('UI & Settings Integration', () => {
       move: () => {},
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', storage: 'memory', total_size: 0 }];
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
 
     component.renderTorrents(torrents, instance, true);
-    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', storage: 'memory', total_size: 0 }], instance, true);
+    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', retention: 'temporary' as const, storage: 'memory', total_size: 0 }], instance, true);
 
     assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch the collection of the screen that holds focus');
     assert.equal(collectionFocusCalls, 0);
@@ -4337,9 +4236,9 @@ describe('UI & Settings Integration', () => {
     };
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const grid: any = (component as any).contentGrid;
-    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', storage: 'memory', total_size: 0 }];
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
     const first: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
     const second: any = { authType: 'none', id: 'b', name: 'B', url: 'http://b.local' };
 
@@ -4410,16 +4309,16 @@ describe('UI & Settings Integration', () => {
     };
     (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
-    const component = new TorrPlayTorrentsComponent();
-    component.renderEmptyState('No torrents found', 'TorrPlay', false);
+    const component = new TorstTorrentsComponent();
+    component.renderEmptyState('No torrents found', 'Torst', false);
     const appendedAfterFirstRender = appended.length;
 
-    component.renderEmptyState('No torrents found', 'TorrPlay', true);
-    component.renderEmptyState('No torrents found', 'TorrPlay', true);
+    component.renderEmptyState('No torrents found', 'Torst', true);
+    component.renderEmptyState('No torrents found', 'Torst', true);
     assert.equal(appended.length, appendedAfterFirstRender, 'repeated silent refreshes must not stack empty states');
 
     // A different message is a real change and must replace what is on screen.
-    component.renderEmptyState('Instances unreachable', 'TorrPlay', true);
+    component.renderEmptyState('Instances unreachable', 'Torst', true);
     assert.equal(appended.length, appendedAfterFirstRender + 1);
 
     component.destroy();
@@ -4487,10 +4386,10 @@ describe('UI & Settings Integration', () => {
       move: () => {},
     };
 
-    const component = new TorrPlayTorrentsComponent();
+    const component = new TorstTorrentsComponent();
     const grid: any = (component as any).contentGrid;
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', storage: 'memory', total_size: 0 }];
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
 
     component.renderTorrents(torrents, instance, false);
     const initialCard = grid[0].children[0];
@@ -4498,7 +4397,7 @@ describe('UI & Settings Integration', () => {
     initialCard.classes.add('focus');
 
     collectionSetCalls = 0;
-    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', storage: 'memory', total_size: 0 }], instance, true);
+    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', retention: 'temporary' as const, storage: 'memory', total_size: 0 }], instance, true);
 
     assert.equal(collectionSetCalls, 1, 'the rebuilt cards must still be handed to the navigator collection');
     assert.equal(focusedElement, grid[0].children[0], 'the cursor must move to the replacement of the same torrent card');

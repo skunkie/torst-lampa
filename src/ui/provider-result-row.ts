@@ -39,7 +39,7 @@ interface ViewedMenuItem extends LampaSelectItem {
 }
 
 const AUDIO_NAME_MAX_LENGTH = 20;
-const CONTROLLER_NAME = 'torrplay_provider_result';
+const CONTROLLER_NAME = 'torst_provider_result';
 const SUBTITLE_TAG_LIMIT = 4;
 
 const RESOLUTION_LABELS: Record<number, string> = {

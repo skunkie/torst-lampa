@@ -5,739 +5,719 @@
 export type SupportedLocale = 'en' | 'ru';
 
 export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
-  torrplay_about_build_commit: {
+  torst_about_build_commit: {
     en: 'Commit',
     ru: 'Коммит',
   },
-  torrplay_about_build_date: {
+  torst_about_build_date: {
     en: 'Build Date',
     ru: 'Дата сборки',
   },
-  torrplay_about_descr: {
+  torst_about_descr: {
     en: 'Plugin version and build info',
     ru: 'Версия плагина и информация о сборке',
   },
-  torrplay_about_name: {
+  torst_about_name: {
     en: 'About Plugin',
     ru: 'О плагине',
   },
-  torrplay_about_title: {
-    en: 'About TorrPlay',
-    ru: 'О TorrPlay',
+  torst_about_title: {
+    en: 'About Torst',
+    ru: 'О Torst',
   },
-  torrplay_about_unknown: {
+  torst_about_unknown: {
     en: 'Unknown',
     ru: 'Неизвестно',
   },
-  torrplay_about_version: {
+  torst_about_version: {
     en: 'Version',
     ru: 'Версия',
   },
-  torrplay_active_auto_badge: {
+  torst_active_auto_badge: {
     en: ' [Active (Auto)]',
     ru: ' [Активный (Авто)]',
   },
-  torrplay_active_badge: {
+  torst_active_badge: {
     en: ' [Active]',
     ru: ' [Активный]',
   },
-  torrplay_add_instance: {
+  torst_add_instance: {
     en: 'Add Instance',
     ru: 'Добавить инстанс',
   },
-  torrplay_add_instance_descr: {
-    en: 'Add a new TorrPlay instance to the pool',
-    ru: 'Добавить новый инстанс TorrPlay в пул',
+  torst_add_instance_descr: {
+    en: 'Add a new Torst instance to the pool',
+    ru: 'Добавить новый инстанс Torst в пул',
   },
-  torrplay_already_saved: {
-    en: 'Already in TorrPlay',
-    ru: 'Уже в TorrPlay',
+  torst_already_saved: {
+    en: 'Already in Torst',
+    ru: 'Уже в Torst',
   },
-  torrplay_already_saved_descr: {
-    en: 'Available in the TorrPlay database',
-    ru: 'Доступен в базе TorrPlay',
+  torst_already_saved_descr: {
+    en: 'Available in the Torst database',
+    ru: 'Доступен в базе Torst',
   },
-  torrplay_auth_basic_descr: {
-    en: 'HTTP Basic authentication',
-    ru: 'Аутентификация HTTP Basic',
+  torst_auth_bearer_descr: {
+    en: 'Sign in with the Torst password',
+    ru: 'Вход с паролем Torst',
   },
-  torrplay_auth_bearer_descr: {
-    en: 'OAuth2 JWT authentication',
-    ru: 'Аутентификация OAuth2 JWT',
-  },
-  torrplay_auth_mode: {
+  torst_auth_mode: {
     en: 'Authentication Mode',
     ru: 'Тип аутентификации',
   },
-  torrplay_auth_none: {
+  torst_auth_none: {
     en: 'None',
     ru: 'Без аутентификации',
   },
-  torrplay_auth_none_descr: {
+  torst_auth_none_descr: {
     en: 'No credentials required',
     ru: 'Учетные данные не требуются',
   },
-  torrplay_auth_tag: {
+  torst_auth_tag: {
     en: 'Auth: {mode}',
     ru: 'Аутентификация: {mode}',
   },
-  torrplay_back: {
+  torst_back: {
     en: 'Back',
     ru: 'Назад',
   },
-  torrplay_back_to_instances: {
+  torst_back_to_instances: {
     en: 'Return to instance list',
     ru: 'Вернуться к списку инстансов',
   },
-  torrplay_back_to_settings: {
-    en: 'Return to TorrPlay settings',
-    ru: 'Вернуться в настройки TorrPlay',
+  torst_back_to_settings: {
+    en: 'Return to Torst settings',
+    ru: 'Вернуться в настройки Torst',
   },
-  torrplay_btn_start_play: {
+  torst_btn_start_play: {
     en: 'Start Playback',
     ru: 'Воспроизвести',
   },
-  torrplay_btn_subtitle: {
-    en: 'Torrents via TorrPlay',
-    ru: 'Торренты через TorrPlay',
+  torst_btn_subtitle: {
+    en: 'Torrents via Torst',
+    ru: 'Торренты через Torst',
   },
-  torrplay_cancel: {
+  torst_cancel: {
     en: 'Cancel',
     ru: 'Отмена',
   },
-  torrplay_card_file_count: {
+  torst_card_file_count: {
     en: 'Files: {count}',
     ru: 'Файлов: {count}',
   },
-  torrplay_change_active: {
+  torst_change_active: {
     en: 'Change Active Instance',
     ru: 'Изменить активный инстанс',
   },
-  torrplay_change_active_descr: {
+  torst_change_active_descr: {
     en: 'Choose which instance handles requests',
     ru: 'Выбрать инстанс для обработки запросов',
   },
-  torrplay_choice_torrserver: {
+  torst_choice_torrserver: {
     en: 'TorrServer',
     ru: 'TorrServer',
   },
-  torrplay_choice_torrserver_descr: {
+  torst_choice_torrserver_descr: {
     en: 'Stream via TorrServer',
     ru: 'Воспроизведение через TorrServer',
   },
-  torrplay_confirm_add_name: {
+  torst_confirm_add_name: {
     en: 'Add {name}',
     ru: 'Добавить {name}',
   },
-  torrplay_confirm_add_title: {
+  torst_confirm_add_title: {
     en: 'Add Instance?',
     ru: 'Добавить инстанс?',
   },
-  torrplay_confirm_delete_descr: {
+  torst_confirm_delete_descr: {
     en: 'This also removes its saved credentials',
     ru: 'Сохраненные учетные данные тоже удалятся',
   },
-  torrplay_confirm_delete_name: {
+  torst_confirm_delete_name: {
     en: 'Delete {name}',
     ru: 'Удалить {name}',
   },
-  torrplay_confirm_delete_title: {
+  torst_confirm_delete_title: {
     en: 'Delete Instance?',
     ru: 'Удалить инстанс?',
   },
-  torrplay_current_value: {
+  torst_current_value: {
     en: 'Current: {value}',
     ru: 'Текущее значение: {value}',
   },
-  torrplay_database_search_descr: {
+  torst_database_search_descr: {
     en: 'Show saved torrents in Lampa global search',
     ru: 'Сохраненные торренты в общем поиске Lampa',
   },
-  torrplay_database_search_name: {
-    en: 'TorrPlay Database in Global Search',
-    ru: 'База TorrPlay в общем поиске',
+  torst_database_search_name: {
+    en: 'Torst Database in Global Search',
+    ru: 'База Torst в общем поиске',
   },
-  torrplay_database_search_title: {
-    en: 'TorrPlay Database',
-    ru: 'База TorrPlay',
+  torst_database_search_title: {
+    en: 'Torst Database',
+    ru: 'База Torst',
   },
-  torrplay_delete_instance: {
+  torst_delete_instance: {
     en: 'Delete Instance',
     ru: 'Удалить инстанс',
   },
-  torrplay_delete_instance_descr: {
+  torst_delete_instance_descr: {
     en: 'Remove this instance from pool',
     ru: 'Удалить инстанс из пула',
   },
-  torrplay_desc: {
-    en: 'TorrPlay client for torrent streaming',
-    ru: 'Клиент TorrPlay для стриминга торрентов',
+  torst_desc: {
+    en: 'Torst client for torrent streaming',
+    ru: 'Клиент Torst для стриминга торрентов',
   },
-  torrplay_disable_downloader: {
+  torst_disable_downloader: {
     en: 'Disable Background Downloader',
     ru: 'Отключить фоновый загрузчик',
   },
-  torrplay_discard_instance: {
+  torst_discard_instance: {
     en: 'Discard this instance',
     ru: 'Отменить добавление',
   },
-  torrplay_edit_name: {
+  torst_edit_name: {
     en: 'Edit Name',
     ru: 'Изменить название',
   },
-  torrplay_edit_password: {
+  torst_edit_password: {
     en: 'Edit Password',
     ru: 'Изменить пароль',
   },
-  torrplay_edit_url: {
+  torst_edit_url: {
     en: 'Edit Instance URL',
     ru: 'Изменить URL инстанса',
   },
-  torrplay_edit_username: {
-    en: 'Edit Username',
-    ru: 'Изменить имя пользователя',
-  },
-  torrplay_empty_conn_error: {
+  torst_empty_conn_error: {
     en: 'Unable to load database torrents: {msg}<br>Please check your instance connection.',
     ru: 'Не удалось загрузить торренты из базы: {msg}<br>Проверьте подключение к инстансу.',
   },
-  torrplay_empty_conn_error_title: {
-    en: 'TorrPlay: Connection Error',
-    ru: 'TorrPlay: Ошибка подключения',
+  torst_empty_conn_error_title: {
+    en: 'Torst: Connection Error',
+    ru: 'Torst: Ошибка подключения',
   },
-  torrplay_empty_db: {
-    en: 'No torrents found in TorrPlay database',
-    ru: 'В базе TorrPlay нет торрентов',
+  torst_empty_db: {
+    en: 'No torrents found in Torst database',
+    ru: 'В базе Torst нет торрентов',
   },
-  torrplay_empty_no_instances: {
-    en: 'No TorrPlay instances are configured.<br>Please add an instance in Settings → TorrPlay → Manage Instance Pool.',
-    ru: 'Нет настроенных инстансов TorrPlay.<br>Добавьте инстанс в Настройки → TorrPlay → Управление пулом инстансов.',
+  torst_empty_no_instances: {
+    en: 'No Torst instances are configured.<br>Please add an instance in Settings → Torst → Manage Instance Pool.',
+    ru: 'Нет настроенных инстансов Torst.<br>Добавьте инстанс в Настройки → Torst → Управление пулом инстансов.',
   },
-  torrplay_empty_no_instances_title: {
-    en: 'TorrPlay: No Instances Configured',
-    ru: 'TorrPlay: Инстансы не настроены',
+  torst_empty_no_instances_title: {
+    en: 'Torst: No Instances Configured',
+    ru: 'Torst: Инстансы не настроены',
   },
-  torrplay_empty_search: {
+  torst_empty_search: {
     en: 'No saved torrents match “{query}”',
     ru: 'Нет сохраненных торрентов по запросу «{query}»',
   },
-  torrplay_empty_unreachable: {
-    en: 'All configured TorrPlay instances are unreachable.<br>Please check instance status in Settings → TorrPlay → Manage Instance Pool.',
-    ru: 'Все настроенные инстансы TorrPlay недоступны.<br>Проверьте статус в Настройки → TorrPlay → Управление пулом инстансов.',
+  torst_empty_unreachable: {
+    en: 'All configured Torst instances are unreachable.<br>Please check instance status in Settings → Torst → Manage Instance Pool.',
+    ru: 'Все настроенные инстансы Torst недоступны.<br>Проверьте статус в Настройки → Torst → Управление пулом инстансов.',
   },
-  torrplay_empty_unreachable_title: {
-    en: 'TorrPlay: Instances Unreachable',
-    ru: 'TorrPlay: Инстансы недоступны',
+  torst_empty_unreachable_title: {
+    en: 'Torst: Instances Unreachable',
+    ru: 'Torst: Инстансы недоступны',
   },
-  torrplay_enable_downloader: {
+  torst_enable_downloader: {
     en: 'Enable Background Downloader',
     ru: 'Включить фоновый загрузчик',
   },
-  torrplay_enabled_descr: {
-    en: 'Torrent playback and search via TorrPlay',
-    ru: 'Просмотр и поиск торрентов через TorrPlay',
+  torst_enabled_descr: {
+    en: 'Torrent playback and search via Torst',
+    ru: 'Просмотр и поиск торрентов через Torst',
   },
-  torrplay_enabled_name: {
-    en: 'Enable TorrPlay',
-    ru: 'Включить TorrPlay',
+  torst_enabled_name: {
+    en: 'Enable Torst',
+    ru: 'Включить Torst',
   },
-  torrplay_hint_storage_requires_save: {
+  torst_hint_storage_requires_save: {
     en: 'Disk storage requires Save to Database',
     ru: 'Для хранения на диске нужно сохранение в базу',
   },
-  torrplay_instance_url_placeholder: {
-    en: 'Instance URL (e.g. http://192.168.1.100:8090)',
-    ru: 'URL инстанса (например, http://192.168.1.100:8090)',
+  torst_instance_url_placeholder: {
+    en: 'Instance URL (e.g. http://192.168.1.100:8080)',
+    ru: 'URL инстанса (например, http://192.168.1.100:8080)',
   },
-  torrplay_invalid_credentials_noty: {
-    en: 'TorrPlay: Saved credentials for {names} could not be read. Please re-enter the password in Settings.',
-    ru: 'TorrPlay: Не удалось прочитать сохраненные учетные данные для {names}. Введите пароль заново в Настройках.',
+  torst_invalid_credentials_noty: {
+    en: 'Torst: Saved credentials for {names} could not be read. Please re-enter the password in Settings.',
+    ru: 'Torst: Не удалось прочитать сохраненные учетные данные для {names}. Введите пароль заново в Настройках.',
   },
-  torrplay_keep_instance: {
+  torst_keep_instance: {
     en: 'Keep this instance',
     ru: 'Оставить инстанс',
   },
-  torrplay_label_persistence: {
+  torst_label_persistence: {
     en: 'Database:',
     ru: 'Сохранение в базе:',
   },
-  torrplay_label_storage: {
+  torst_label_storage: {
     en: 'Storage Type:',
     ru: 'Тип хранилища:',
   },
-  torrplay_latency_ms: {
+  torst_latency_ms: {
     en: '{latency} ms',
     ru: '{latency}\u00A0мс',
   },
-  torrplay_manage_pool_descr: {
+  torst_manage_pool_descr: {
     en: 'Instances, authentication, and latency checks',
     ru: 'Инстансы, аутентификация и проверка задержки',
   },
-  torrplay_manage_pool_name: {
+  torst_manage_pool_name: {
     en: 'Manage Instance Pool',
     ru: 'Управление пулом инстансов',
   },
-  torrplay_manage_providers_descr: {
+  torst_manage_providers_descr: {
     en: 'Configure Jackett and Prowlarr providers',
     ru: 'Настройка провайдеров Jackett и Prowlarr',
   },
-  torrplay_manage_providers_name: {
+  torst_manage_providers_name: {
     en: 'Manage Search Providers',
     ru: 'Управление провайдерами поиска',
   },
-  torrplay_menu_delete: {
-    en: 'Delete from TorrPlay',
-    ru: 'Удалить из TorrPlay',
+  torst_menu_delete: {
+    en: 'Delete from Torst',
+    ru: 'Удалить из Torst',
   },
-  torrplay_menu_delete_descr: {
+  torst_menu_delete_descr: {
     en: 'Remove torrent and its downloaded data',
     ru: 'Удалить торрент и скачанные данные',
   },
-  torrplay_menu_switch_disk: {
+  torst_menu_switch_disk: {
     en: 'Switch to Disk',
     ru: 'Переключить на диск',
   },
-  torrplay_menu_switch_disk_descr: {
+  torst_menu_switch_disk_descr: {
     en: 'Currently stored in RAM',
     ru: 'Сейчас хранится в оперативной памяти',
   },
-  torrplay_menu_switch_ram: {
+  torst_menu_switch_ram: {
     en: 'Switch to RAM',
     ru: 'Переключить на оперативную память',
   },
-  torrplay_menu_switch_ram_descr: {
+  torst_menu_switch_ram_descr: {
     en: 'Currently stored on disk',
     ru: 'Сейчас хранится на диске',
   },
-  torrplay_noty_added: {
+  torst_noty_added: {
     en: 'Added {name} to pool',
     ru: 'Инстанс {name} добавлен в пул',
   },
-  torrplay_noty_added_db: {
-    en: 'TorrPlay: "{title}" added to database!',
-    ru: 'TorrPlay: «{title}» добавлен в базу!',
+  torst_noty_added_db: {
+    en: 'Torst: "{title}" added to database!',
+    ru: 'Torst: «{title}» добавлен в базу!',
   },
-  torrplay_noty_cannot_delete_only: {
+  torst_noty_cannot_delete_only: {
     en: 'Cannot delete the only instance in pool',
     ru: 'Нельзя удалить единственный инстанс в пуле',
   },
-  torrplay_noty_connected: {
+  torst_noty_connected: {
     en: 'Connected! Latency: {latency} ms',
     ru: 'Подключено! Задержка: {latency}\u00A0мс',
   },
-  torrplay_noty_delete_failed: {
+  torst_noty_delete_failed: {
     en: 'Failed to delete: {msg}',
     ru: 'Не удалось удалить: {msg}',
   },
-  torrplay_noty_deleted: {
+  torst_noty_deleted: {
     en: 'Deleted {name}',
     ru: 'Инстанс {name} удален',
   },
-  torrplay_noty_deleted_from_tp: {
-    en: 'Torrent deleted from TorrPlay',
-    ru: 'Торрент удален из TorrPlay',
+  torst_noty_deleted_from_tp: {
+    en: 'Torrent deleted from Torst',
+    ru: 'Торрент удален из Torst',
   },
-  torrplay_noty_downloader_disabled: {
+  torst_noty_downloader_disabled: {
     en: 'Background downloader disabled on {name}',
     ru: 'Фоновый загрузчик отключен на {name}',
   },
-  torrplay_noty_downloader_enabled: {
+  torst_noty_downloader_enabled: {
     en: 'Background downloader enabled on {name}',
     ru: 'Фоновый загрузчик включен на {name}',
   },
-  torrplay_noty_downloader_failed: {
+  torst_noty_downloader_failed: {
     en: 'Failed to update background downloader: {msg}',
     ru: 'Не удалось переключить фоновый загрузчик: {msg}',
   },
-  torrplay_noty_duplicate_url: {
+  torst_noty_duplicate_url: {
     en: 'An instance with this URL already exists',
     ru: 'Инстанс с таким URL уже существует',
   },
-  torrplay_noty_error: {
-    en: 'TorrPlay: {msg}',
-    ru: 'TorrPlay: {msg}',
+  torst_noty_error: {
+    en: 'Torst: {msg}',
+    ru: 'Torst: {msg}',
   },
-  torrplay_noty_failed_connect: {
+  torst_noty_failed_connect: {
     en: 'Failed to connect to {url}',
     ru: 'Не удалось подключиться к {url}',
   },
-  torrplay_noty_failover: {
-    en: 'TorrPlay: {failed} offline → Switched to {next} ({latency} ms)',
-    ru: 'TorrPlay: {failed} недоступен → переключено на {next} ({latency}\u00A0мс)',
+  torst_noty_failover: {
+    en: 'Torst: {failed} offline → Switched to {next} ({latency} ms)',
+    ru: 'Torst: {failed} недоступен → переключено на {next} ({latency}\u00A0мс)',
   },
-  torrplay_noty_hash_required: {
-    en: 'TorrPlay: Valid magnet link or info hash is required',
-    ru: 'TorrPlay: Требуется корректная magnet-ссылка или инфо-хеш',
+  torst_noty_hash_required: {
+    en: 'Torst: Valid magnet link or info hash is required',
+    ru: 'Torst: Требуется корректная magnet-ссылка или инфо-хеш',
   },
-  torrplay_noty_no_instances: {
+  torst_noty_no_instances: {
     en: 'Add an instance to the pool first',
     ru: 'Сначала добавьте инстанс в пул',
   },
-  torrplay_noty_no_video: {
+  torst_noty_no_video: {
     en: 'No video files found in torrent',
     ru: 'В торренте не найдены видеофайлы',
   },
-  torrplay_noty_offline_warning: {
+  torst_noty_offline_warning: {
     en: 'Warning: Instance is offline or unreachable',
     ru: 'Внимание: инстанс недоступен',
   },
-  torrplay_noty_online: {
+  torst_noty_online: {
     en: 'Instance online! Latency: {latency} ms',
     ru: 'Инстанс доступен! Задержка: {latency}\u00A0мс',
   },
-  torrplay_noty_pinging_all: {
-    en: 'Checking all TorrPlay instances...',
-    ru: 'Проверка всех инстансов TorrPlay...',
+  torst_noty_pinging_all: {
+    en: 'Checking all Torst instances...',
+    ru: 'Проверка всех инстансов Torst...',
   },
-  torrplay_noty_preload_evicted: {
+  torst_noty_preload_evicted: {
     en: 'Preload was stopped to free memory',
     ru: 'Предзагрузка остановлена, чтобы освободить память',
   },
-  torrplay_noty_preload_failed: {
+  torst_noty_preload_failed: {
     en: 'Preload failed: not enough memory or the torrent stopped receiving data',
     ru: 'Предзагрузка не удалась: не хватило памяти или торрент перестал получать данные',
   },
-  torrplay_noty_preload_rejected: {
-    en: 'TorrPlay refused to preload this file',
-    ru: 'TorrPlay отказался предзагружать этот файл',
+  torst_noty_preload_rejected: {
+    en: 'Torst refused to preload this file',
+    ru: 'Torst отказался предзагружать этот файл',
   },
-  torrplay_noty_preload_timeout: {
+  torst_noty_preload_start_unknown: {
+    en: 'Could not confirm preload start. Try again.',
+    ru: 'Нет ответа о запуске предзагрузки. Повторите попытку.',
+  },
+  torst_noty_preload_timeout: {
     en: 'Preload stopped: no data is arriving',
     ru: 'Предзагрузка прервана: данные не поступают',
   },
-  torrplay_noty_preload_unauthorized: {
-    en: 'TorrPlay rejected the credentials for {name}. Check them in Settings.',
-    ru: 'TorrPlay отклонил учетные данные для {name}. Проверьте их в настройках.',
+  torst_noty_preload_unauthorized: {
+    en: 'Torst rejected the credentials for {name}. Check them in Settings.',
+    ru: 'Torst отклонил учетные данные для {name}. Проверьте их в настройках.',
   },
-  torrplay_noty_save_error: {
-    en: 'TorrPlay Save Error: {msg}',
-    ru: 'Ошибка сохранения в TorrPlay: {msg}',
+  torst_noty_save_error: {
+    en: 'Torst Save Error: {msg}',
+    ru: 'Ошибка сохранения в Torst: {msg}',
   },
-  torrplay_noty_selected_active: {
+  torst_noty_selected_active: {
     en: 'Selected {name} as active instance',
     ru: 'Инстанс {name} выбран активным',
   },
-  torrplay_noty_storage_failed: {
-    en: 'Failed to update storage path: {msg}',
-    ru: 'Не удалось обновить путь к хранилищу: {msg}',
-  },
-  torrplay_noty_storage_switch_failed: {
+  torst_noty_storage_switch_failed: {
     en: 'Failed to switch storage: {msg}',
     ru: 'Не удалось переключить хранилище: {msg}',
   },
-  torrplay_noty_storage_switched: {
+  torst_noty_storage_switched: {
     en: 'Storage switched to {storage}',
     ru: 'Тип хранилища изменен: {storage}',
   },
-  torrplay_noty_storage_updated: {
-    en: 'Updated storage path on {name}',
-    ru: 'Путь к хранилищу на {name} обновлен',
-  },
-  torrplay_noty_testing: {
+  torst_noty_testing: {
     en: 'Testing {url}...',
     ru: 'Проверка {url}...',
   },
-  torrplay_noty_url_updated: {
+  torst_noty_url_updated: {
     en: 'Instance URL updated',
     ru: 'URL инстанса обновлен',
   },
-  torrplay_noty_valid_url: {
+  torst_noty_valid_url: {
     en: 'Enter a valid HTTP or HTTPS instance URL',
     ru: 'Укажите корректный HTTP или HTTPS URL инстанса',
   },
-  torrplay_opt_dont_save: {
+  torst_opt_dont_save: {
     en: 'Do Not Save (Temporary)',
     ru: 'Не сохранять (временно)',
   },
-  torrplay_opt_remember: {
+  torst_opt_remember: {
     en: "Remember choice (don't ask again)",
     ru: 'Запомнить выбор (больше не спрашивать)',
   },
-  torrplay_opt_save_db: {
+  torst_opt_save_db: {
     en: 'Save to Database',
     ru: 'Сохранить в базу',
   },
-  torrplay_options_title: {
+  torst_options_title: {
     en: 'Playback Options',
     ru: 'Параметры воспроизведения',
   },
-  torrplay_play_title: {
+  torst_play_title: {
     en: 'Play: {title}',
     ru: 'Воспроизведение: {title}',
   },
-  torrplay_play_via: {
-    en: 'Play via TorrPlay',
-    ru: 'Смотреть через TorrPlay',
+  torst_play_via: {
+    en: 'Play via Torst',
+    ru: 'Смотреть через Torst',
   },
-  torrplay_play_via_descr: {
-    en: 'Stream via active TorrPlay instance',
+  torst_play_via_descr: {
+    en: 'Stream via active Torst instance',
     ru: 'Воспроизведение через активный инстанс',
   },
-  torrplay_playback_mode_ask: {
-    en: 'Ask Before Play (TorrPlay / TorrServer)',
-    ru: 'Спрашивать перед просмотром (TorrPlay / TorrServer)',
+  torst_playback_mode_ask: {
+    en: 'Ask Before Play (Torst / TorrServer)',
+    ru: 'Спрашивать перед просмотром (Torst / TorrServer)',
   },
-  torrplay_playback_mode_context: {
+  torst_playback_mode_context: {
     en: 'Manual (Context Menu & Button)',
     ru: 'Вручную (кнопка и меню)',
   },
-  torrplay_playback_mode_descr: {
-    en: 'TorrPlay or TorrServer when a torrent starts',
-    ru: 'TorrPlay или TorrServer при запуске торрента',
+  torst_playback_mode_descr: {
+    en: 'Torst or TorrServer when a torrent starts',
+    ru: 'Torst или TorrServer при запуске торрента',
   },
-  torrplay_playback_mode_name: {
+  torst_playback_mode_name: {
     en: 'Torrent Playback',
     ru: 'Воспроизведение торрентов',
   },
-  torrplay_playback_mode_torrplay: {
-    en: 'Always TorrPlay',
-    ru: 'Всегда TorrPlay',
+  torst_playback_mode_torst: {
+    en: 'Always Torst',
+    ru: 'Всегда Torst',
   },
-  torrplay_pool_auto_mode: {
+  torst_pool_auto_mode: {
     en: 'Auto Mode',
     ru: 'Автоматический режим',
   },
-  torrplay_pool_manual_mode: {
+  torst_pool_manual_mode: {
     en: 'Manual Mode',
     ru: 'Ручной режим',
   },
-  torrplay_pool_title: {
-    en: 'TorrPlay Pool ({mode})',
-    ru: 'Пул TorrPlay ({mode})',
+  torst_pool_title: {
+    en: 'Torst Pool ({mode})',
+    ru: 'Пул Torst ({mode})',
   },
-  torrplay_provider_add: {
+  torst_provider_add: {
     en: 'Add Provider',
     ru: 'Добавить провайдер',
   },
-  torrplay_provider_add_descr: {
+  torst_provider_add_descr: {
     en: 'Add a Jackett or Prowlarr provider',
     ru: 'Добавить провайдер Jackett или Prowlarr',
   },
-  torrplay_provider_back_to_list: {
+  torst_provider_back_to_list: {
     en: 'Return to provider list',
     ru: 'Вернуться к списку провайдеров',
   },
-  torrplay_provider_confirm_delete_descr: {
+  torst_provider_confirm_delete_descr: {
     en: 'This also removes its saved API key',
     ru: 'Сохраненный API-ключ также будет удален',
   },
-  torrplay_provider_confirm_delete_title: {
+  torst_provider_confirm_delete_title: {
     en: 'Delete Provider?',
     ru: 'Удалить провайдер?',
   },
-  torrplay_provider_delete: {
+  torst_provider_delete: {
     en: 'Delete Provider',
     ru: 'Удалить провайдер',
   },
-  torrplay_provider_delete_descr: {
+  torst_provider_delete_descr: {
     en: 'Remove this provider from the pool',
     ru: 'Удалить провайдер из пула',
   },
-  torrplay_provider_disable: {
+  torst_provider_disable: {
     en: 'Disable Provider',
     ru: 'Отключить провайдер',
   },
-  torrplay_provider_disable_descr: {
+  torst_provider_disable_descr: {
     en: 'Exclude this provider from search',
     ru: 'Исключить провайдер из поиска',
   },
-  torrplay_provider_edit_api_key: {
+  torst_provider_edit_api_key: {
     en: 'Edit API Key',
     ru: 'Изменить API-ключ',
   },
-  torrplay_provider_edit_url: {
+  torst_provider_edit_url: {
     en: 'Edit Provider URL',
     ru: 'Изменить URL провайдера',
   },
-  torrplay_provider_enable: {
+  torst_provider_enable: {
     en: 'Enable Provider',
     ru: 'Включить провайдер',
   },
-  torrplay_provider_enable_descr: {
+  torst_provider_enable_descr: {
     en: 'Include this provider in search',
     ru: 'Включить провайдер в поиск',
   },
-  torrplay_provider_invalid_credentials_noty: {
-    en: 'TorrPlay: Saved API keys for {names} could not be read. Please re-enter them in Settings.',
-    ru: 'TorrPlay: Не удалось прочитать сохраненные API-ключи для {names}. Введите их заново в Настройках.',
+  torst_provider_invalid_credentials_noty: {
+    en: 'Torst: Saved API keys for {names} could not be read. Please re-enter them in Settings.',
+    ru: 'Torst: Не удалось прочитать сохраненные API-ключи для {names}. Введите их заново в Настройках.',
   },
-  torrplay_provider_keep: {
+  torst_provider_keep: {
     en: 'Keep this provider',
     ru: 'Оставить этот провайдер',
   },
-  torrplay_provider_noty_added: {
+  torst_provider_noty_added: {
     en: 'Added {name} to pool',
     ru: 'Провайдер {name} добавлен в пул',
   },
-  torrplay_provider_noty_deleted: {
+  torst_provider_noty_deleted: {
     en: 'Deleted {name}',
     ru: 'Провайдер {name} удален',
   },
-  torrplay_provider_noty_duplicate_url: {
+  torst_provider_noty_duplicate_url: {
     en: 'A provider with this URL already exists',
     ru: 'Провайдер с таким URL уже существует',
   },
-  torrplay_provider_noty_pinging_all: {
+  torst_provider_noty_pinging_all: {
     en: 'Testing all search providers...',
     ru: 'Проверка всех провайдеров поиска...',
   },
-  torrplay_provider_noty_url_updated: {
+  torst_provider_noty_url_updated: {
     en: 'Provider URL updated',
     ru: 'URL провайдера обновлен',
   },
-  torrplay_provider_noty_valid_url: {
+  torst_provider_noty_valid_url: {
     en: 'Enter a valid HTTP or HTTPS provider URL',
     ru: 'Укажите корректный HTTP или HTTPS URL провайдера',
   },
-  torrplay_provider_pool_title: {
+  torst_provider_pool_title: {
     en: 'Torrent Search Providers',
     ru: 'Провайдеры поиска торрентов',
   },
-  torrplay_provider_search_descr: {
+  torst_provider_search_descr: {
     en: 'Results in a separate tab',
     ru: 'Результаты в отдельной вкладке',
   },
-  torrplay_provider_search_name: {
+  torst_provider_search_name: {
     en: 'Show in Global Search',
     ru: 'Показывать в общем поиске',
   },
-  torrplay_provider_search_title: {
+  torst_provider_search_title: {
     en: 'Jackett / Prowlarr',
     ru: 'Jackett / Prowlarr',
   },
-  torrplay_provider_switch_type: {
+  torst_provider_switch_type: {
     en: 'Switch Provider Type',
     ru: 'Изменить тип провайдера',
   },
-  torrplay_provider_test_all: {
+  torst_provider_test_all: {
     en: 'Test All Providers',
     ru: 'Проверить все провайдеры',
   },
-  torrplay_provider_test_all_descr: {
+  torst_provider_test_all_descr: {
     en: 'Test latency across all providers',
     ru: 'Проверить задержку всех провайдеров',
   },
-  torrplay_provider_url_placeholder: {
+  torst_provider_url_placeholder: {
     en: 'Provider URL (e.g. http://192.168.1.100:9117)',
     ru: 'URL провайдера (например, http://192.168.1.100:9117)',
   },
-  torrplay_save_to: {
-    en: 'Save to TorrPlay',
-    ru: 'Сохранить в TorrPlay',
+  torst_save_to: {
+    en: 'Save to Torst',
+    ru: 'Сохранить в Torst',
   },
-  torrplay_save_to_db_ask: {
+  torst_save_to_db_ask: {
     en: 'Ask Before Play',
     ru: 'Спрашивать перед просмотром',
   },
-  torrplay_save_to_db_descr: {
-    en: 'Save torrents to the TorrPlay database',
-    ru: 'Сохранять торренты в базе TorrPlay',
+  torst_save_to_db_descr: {
+    en: 'Save torrents to the Torst database',
+    ru: 'Сохранять торренты в базе Torst',
   },
-  torrplay_save_to_db_false: {
+  torst_save_to_db_false: {
     en: 'Never',
     ru: 'Никогда',
   },
-  torrplay_save_to_db_name: {
+  torst_save_to_db_name: {
     en: 'Save to Database',
     ru: 'Сохранение в базе',
   },
-  torrplay_save_to_db_true: {
+  torst_save_to_db_true: {
     en: 'Always',
     ru: 'Всегда',
   },
-  torrplay_save_to_descr: {
+  torst_save_to_descr: {
     en: 'Save torrent to the database for later',
     ru: 'Сохранить в базу для последующего просмотра',
   },
-  torrplay_select_active_title: {
+  torst_select_active_title: {
     en: 'Select Active Instance',
     ru: 'Выбор активного инстанса',
   },
-  torrplay_selection_mode_auto: {
+  torst_selection_mode_auto: {
     en: 'Auto (Lowest Latency)',
     ru: 'Авто (наименьшая задержка)',
   },
-  torrplay_selection_mode_descr: {
+  torst_selection_mode_descr: {
     en: 'Lowest latency or a manually chosen instance',
     ru: 'Выбор по наименьшей задержке или вручную',
   },
-  torrplay_selection_mode_manual: {
+  torst_selection_mode_manual: {
     en: 'Manual Selection',
     ru: 'Выбор вручную',
   },
-  torrplay_selection_mode_name: {
+  torst_selection_mode_name: {
     en: 'Instance Selection',
     ru: 'Выбор инстанса',
   },
-  torrplay_settings_name: {
-    en: 'TorrPlay',
-    ru: 'TorrPlay',
+  torst_settings_name: {
+    en: 'Torst',
+    ru: 'Torst',
   },
-  torrplay_status_checking: {
+  torst_status_checking: {
     en: 'Checking...',
     ru: 'Проверка...',
   },
-  torrplay_status_disabled: {
+  torst_status_disabled: {
     en: 'Disabled',
     ru: 'Отключено',
   },
-  torrplay_status_enabled: {
+  torst_status_enabled: {
     en: 'Enabled',
     ru: 'Включено',
   },
-  torrplay_status_not_set: {
-    en: '(not set)',
-    ru: '(не задано)',
-  },
-  torrplay_status_offline: {
+  torst_status_offline: {
     en: 'Offline',
     ru: 'Офлайн',
   },
-  torrplay_status_unknown: {
+  torst_status_unknown: {
     en: 'Unknown',
     ru: 'Неизвестно',
   },
-  torrplay_storage_path: {
-    en: 'File Storage Path',
-    ru: 'Путь к файловому хранилищу',
-  },
-  torrplay_storage_type_ask: {
+  torst_storage_type_ask: {
     en: 'Ask Before Play',
     ru: 'Спрашивать перед просмотром',
   },
-  torrplay_storage_type_descr: {
+  torst_storage_type_descr: {
     en: 'Where to keep the torrent during playback',
     ru: 'Место хранения торрента при просмотре',
   },
-  torrplay_storage_type_disk: {
+  torst_storage_type_disk: {
     en: 'Disk',
     ru: 'Диск',
   },
-  torrplay_storage_type_name: {
+  torst_storage_type_name: {
     en: 'Storage Type',
     ru: 'Тип хранилища',
   },
-  torrplay_storage_type_ram: {
+  torst_storage_type_ram: {
     en: 'RAM',
     ru: 'Оперативная память',
   },
-  torrplay_test_all: {
+  torst_test_all: {
     en: 'Test All Instances',
     ru: 'Проверить все инстансы',
   },
-  torrplay_test_all_descr: {
+  torst_test_all_descr: {
     en: 'Test latency across all pool instances',
     ru: 'Проверить задержку всех инстансов в пуле',
   },
-  torrplay_test_conn: {
+  torst_test_conn: {
     en: 'Test Connection',
     ru: 'Проверить подключение',
   },
-  torrplay_test_conn_descr: {
+  torst_test_conn_descr: {
     en: 'Check availability and measure latency',
     ru: 'Проверить доступность и задержку',
   },
-  torrplay_value_none: {
+  torst_value_none: {
     en: '(none)',
     ru: '(нет)',
   },

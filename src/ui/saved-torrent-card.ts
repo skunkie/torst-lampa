@@ -2,21 +2,22 @@
 //
 // SPDX-License-Identifier: MIT
 
+import { TorstApi } from '../api/torst';
 import { translate } from '../lang/translations';
-import { Torrent } from '../types/torrplay';
+import { Torrent, TorstInstance } from '../types/torst';
 import { buildCardWatchedElement, findLatestFileProgress } from './card-watched';
 
 /**
  * What a saved torrent's card shows. A card in global search is cached by Lampa as plain
  * data, so it keeps only these fields rather than the whole torrent.
  */
-export type SavedTorrentSummary = Pick<Torrent, 'active' | 'files' | 'hash' | 'name' | 'poster' | 'storage' | 'title' | 'total_size'>;
+export type SavedTorrentSummary = Pick<Torrent, 'file_count' | 'files' | 'hash' | 'name' | 'poster' | 'storage' | 'title' | 'total_size'>;
 
 export type ViewedAction = 'mark' | 'unmark';
 
 const WATCHED_OVERLAY_DELAY_MS = 500;
 
-export const TORRPLAY_STORAGE_BADGE_ICON = `
+export const TORST_STORAGE_BADGE_ICON = `
 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" style="display: block;">
   <path d="M10 16h.01"/>
   <path d="M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
@@ -25,12 +26,8 @@ export const TORRPLAY_STORAGE_BADGE_ICON = `
 </svg>
 `.trim();
 
-export const TORRPLAY_ACTIVE_BADGE = `
-<div class="card__type card__type--active" data-testid="active-torrent-badge" title="Active" style="position: absolute; top: 0.5em; right: auto; left: 0.5em; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 0.35em; color: #fff; pointer-events: none; background: rgba(0, 0, 0, 0.6); border-radius: 0.35em; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);"><span class="torrplay-active-dot"><span class="torrplay-active-dot__ping"></span><span class="torrplay-active-dot__core"></span></span></div>
-`.trim();
-
-export const TORRPLAY_STORAGE_BADGE = `
-<div class="card__type card__type--storage" data-testid="file-storage-badge" title="File Storage" style="position: absolute; top: 0.5em; right: 0.5em; left: auto; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 0.3em; color: #fff; pointer-events: none; background: rgba(0, 0, 0, 0.6); border-radius: 0.35em; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);">${TORRPLAY_STORAGE_BADGE_ICON}</div>
+export const TORST_STORAGE_BADGE = `
+<div class="card__type card__type--storage" data-testid="file-storage-badge" title="File Storage" style="position: absolute; top: 0.5em; right: 0.5em; left: auto; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 0.3em; color: #fff; pointer-events: none; background: rgba(0, 0, 0, 0.6); border-radius: 0.35em; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);">${TORST_STORAGE_BADGE_ICON}</div>
 `.trim();
 
 const VIEWED_ICON = `
@@ -48,7 +45,7 @@ const VIEWED_ICON = `
  */
 export function summarizeSavedTorrent(torrent: Torrent): SavedTorrentSummary {
   return {
-    active: torrent.active,
+    file_count: torrent.file_count,
     files: (torrent.files || []).map(file => ({ length: file.length, name: file.name, path: file.path })),
     hash: torrent.hash,
     name: torrent.name,
@@ -61,14 +58,14 @@ export function summarizeSavedTorrent(torrent: Torrent): SavedTorrentSummary {
 
 /**
  * Builds a saved torrent's card in the markup of Lampa's My Torrents grid: the poster, the
- * viewed icon, the active and disk storage badges, and the size and file count under the title.
+ * viewed icon, the disk storage badge, and the size and file count under the title.
  */
 export function buildSavedTorrentCard(torrent: SavedTorrentSummary, isViewed: boolean): LampaDomElement {
   const totalSizeBytes = torrent.total_size || 0;
   const formattedSize = totalSizeBytes > 0 ? Lampa.Utils.bytesToSize(totalSizeBytes) : '';
-  const fileCount = torrent.files ? torrent.files.length : 0;
+  const fileCount = torrent.file_count ?? (torrent.files ? torrent.files.length : 0);
   // A colon form reads correctly for any count without plural forms.
-  const formattedFileCount = translate('torrplay_card_file_count', 'Files: {count}', { count: fileCount });
+  const formattedFileCount = translate('torst_card_file_count', 'Files: {count}', { count: fileCount });
   const metadataLine = [formattedSize, formattedFileCount].filter(Boolean).join(' · ');
   const cardTitle = Lampa.Utils.clearHtmlTags(torrent.title || torrent.name || '');
 
@@ -79,8 +76,7 @@ export function buildSavedTorrentCard(torrent: SavedTorrentSummary, isViewed: bo
         <div class="card__icons">
           <div class="card__icons-inner">${isViewed ? VIEWED_ICON : ''}</div>
         </div>
-        ${torrent.active === true ? TORRPLAY_ACTIVE_BADGE : ''}
-        ${torrent.storage === 'file' ? TORRPLAY_STORAGE_BADGE : ''}
+        ${torrent.storage === 'file' ? TORST_STORAGE_BADGE : ''}
       </div>
       <div class="card__title">${cardTitle}</div>
       <div class="card__age">${metadataLine}</div>
@@ -145,26 +141,46 @@ export function describeViewedAction(isViewed: boolean): { action: ViewedAction,
  * a row does not draw and discard an overlay on every card it passes.
  */
 export class WatchedOverlayScheduler {
+  private generation = 0;
   private timerId: ReturnType<typeof setTimeout> | null = null;
 
-  public schedule(card: LampaDomElement, torrent: Pick<Torrent, 'files' | 'hash'>): void {
+  public schedule(card: LampaDomElement, torrent: Pick<Torrent, 'files' | 'hash'>, instance?: TorstInstance): void {
     this.cancel();
     if (card.find('.card-watched').length) return;
+    const generation = this.generation;
+
+    const canShow = () => {
+      const cardElement = card[0] as HTMLElement | undefined;
+      return generation === this.generation
+        && cardElement?.isConnected !== false
+        && cardElement?.classList.contains('focus')
+        && !card.find('.card-watched').length
+        && Lampa.Storage.field?.('card_episodes') !== false;
+    };
+
+    const show = () => {
+      if (!canShow()) return;
+      const progress = findLatestFileProgress(torrent, torrent as unknown as LampaMovie);
+      if (progress) card.find('.card__view').prepend(buildCardWatchedElement(progress));
+    };
 
     this.timerId = setTimeout(() => {
       this.timerId = null;
-      const cardElement = card[0] as HTMLElement | undefined;
-      if (!cardElement || !cardElement.classList.contains('focus')) return;
-      if (card.find('.card-watched').length) return;
-      if (Lampa.Storage.field?.('card_episodes') === false) return;
-
-      // Playback keys progress against the torrent itself, which carries no catalog card.
-      const progress = findLatestFileProgress(torrent, torrent as unknown as LampaMovie);
-      if (progress) card.find('.card__view').prepend(buildCardWatchedElement(progress));
+      if (!canShow()) return;
+      if (!torrent.files.length && instance) {
+        void TorstApi.getTorrent(instance, torrent.hash).then(resource => {
+          if (generation !== this.generation) return;
+          torrent.files = resource.files;
+          show();
+        }).catch(() => {});
+      } else {
+        show();
+      }
     }, WATCHED_OVERLAY_DELAY_MS);
   }
 
   public cancel(): void {
+    this.generation++;
     if (this.timerId !== null) {
       clearTimeout(this.timerId);
       this.timerId = null;

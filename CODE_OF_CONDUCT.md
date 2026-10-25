@@ -6,7 +6,7 @@ SPDX-License-Identifier: MIT
 
 # Code of conduct
 
-The TorrPlay Lampa plugin is a small project, and it stays useful to the
+The Torst Lampa plugin is a small project, and it stays useful to the
 people who work on it only if taking part is pleasant and safe. This applies
 to every space the project runs: the issue tracker, pull requests,
 discussions, and any other place where someone speaks for the project.
@@ -38,7 +38,7 @@ discussions, and any other place where someone speaks for the project.
 
 ## Scope of the project's subject matter
 
-The plugin connects Lampa to TorrPlay instances and torrent search providers.
+The plugin connects Lampa to Torst instances and torrent search providers.
 Discussion of the software is welcome. Requests for, or offers of,
 copyrighted material are not, and issues are not the place to ask where to
 find a particular release.

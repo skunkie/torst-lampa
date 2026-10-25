@@ -259,7 +259,7 @@ describe('Provider Result Rows', () => {
 
       shownSelect.onBack();
 
-      assert.deepEqual(toggledControllers, ['torrplay_provider_result']);
+      assert.deepEqual(toggledControllers, ['torst_provider_result']);
     });
 
     it('leaves out the date and size it does not know', () => {

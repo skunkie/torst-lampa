@@ -13,11 +13,11 @@ var i18n = {
     channelBannerBadge: 'Dev Preview',
     channelBannerText: 'You are viewing the development channel. For general use, switch to the <a href="../">stable release</a>.',
     copyManually: 'Copy this plugin URL manually:',
-    featAuthDesc: 'OAuth2 JWT for API control, with short-lived scoped tokens for video stream URLs.',
-    featAuthTitle: 'Bearer & Basic Auth',
-    featDbDesc: 'Browse database torrents with poster badges, select multi-file episodes, and sync with the Lampa sidebar.',
+    featAuthDesc: 'Password sign-in for API access, with playback tokens for video stream URLs.',
+    featAuthTitle: 'Password Authentication',
+    featDbDesc: 'Browse saved torrents from the Lampa sidebar, choose individual files, and mark torrents as viewed.',
     featDbTitle: 'Database Torrents',
-    featPoolDesc: 'Pings all TorrPlay instances in parallel, routes to the lowest latency, and fails over if one drops.',
+    featPoolDesc: 'Pings all Torst instances in parallel, routes to the lowest latency, and fails over if one drops.',
     featPoolTitle: 'Multi-Instance Pool',
     featPreloadDesc: 'Buffers torrent stream pieces to a readiness threshold before handing off to the player, with poster art and speed stats.',
     featPreloadTitle: 'Preload Buffering',
@@ -29,7 +29,7 @@ var i18n = {
     featTvTitle: 'TV Remote Support',
     featuresTag: 'Features',
     featuresTitle: 'Features',
-    footer: 'TorrPlay is open-source under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">MIT License</a>.',
+    footer: 'Torst is open-source under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">MIT License</a>.',
     heroSubtitle: 'A Lampa plugin for playing torrents, with buffering and a multi-instance pool.',
     heroTitle: 'Torrent Streaming for <span class="hero-title-gradient">Lampa</span>',
     installTag: 'Setup',
@@ -44,17 +44,17 @@ var i18n = {
     navFeatures: 'Features',
     navInstall: 'Install',
     navProdChannel: 'Stable Release ↗',
-    navTorrPlay: 'TorrPlay ↗',
-    pageDescription: 'TorrPlay plugin for the Lampa media client. Stream torrents on Android TV, Tizen, and WebOS.',
-    pageTitle: 'TorrPlay Lampa Plugin v' + '{{PLUGIN_VERSION}}',
-    prerequisiteLink: 'Set up TorrPlay ↗',
+    navTorst: 'Torst ↗',
+    pageDescription: 'Torst plugin for the Lampa media client. Stream torrents on Android TV, Tizen, and WebOS.',
+    pageTitle: 'Torst Lampa Plugin v' + '{{PLUGIN_VERSION}}',
+    prerequisiteLink: 'Set up Torst ↗',
     prerequisiteTag: 'Prerequisite',
-    prerequisiteText: 'This plugin is a client for Lampa. Torrent streaming requires a running, self-hosted TorrPlay application. Set up TorrPlay first, then connect the plugin to it.',
-    prerequisiteTitle: 'TorrPlay Application Required',
+    prerequisiteText: 'This plugin is a client for Lampa. Torrent streaming requires a running, self-hosted Torst application. Set up Torst first, then connect the plugin to it.',
+    prerequisiteTitle: 'Torst Application Required',
     step1: 'Open <strong>Lampa</strong> on your TV or device, navigate to <strong>Settings</strong> &rarr; <strong>Extensions</strong>.',
     step2: 'Click <strong>Add Plugin</strong>.',
-    step3: 'Paste the copied <strong>Production URL</strong> (<code>torrplay.min.js</code>) and confirm.',
-    step4: 'Restart Lampa. A dedicated <strong>TorrPlay</strong> entry will appear in <strong>Settings</strong> and the main sidebar.'
+    step3: 'Paste the copied <strong>Production URL</strong> (<code>torst.min.js</code>) and confirm.',
+    step4: 'Restart Lampa. A dedicated <strong>Torst</strong> entry will appear in <strong>Settings</strong> and the main sidebar.'
   },
   ru: {
     badgeDev: 'Сборка для разработки',
@@ -66,11 +66,11 @@ var i18n = {
     channelBannerBadge: 'Сборка для разработки',
     channelBannerText: 'Вы просматриваете сборку для разработки. Для стабильной работы перейдите на <a href="../">стабильную версию</a>.',
     copyManually: 'Скопируйте URL плагина вручную:',
-    featAuthDesc: 'OAuth2 JWT для API и временные токены для ссылок видеопотока.',
-    featAuthTitle: 'Аутентификация Bearer и Basic',
-    featDbDesc: 'Просмотр раздач с постерами, выбор отдельных серий и синхронизация с боковым меню Lampa.',
+    featAuthDesc: 'Вход с паролем для доступа к API и токены для ссылок видеопотока.',
+    featAuthTitle: 'Вход с паролем',
+    featDbDesc: 'Открывайте сохраненные раздачи из бокового меню Lampa, выбирайте отдельные файлы и отмечайте просмотренное.',
     featDbTitle: 'База данных торрентов',
-    featPoolDesc: 'Параллельная проверка задержки всех инстансов TorrPlay, выбор самого быстрого и переключение при сбое.',
+    featPoolDesc: 'Параллельная проверка задержки всех инстансов Torst, выбор самого быстрого и переключение при сбое.',
     featPoolTitle: 'Пул инстансов',
     featPreloadDesc: 'Накопление буфера до порога готовности перед передачей в плеер, с постером и статистикой скорости.',
     featPreloadTitle: 'Предзагрузка',
@@ -82,7 +82,7 @@ var i18n = {
     featTvTitle: 'Поддержка пульта ТВ',
     featuresTag: 'Возможности',
     featuresTitle: 'Возможности',
-    footer: 'TorrPlay — проект с открытым исходным кодом под <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">лицензией MIT</a>.',
+    footer: 'Torst — проект с открытым исходным кодом под <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">лицензией MIT</a>.',
     heroSubtitle: 'Плагин для воспроизведения торрентов в Lampa с предзагрузкой и пулом инстансов.',
     heroTitle: 'Торрент-стриминг для <span class="hero-title-gradient">Lampa</span>',
     installTag: 'Установка',
@@ -97,17 +97,17 @@ var i18n = {
     navFeatures: 'Возможности',
     navInstall: 'Установка',
     navProdChannel: 'Стабильная версия ↗',
-    navTorrPlay: 'TorrPlay ↗',
-    pageDescription: 'Плагин TorrPlay для медиаплеера Lampa. Стриминг торрентов на Android TV, Tizen и WebOS.',
-    pageTitle: 'Плагин TorrPlay для Lampa v' + '{{PLUGIN_VERSION}}',
-    prerequisiteLink: 'Установить TorrPlay ↗',
+    navTorst: 'Torst ↗',
+    pageDescription: 'Плагин Torst для медиаплеера Lampa. Стриминг торрентов на Android TV, Tizen и WebOS.',
+    pageTitle: 'Плагин Torst для Lampa v' + '{{PLUGIN_VERSION}}',
+    prerequisiteLink: 'Установить Torst ↗',
     prerequisiteTag: 'Требование',
-    prerequisiteText: 'Плагин работает как клиент Lampa. Для просмотра торрентов нужен запущенный инстанс TorrPlay, развернутый на вашем сервере. Сначала установите и настройте TorrPlay, затем подключите к нему плагин.',
-    prerequisiteTitle: 'Требуется приложение TorrPlay',
+    prerequisiteText: 'Плагин работает как клиент Lampa. Для просмотра торрентов нужен запущенный инстанс Torst, развернутый на вашем сервере. Сначала установите и настройте Torst, затем подключите к нему плагин.',
+    prerequisiteTitle: 'Требуется приложение Torst',
     step1: 'Откройте <strong>Lampa</strong> на ТВ или устройстве, перейдите в <strong>Настройки</strong> &rarr; <strong>Расширения</strong>.',
     step2: 'Нажмите <strong>Добавить плагин</strong>.',
-    step3: 'Вставьте скопированный <strong>URL стабильной сборки</strong> (<code>torrplay.min.js</code>) и подтвердите.',
-    step4: 'Перезапустите Lampa. Раздел <strong>TorrPlay</strong> появится в <strong>Настройках</strong> и в боковом меню.'
+    step3: 'Вставьте скопированный <strong>URL стабильной сборки</strong> (<code>torst.min.js</code>) и подтвердите.',
+    step4: 'Перезапустите Lampa. Раздел <strong>Torst</strong> появится в <strong>Настройках</strong> и в боковом меню.'
   }
 };
 
@@ -121,8 +121,8 @@ var i18n = {
 
   var minInput = document.getElementById('url-min');
   var devInput = document.getElementById('url-dev');
-  if (minInput) minInput.value = baseUrl + '/torrplay.min.js';
-  if (devInput) devInput.value = baseUrl + '/torrplay.js';
+  if (minInput) minInput.value = baseUrl + '/torst.min.js';
+  if (devInput) devInput.value = baseUrl + '/torst.js';
 
   var lang = document.documentElement.getAttribute('data-lang') || 'en';
   setLanguage(lang);
@@ -134,7 +134,7 @@ function toggleTheme() {
   var newTheme = currentTheme === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', newTheme);
   try {
-    localStorage.setItem('torrplay-theme', newTheme);
+    localStorage.setItem('torst-theme', newTheme);
   } catch {}
   updateThemeIcons();
 }
@@ -159,7 +159,7 @@ function toggleLanguage() {
   var newLang = currentLang === 'en' ? 'ru' : 'en';
   setLanguage(newLang);
   try {
-    localStorage.setItem('torrplay-lang', newLang);
+    localStorage.setItem('torst-lang', newLang);
   } catch {}
 }
 

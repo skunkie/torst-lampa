@@ -5,9 +5,9 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import { TorrPlayApi } from '../src/api/torrplay';
+import { TorstApi } from '../src/api/torst';
 import { BENCHMARK_FRESHNESS_MS, InstanceManager } from '../src/instances/instance-manager';
-import { TorrPlayInstance } from '../src/types/torrplay';
+import { TorstInstance } from '../src/types/torst';
 
 describe('InstanceManager', () => {
   const originalFetch = globalThis.fetch;
@@ -64,11 +64,11 @@ describe('InstanceManager', () => {
   });
 
   it('manages instance lifecycle (add, update, remove)', () => {
-    const newInstance: TorrPlayInstance = {
+    const newInstance: TorstInstance = {
       authType: 'none',
       id: 'inst-1',
       name: 'VPS Instance',
-      url: 'http://vps.example.com:8090',
+      url: 'http://vps.example.com:8080',
     };
 
     InstanceManager.addInstance(newInstance);
@@ -95,7 +95,6 @@ describe('InstanceManager', () => {
     assert.equal(notifications.length, 1);
 
     instance.name = 'Renamed';
-    instance.fileStoragePath = '/downloads';
     instance.enableDownloader = true;
     instance.latencyMs = 12;
     instance.status = 'online';
@@ -119,7 +118,7 @@ describe('InstanceManager', () => {
     InstanceManager.load();
     assert.equal(notifications.length, 0, 'Reloading the same pool changes nothing');
 
-    storageMap.set('torrplay_instances', JSON.stringify([
+    storageMap.set('torst_instances', JSON.stringify([
       { authType: 'none', id: 'stored', name: 'Stored', url: 'http://stored.example' },
     ]));
     InstanceManager.load();
@@ -128,11 +127,11 @@ describe('InstanceManager', () => {
   });
 
   it('sanitizes ephemeral tokens and benchmarks when persisting to storage', () => {
-    const instanceWithTokens: TorrPlayInstance = {
+    const instanceWithTokens: TorstInstance = {
+      accessToken: 'secret-access-token',
+      accessTokenExpiresAtMs: Date.now() + 60000,
       authType: 'bearer',
       id: 'inst-tokens',
-      jwtExpiresAtMs: Date.now() + 60000,
-      jwtToken: 'secret-jwt-token',
       latencyMs: 42,
       name: 'Secure Node',
       password: 'mypassword',
@@ -140,29 +139,27 @@ describe('InstanceManager', () => {
       playbackTokenExpiresAtMs: Date.now() + 60000,
       status: 'online',
       url: 'https://secure.example.com',
-      username: 'myuser',
     };
 
     InstanceManager.addInstance(instanceWithTokens);
 
     // Verify in-memory instance retains tokens for current session
     const inMemory = InstanceManager.getInstances().find(i => i.id === 'inst-tokens');
-    assert.equal(inMemory?.jwtToken, 'secret-jwt-token');
+    assert.equal(inMemory?.accessToken, 'secret-access-token');
     assert.equal(inMemory?.playbackToken, 'secret-playback-token');
 
     // Verify persistent storage JSON does NOT contain any secret tokens or benchmarks
-    const rawSaved = storageMap.get('torrplay_instances');
+    const rawSaved = storageMap.get('torst_instances');
     assert.ok(rawSaved);
     const parsedSaved = JSON.parse(rawSaved);
     const savedEntry = parsedSaved.find((i: any) => i.id === 'inst-tokens');
     assert.ok(savedEntry);
-    assert.equal(savedEntry.jwtToken, undefined);
-    assert.equal(savedEntry.jwtExpiresAtMs, undefined);
+    assert.equal(savedEntry.accessToken, undefined);
+    assert.equal(savedEntry.accessTokenExpiresAtMs, undefined);
     assert.equal(savedEntry.playbackToken, undefined);
     assert.equal(savedEntry.playbackTokenExpiresAtMs, undefined);
     assert.equal(savedEntry.latencyMs, undefined);
     assert.equal(savedEntry.status, 'unknown');
-    assert.equal(savedEntry.username, 'myuser');
     assert.ok(savedEntry.password.startsWith('enc:v1:'));
     assert.notEqual(savedEntry.password, 'mypassword');
 
@@ -179,16 +176,15 @@ describe('InstanceManager', () => {
     };
 
     storageMap.set(
-      'torrplay_instances',
+      'torst_instances',
       JSON.stringify([
         {
-          authType: 'basic',
+          authType: 'bearer',
           id: 'unobfuscated-inst-1',
           name: 'Corrupted Node 1',
-          password: 'plainLegacyPassword123',
+          password: 'unencodedPassword123',
           status: 'unknown',
           url: 'http://node1.example.com',
-          username: 'admin',
         },
         {
           authType: 'bearer',
@@ -197,7 +193,6 @@ describe('InstanceManager', () => {
           password: 'anotherPlainPassword456',
           status: 'unknown',
           url: 'http://node2.example.com',
-          username: 'admin',
         },
         {
           authType: 'none',
@@ -223,21 +218,21 @@ describe('InstanceManager', () => {
   });
 
   it('resolves primary instance dynamically based on selection mode and latency', () => {
-    const firstInstance: TorrPlayInstance = {
+    const firstInstance: TorstInstance = {
       authType: 'none',
       id: 'inst-first',
       latencyMs: 120,
       name: 'First Instance',
       status: 'online',
-      url: 'http://first.example.com:8090',
+      url: 'http://first.example.com:8080',
     };
-    const fastInstance: TorrPlayInstance = {
+    const fastInstance: TorstInstance = {
       authType: 'none',
       id: 'inst-fast',
       latencyMs: 15,
       name: 'Fast Instance',
       status: 'online',
-      url: 'http://fast.example.com:8090',
+      url: 'http://fast.example.com:8080',
     };
 
     (InstanceManager as any).instances = [firstInstance, fastInstance];
@@ -259,29 +254,27 @@ describe('InstanceManager', () => {
 
     InstanceManager.updateInstance({
       ...primaryInstance,
-      authType: 'basic',
-      url: 'http://custom-host:8090',
-      username: 'user1',
+      authType: 'bearer',
+      url: 'http://custom-host:8080',
     });
 
     const updatedInstance = InstanceManager.getPrimaryInstance();
-    assert.equal(updatedInstance.url, 'http://custom-host:8090');
-    assert.equal(updatedInstance.authType, 'basic');
-    assert.equal(updatedInstance.username, 'user1');
+    assert.equal(updatedInstance.url, 'http://custom-host:8080');
+    assert.equal(updatedInstance.authType, 'bearer');
   });
 
   it('keeps manual selection valid when entering manual mode and deleting an instance', () => {
-    const first: TorrPlayInstance = {
+    const first: TorstInstance = {
       authType: 'none',
       id: 'first',
       name: 'First',
-      url: 'http://first.local:8090',
+      url: 'http://first.local:8080',
     };
-    const second: TorrPlayInstance = {
+    const second: TorstInstance = {
       authType: 'none',
       id: 'second',
       name: 'Second',
-      url: 'http://second.local:8090',
+      url: 'http://second.local:8080',
     };
 
     (InstanceManager as any).instances = [first, second];
@@ -293,18 +286,18 @@ describe('InstanceManager', () => {
   });
 
   it('selects lowest-latency reachable instance in auto mode', async () => {
-    const fastNode: TorrPlayInstance = {
+    const fastNode: TorstInstance = {
       authType: 'none',
       id: 'fast-node',
       name: 'Fast Instance',
-      url: 'http://fast.local:8090',
+      url: 'http://fast.local:8080',
     };
 
-    const slowNode: TorrPlayInstance = {
+    const slowNode: TorstInstance = {
       authType: 'none',
       id: 'slow-node',
       name: 'Slow Instance',
-      url: 'http://slow.local:8090',
+      url: 'http://slow.local:8080',
     };
 
     InstanceManager.setMode('auto');
@@ -330,18 +323,18 @@ describe('InstanceManager', () => {
   });
 
   it('triggers failover to next reachable instance when active instance is down', async () => {
-    const failedNode: TorrPlayInstance = {
+    const failedNode: TorstInstance = {
       authType: 'none',
       id: 'failed-node',
       name: 'Down Instance',
-      url: 'http://down.local:8090',
+      url: 'http://down.local:8080',
     };
 
-    const backupNode: TorrPlayInstance = {
+    const backupNode: TorstInstance = {
       authType: 'none',
       id: 'backup-node',
       name: 'Backup Instance',
-      url: 'http://backup.local:8090',
+      url: 'http://backup.local:8080',
     };
 
     (InstanceManager as any).instances = [failedNode, backupNode];
@@ -366,8 +359,8 @@ describe('InstanceManager', () => {
     assert.equal((Lampa.Noty.show as any).mock.callCount(), 1);
   });
   describe('getBestKnownInstance', () => {
-    const slow: TorrPlayInstance = { authType: 'none', id: 'slow', name: 'Slow', url: 'http://slow.local' };
-    const fast: TorrPlayInstance = { authType: 'none', id: 'fast', name: 'Fast', url: 'http://fast.local' };
+    const slow: TorstInstance = { authType: 'none', id: 'slow', name: 'Slow', url: 'http://slow.local' };
+    const fast: TorstInstance = { authType: 'none', id: 'fast', name: 'Fast', url: 'http://fast.local' };
 
     beforeEach(() => {
       (InstanceManager as any).instances = [{ ...slow }, { ...fast }];
@@ -434,8 +427,8 @@ describe('InstanceManager', () => {
       const [slowNode] = InstanceManager.getInstances();
       Object.assign(slowNode, { checkedAtMs: Date.now(), checkedUrl: slowNode.url });
       InstanceManager.save();
-      assert.ok(!String(storageMap.get('torrplay_instances')).includes('checkedAtMs'));
-      assert.ok(!String(storageMap.get('torrplay_instances')).includes('checkedUrl'));
+      assert.ok(!String(storageMap.get('torst_instances')).includes('checkedAtMs'));
+      assert.ok(!String(storageMap.get('torst_instances')).includes('checkedUrl'));
     });
 
     it('re-checks a manually selected instance that failover marked offline', async () => {
@@ -452,20 +445,20 @@ describe('InstanceManager', () => {
 
   it('does not probe or notify for a failover canceled before it starts', async () => {
     const failed = InstanceManager.getInstances()[0];
-    mock.method(TorrPlayApi, 'checkHealth', async () => ({ isOk: true, latencyMs: 1 }));
+    mock.method(TorstApi, 'checkHealth', async () => ({ isOk: true, latencyMs: 1 }));
     mock.method(Lampa.Noty, 'show', () => {});
     assert.equal(await InstanceManager.failover(failed, () => true), null);
-    assert.equal((TorrPlayApi.checkHealth as any).mock.callCount(), 0);
+    assert.equal((TorstApi.checkHealth as any).mock.callCount(), 0);
     assert.equal((Lampa.Noty.show as any).mock.callCount(), 0);
   });
 
   it('suppresses the failover notification when canceled while backups are being checked', async () => {
     const failed = InstanceManager.getInstances()[0];
-    const backup: TorrPlayInstance = { authType: 'none', id: 'backup', name: 'Backup', url: 'http://backup.local' };
+    const backup: TorstInstance = { authType: 'none', id: 'backup', name: 'Backup', url: 'http://backup.local' };
     InstanceManager.addInstance(backup);
     let isCanceled = false;
     let finish: () => void = () => {};
-    mock.method(TorrPlayApi, 'checkHealth', () => new Promise<{ isOk: boolean, latencyMs: number }>(resolve => {
+    mock.method(TorstApi, 'checkHealth', () => new Promise<{ isOk: boolean, latencyMs: number }>(resolve => {
       finish = () => {
         backup.status = 'online';
         backup.latencyMs = 1;

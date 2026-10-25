@@ -2,24 +2,22 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { TorrPlayApi } from '../api/torrplay';
+import { TorstApi } from '../api/torst';
 import { translate } from '../lang/translations';
-import { Torrent, TorrentFile, TorrPlayInstance } from '../types/torrplay';
+import { Torrent, TorrentFile, TorstInstance } from '../types/torst';
 import { buildFileListItemElement } from '../ui/file-list-item';
 import { PreloadModal } from '../ui/preload-modal';
 import { closeModalSafely, markTorrentViewed, recordWatchedHistory } from './engine-utils';
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from './episode-preview';
-import { ExternalPlaybackFile, ExternalProgress } from './external-progress';
 import { resolveFileIndex, resolveFileInfo, selectVideoFiles } from './file-parser';
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { rememberPlayerPlaylist } from './player-playlist';
 
 export async function playSingleVideoFile(
-  instance: TorrPlayInstance,
+  instance: TorstInstance,
   torrent: Torrent,
   singleFile: TorrentFile,
   movie?: LampaMovie,
-  torrentMagnet?: string,
   sourceTorrentItem?: LampaTorrentItem,
   returnController = 'content'
 ): Promise<void> {
@@ -33,7 +31,6 @@ export async function playSingleVideoFile(
     title: torrent.title || torrent.name,
   };
 
-  const resolvedMagnet = torrentMagnet || torrent.magnet;
   const cleanTitle = Lampa.Utils?.clearHtmlTags
     ? Lampa.Utils.clearHtmlTags(singleFile.name || singleFile.path.split('/').pop() || 'Video')
     : (singleFile.name || singleFile.path.split('/').pop() || 'Video');
@@ -65,16 +62,14 @@ export async function playSingleVideoFile(
     [singlePlaylistItem],
     mediaMetadata,
     returnController,
-    resolvedMagnet,
     sourceTorrentItem
   );
 }
 
 export async function displayFileList(
-  instance: TorrPlayInstance,
+  instance: TorstInstance,
   torrent: Torrent,
   movie?: LampaMovie,
-  torrentMagnet?: string,
   sourceTorrentItem?: LampaTorrentItem,
   sourceController?: string
 ): Promise<void> {
@@ -83,7 +78,7 @@ export async function displayFileList(
 
   if (sortedVideoFiles.length === 0) {
     if (Lampa.Noty) {
-      Lampa.Noty.show(translate('torrplay_noty_no_video', 'No video files found in torrent'));
+      Lampa.Noty.show(translate('torst_noty_no_video', 'No video files found in torrent'));
     }
     return;
   }
@@ -98,8 +93,6 @@ export async function displayFileList(
     title: torrent.title || torrent.name,
   };
 
-  const resolvedMagnet = torrentMagnet || torrent.magnet;
-
   // If single video file, start directly
   if (sortedVideoFiles.length === 1) {
     await playSingleVideoFile(
@@ -107,7 +100,6 @@ export async function displayFileList(
       torrent,
       sortedVideoFiles[0],
       movie,
-      resolvedMagnet,
       sourceTorrentItem,
       sourceController
     );
@@ -195,16 +187,15 @@ export async function displayFileList(
         playlist,
         mediaMetadata,
         'modal',
-        resolvedMagnet,
         sourceTorrentItem
       ).catch((err: unknown) => {
-        console.error('[TorrPlay] Playback failed:', err);
+        console.error('[Torst] Playback failed:', err);
         const errorMessage = err instanceof Error ? err.message : String(err);
         if (Lampa.Loading) Lampa.Loading.stop();
         Lampa.Controller.toggle('modal');
         if (Lampa.Noty) {
           Lampa.Noty.show(
-            translate('torrplay_noty_error', `TorrPlay: ${errorMessage}`, { msg: errorMessage })
+            translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
           );
         }
       });
@@ -217,14 +208,13 @@ export async function displayFileList(
 }
 
 export async function playTorrentFile(
-  instance: TorrPlayInstance,
+  instance: TorstInstance,
   torrentHash: string,
   fileIndex: number,
   playlistItem: LampaPlaylistItem,
   playlist: LampaPlaylistItem[],
   movie?: LampaMovie,
   returnController = 'content',
-  magnet?: string,
   sourceTorrentItem?: LampaTorrentItem
 ): Promise<boolean> {
   const resolvedMovie = resolveMovieContext(movie);
@@ -240,9 +230,15 @@ export async function playTorrentFile(
     : { ...resolvedMovie, img: poster, title };
 
   const fileInfo = resolveFileInfo(playlistItem, historyCard, torrentHash, playlist);
-  const playbackPositionSeconds = resolvePlaybackPositionSeconds(
-    Lampa.Timeline ? Lampa.Timeline.view(fileInfo.hash) : undefined
-  );
+  const preloadTimeline = Lampa.Timeline ? Lampa.Timeline.view(fileInfo.hash) : undefined;
+  const playbackPositionSeconds = resolvePlaybackPositionSeconds(preloadTimeline);
+  const percent = Number(preloadTimeline?.percent);
+  const durationSeconds = Number(preloadTimeline?.duration);
+  const playbackFraction = playbackPositionSeconds === undefined
+    ? undefined
+    : Number.isFinite(percent) && percent > 0
+      ? percent / 100
+      : durationSeconds > 0 ? playbackPositionSeconds / durationSeconds : undefined;
 
   const loadingMedia = {
     card: historyCard,
@@ -254,16 +250,15 @@ export async function playTorrentFile(
   const isPreloadReady = await PreloadModal.waitUntilReady(
     instance,
     torrentHash,
-    { index: fileIndex, magnet, path: playlistItem.path },
+    { index: fileIndex, path: playlistItem.path },
     loadingMedia,
-    playbackPositionSeconds
+    playbackFraction
   );
   if (!isPreloadReady) return false;
 
   // Resolve final stream URL with playback token attached
-  const streamUrl = await TorrPlayApi.getStreamUrl(instance, torrentHash, {
+  const streamUrl = await TorstApi.getStreamUrl(instance, torrentHash, {
     index: fileIndex,
-    magnet,
     path: playlistItem.path,
   });
 
@@ -302,9 +297,8 @@ export async function playTorrentFile(
       url: isCurrentFile
         ? streamUrl
         : (callback?: () => void) => {
-          TorrPlayApi.getStreamUrl(instance, torrentHash, {
+          TorstApi.getStreamUrl(instance, torrentHash, {
             index: targetIndex,
-            magnet,
             path: candidateItem.path,
           }).then(resolvedUrl => {
             mappedItem.url = resolvedUrl;
@@ -350,19 +344,6 @@ export async function playTorrentFile(
     Lampa.Favorite.add('history', historyCard, 100);
   }
   recordWatchedHistory(historyCard, playerItem);
-
-  ExternalProgress.arm({
-    files: mappedPlaylist.reduce<ExternalPlaybackFile[]>((files, item) => {
-      const timelineHash = (item.timeline as { hash?: number | string } | undefined)?.hash;
-      if (item.path && timelineHash !== undefined) {
-        files.push({ episode: item.episode, hash: timelineHash, path: item.path, season: item.season });
-      }
-      return files;
-    }, []),
-    instance,
-    movie: historyCard,
-    torrentHash,
-  });
 
   if (typeof Lampa !== 'undefined' && Lampa.Player && typeof Lampa.Player.playlist === 'function') {
     rememberPlayerPlaylist(mappedPlaylist);

@@ -7,8 +7,8 @@ import { translate } from '../lang/translations';
 import { ProviderHealthResult, TorrentProvider } from '../types/provider';
 import { deobfuscateCredential, obfuscateCredential } from '../utils/storage-obfuscation';
 
-export const PROVIDER_SEARCH_ENABLED_STORAGE_KEY = 'torrplay_provider_search';
-export const STORAGE_KEY_PROVIDERS = 'torrplay_providers';
+export const PROVIDER_SEARCH_ENABLED_STORAGE_KEY = 'torst_provider_search';
+export const STORAGE_KEY_PROVIDERS = 'torst_providers';
 
 /**
  * Reuses each provider's native search endpoint (see provider-search.ts) with an
@@ -63,8 +63,8 @@ export class ProviderManager {
           const names = unreadableCredentialProviders.join(', ');
           Lampa.Noty.show(
             translate(
-              'torrplay_provider_invalid_credentials_noty',
-              `TorrPlay: Saved API keys for ${names} could not be read. Please re-enter them in Settings.`,
+              'torst_provider_invalid_credentials_noty',
+              `Torst: Saved API keys for ${names} could not be read. Please re-enter them in Settings.`,
               { names }
             )
           );

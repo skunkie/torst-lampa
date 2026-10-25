@@ -2,12 +2,15 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ScopedToken, TokenResponse, TorrPlayInstance } from '../types/torrplay';
+import { ScopedToken, TokenResponse, TorstInstance } from '../types/torst';
 import { requestHttp } from './http-client';
 
-/**
- * Bearer login was refused, or could not be attempted for lack of credentials (no status).
- */
+interface PendingTokenRequest {
+  generation: number,
+  instance: TorstInstance,
+  promise: Promise<string>
+}
+
 export class AuthenticationError extends Error {
   public status?: number;
 
@@ -19,159 +22,135 @@ export class AuthenticationError extends Error {
 }
 
 export class AuthManager {
-  public static invalidateTokens(instance: TorrPlayInstance): void {
-    delete instance.jwtToken;
-    delete instance.jwtExpiresAtMs;
+  private static accessRequests = new WeakMap<TorstInstance, PendingTokenRequest>();
+  private static generations = new WeakMap<TorstInstance, number>();
+  private static playbackRequests = new WeakMap<TorstInstance, PendingTokenRequest>();
+
+  public static invalidateTokens(instance: TorstInstance): void {
+    this.generations.set(instance, (this.generations.get(instance) || 0) + 1);
+    this.accessRequests.delete(instance);
+    this.playbackRequests.delete(instance);
+    delete instance.accessToken;
+    delete instance.accessTokenExpiresAtMs;
     delete instance.playbackToken;
     delete instance.playbackTokenExpiresAtMs;
   }
 
-  private static ensureAuthenticationUnchanged(instance: TorrPlayInstance, original: TorrPlayInstance): void {
-    if (
-      instance.authType !== original.authType
-      || instance.password !== original.password
-      || instance.url !== original.url
-      || instance.username !== original.username
-    ) {
+  public static rejectAccessToken(instance: TorstInstance, authorization?: string): void {
+    if (!instance.accessToken || authorization !== `Bearer ${instance.accessToken}`) return;
+    delete instance.accessToken;
+    delete instance.accessTokenExpiresAtMs;
+    delete instance.playbackToken;
+    delete instance.playbackTokenExpiresAtMs;
+  }
+
+  private static hasSameAuthentication(instance: TorstInstance, original: TorstInstance): boolean {
+    return instance.authType === original.authType
+      && instance.password === original.password
+      && instance.url === original.url;
+  }
+
+  private static ensureAuthenticationUnchanged(instance: TorstInstance, original: TorstInstance, generation: number): void {
+    if (!this.hasSameAuthentication(instance, original) || (this.generations.get(instance) || 0) !== generation) {
       throw new AuthenticationError('Instance authentication settings changed; retry the request');
     }
   }
 
-  /**
-   * Encodes username and password into a standard HTTP Basic Auth header value.
-   */
-  public static getBasicAuthHeader(username?: string, password?: string): string {
-    if (!username && !password) return '';
-    const credentials = `${username || ''}:${password || ''}`;
+  private static expirationWithBuffer(expiresAtMs: number): number {
+    return expiresAtMs - Math.min(60000, (expiresAtMs - Date.now()) / 2);
+  }
+
+  private static async shareRequest(instance: TorstInstance, requests: WeakMap<TorstInstance, PendingTokenRequest>, request: () => Promise<string>): Promise<string> {
+    const generation = this.generations.get(instance) || 0;
+    const pending = requests.get(instance);
+    if (pending && pending.generation === generation && this.hasSameAuthentication(instance, pending.instance)) {
+      return pending.promise;
+    }
+    const entry = { generation, instance: { ...instance }, promise: request() };
+    requests.set(instance, entry);
     try {
-      const utf8Credentials = unescape(encodeURIComponent(credentials));
-      return `Basic ${btoa(utf8Credentials)}`;
-    } catch {
-      return '';
+      return await entry.promise;
+    } finally {
+      if (requests.get(instance) === entry) requests.delete(instance);
     }
   }
 
-  /**
-   * Acquires a new JWT access token using Resource Owner Password Credentials Grant via /oauth/token.
-   */
-  public static async loginBearer(instance: TorrPlayInstance): Promise<string> {
-    if (!instance.username || !instance.password) {
-      throw new AuthenticationError('Username and password required for Bearer authentication');
-    }
+  public static async loginBearer(instance: TorstInstance): Promise<string> {
+    return this.shareRequest(instance, this.accessRequests, () => this.requestAccessToken(instance));
+  }
+
+  private static async requestAccessToken(instance: TorstInstance): Promise<string> {
+    if (!instance.password) throw new AuthenticationError('Password required for Bearer authentication');
     const original = { ...instance };
-
-    const loginForm = new URLSearchParams({
-      grant_type: 'password',
-      password: instance.password,
-      username: instance.username,
-    });
-
-    const url = `${instance.url.replace(/\/+$/, '')}/oauth/token`;
-    const response = await requestHttp(url, {
-      body: loginForm.toString(),
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'X-Requested-With': 'XMLHttpRequest',
-      },
+    const generation = this.generations.get(instance) || 0;
+    const response = await requestHttp(`${instance.url.replace(/\/+$/, '')}/api/v1/access-tokens`, {
+      body: JSON.stringify({ expires_in_seconds: 86400, name: 'Torst Lampa', password: instance.password }),
+      headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     });
-
     if (!response.ok) {
-      throw new AuthenticationError(
-        `Bearer auth failed (${response.status}): ${response.statusText || 'Unauthorized'}`,
-        response.status
-      );
+      throw new AuthenticationError(`Bearer auth failed (${response.status}): ${response.statusText || 'Unauthorized'}`, response.status);
     }
-
-    const tokenResponse = (await response.json()) as TokenResponse;
-    this.ensureAuthenticationUnchanged(instance, original);
-    instance.jwtToken = tokenResponse.access_token;
-    // Set expiration with 60s safety buffer
-    const expiresInSeconds = tokenResponse.expires_in || 86400;
-    instance.jwtExpiresAtMs = Date.now() + expiresInSeconds * 1000 - 60000;
-
-    return tokenResponse.access_token;
+    const token = await response.json() as TokenResponse;
+    this.ensureAuthenticationUnchanged(instance, original, generation);
+    if (!token || typeof token.secret !== 'string' || !token.secret) throw new AuthenticationError('Torst returned an invalid access token');
+    const expiresAtMs = token.expires_at === null ? Infinity : Date.parse(token.expires_at);
+    if (!(expiresAtMs > Date.now())) {
+      throw new AuthenticationError('Torst returned an invalid access token');
+    }
+    instance.accessToken = token.secret;
+    instance.accessTokenExpiresAtMs = this.expirationWithBuffer(expiresAtMs);
+    return token.secret;
   }
 
-  /**
-   * Ensures the instance has a valid JWT token if Bearer auth is used.
-   */
-  public static async ensureBearerToken(instance: TorrPlayInstance): Promise<string> {
-    if (instance.jwtToken && instance.jwtExpiresAtMs && Date.now() < instance.jwtExpiresAtMs) {
-      return instance.jwtToken;
+  public static async ensureAccessToken(instance: TorstInstance): Promise<string> {
+    if (instance.accessToken && instance.accessTokenExpiresAtMs && Date.now() < instance.accessTokenExpiresAtMs) {
+      return instance.accessToken;
     }
     return this.loginBearer(instance);
   }
 
-  /**
-   * Resolves authentication headers for API requests according to the instance auth type.
-   */
-  public static async getAuthHeaders(instance: TorrPlayInstance): Promise<Record<string, string>> {
-    const headers: Record<string, string> = {
-      'X-Requested-With': 'XMLHttpRequest',
-    };
-
-    if (instance.authType === 'basic') {
-      const basicAuthHeader = this.getBasicAuthHeader(instance.username, instance.password);
-      if (basicAuthHeader) headers['Authorization'] = basicAuthHeader;
-    } else if (instance.authType === 'bearer') {
-      const token = await this.ensureBearerToken(instance);
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-    }
-
+  public static async getAuthHeaders(instance: TorstInstance): Promise<Record<string, string>> {
+    const headers: Record<string, string> = { 'X-Requested-With': 'XMLHttpRequest' };
+    if (instance.authType === 'bearer') headers['Authorization'] = `Bearer ${await this.ensureAccessToken(instance)}`;
     return headers;
   }
 
-  /**
-   * Obtains a playback token via POST /api/v1/tokens with scope 'playback'.
-   */
-  public static async getPlaybackToken(instance: TorrPlayInstance, shouldForceRefresh = false): Promise<string> {
-    if (instance.authType === 'none') {
-      return '';
-    }
-
-    if (
-      !shouldForceRefresh
-      && instance.playbackToken
-      && instance.playbackTokenExpiresAtMs
-      && Date.now() < instance.playbackTokenExpiresAtMs
-    ) {
+  public static async getPlaybackToken(instance: TorstInstance, shouldForceRefresh = false): Promise<string> {
+    if (instance.authType === 'none') return '';
+    if (!shouldForceRefresh && instance.playbackToken && instance.playbackTokenExpiresAtMs && Date.now() < instance.playbackTokenExpiresAtMs) {
       return instance.playbackToken;
     }
+    return this.shareRequest(instance, this.playbackRequests, () => this.requestPlaybackToken(instance));
+  }
 
+  private static async requestPlaybackToken(instance: TorstInstance, shouldRetry = true): Promise<string> {
     const original = { ...instance };
+    const generation = this.generations.get(instance) || 0;
     const authHeaders = await this.getAuthHeaders(instance);
-    this.ensureAuthenticationUnchanged(instance, original);
-    const url = `${instance.url.replace(/\/+$/, '')}/api/v1/tokens`;
-
-    const response = await requestHttp(url, {
-      body: JSON.stringify({ scope: 'playback' }),
-      headers: {
-        ...authHeaders,
-        'Content-Type': 'application/json',
-      },
+    this.ensureAuthenticationUnchanged(instance, original, generation);
+    const response = await requestHttp(`${instance.url.replace(/\/+$/, '')}/api/v1/playback-tokens`, {
+      body: '{}',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
       method: 'POST',
     });
-
-    if (!response.ok) {
-      // If unauthorized on bearer, try re-authenticating once
-      if (response.status === 401 && instance.authType === 'bearer' && !shouldForceRefresh) {
-        instance.jwtToken = undefined;
-        return this.getPlaybackToken(instance, true);
-      }
-      throw new Error(
-        `Failed to obtain playback token (${response.status}): ${response.statusText || 'Unauthorized'}`
-      );
+    this.ensureAuthenticationUnchanged(instance, original, generation);
+    if (response.status === 401 && shouldRetry) {
+      this.rejectAccessToken(instance, authHeaders['Authorization']);
+      return this.requestPlaybackToken(instance, false);
     }
-
-    const tokenResponse = (await response.json()) as ScopedToken;
-    this.ensureAuthenticationUnchanged(instance, original);
-    instance.playbackToken = tokenResponse.token;
-    const expiresAtMs = new Date(tokenResponse.expires_at).getTime();
-    instance.playbackTokenExpiresAtMs = isNaN(expiresAtMs)
-      ? Date.now() + 86400000 - 60000
-      : expiresAtMs - 60000;
-
-    return tokenResponse.token;
+    if (!response.ok) {
+      throw new AuthenticationError(`Failed to obtain playback token (${response.status}): ${response.statusText || 'Unauthorized'}`, response.status);
+    }
+    const token = await response.json() as ScopedToken;
+    this.ensureAuthenticationUnchanged(instance, original, generation);
+    if (!token || typeof token.token !== 'string' || !token.token) throw new AuthenticationError('Torst returned an invalid playback token');
+    const expiresAtMs = Date.parse(token.expires_at);
+    if (!(expiresAtMs > Date.now())) {
+      throw new AuthenticationError('Torst returned an invalid playback token');
+    }
+    instance.playbackToken = token.token;
+    instance.playbackTokenExpiresAtMs = this.expirationWithBuffer(expiresAtMs);
+    return token.token;
   }
 }

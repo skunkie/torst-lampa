@@ -43,7 +43,7 @@ describe('Storage Credential Obfuscation', () => {
   });
 
   it('rejects un-obfuscated or non-prefixed credentials', () => {
-    const rawPlainPassword = 'legacyPlainPassword';
+    const rawPlainPassword = 'unencodedPassword';
     assert.equal(deobfuscateCredential(rawPlainPassword), '');
   });
 });

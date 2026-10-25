@@ -5,7 +5,7 @@
 import { translate } from '../lang/translations';
 import { ProviderSearchResult } from '../types/provider';
 import { attachRowFactory, ProviderResultRowData } from '../ui/provider-result-row';
-import { TORRPLAY_ENABLED_STORAGE_KEY } from '../ui/settings-keys';
+import { TORST_ENABLED_STORAGE_KEY } from '../ui/settings-keys';
 import { decodeSearchQuery } from '../utils/search-query';
 import {
   clearTriggerSetting,
@@ -22,7 +22,7 @@ import {
 import { ProviderSearch, ProviderSearchMovie } from './provider-search';
 
 const NATIVE_GLOBAL_SEARCH_ENABLED_STORAGE_KEY = 'parse_in_search';
-const NATIVE_GLOBAL_SEARCH_PREFERENCE_STORAGE_KEY = 'torrplay_native_global_search';
+const NATIVE_GLOBAL_SEARCH_PREFERENCE_STORAGE_KEY = 'torst_native_global_search';
 
 interface LampaGlobalSearchSource {
   onCancel: () => void,
@@ -92,8 +92,8 @@ function toLampaResultItem(result: ProviderSearchResult, index: number): LampaPa
 }
 
 /**
- * Wraps `Lampa.Parser.get` to route torrent search through the TorrPlay provider pool
- * while TorrPlay and at least one provider are enabled. Unlike `Lampa.Torserver`, which TorrPlay
+ * Wraps `Lampa.Parser.get` to route torrent search through the Torst provider pool
+ * while Torst and at least one provider are enabled. Unlike `Lampa.Torserver`, which Torst
  * deliberately never hooks because it stays fully intact, Lampa itself deletes the
  * native parser UI when `torrents_use = false` — leaving no native surface to preserve,
  * and no non-hook alternative for restoring search.
@@ -192,10 +192,10 @@ export class ParserHook {
    * Whether provider search currently stands in for Lampa's own torrent parser.
    */
   public static isReplacingNativeParser(): boolean {
-    const isTorrPlayEnabled = typeof Lampa !== 'undefined' && Lampa.Storage
-      ? Boolean(Lampa.Storage.get(TORRPLAY_ENABLED_STORAGE_KEY, true))
+    const isTorstEnabled = typeof Lampa !== 'undefined' && Lampa.Storage
+      ? Boolean(Lampa.Storage.get(TORST_ENABLED_STORAGE_KEY, true))
       : true;
-    return isTorrPlayEnabled && ProviderManager.getEnabledProviders().length > 0;
+    return isTorstEnabled && ProviderManager.getEnabledProviders().length > 0;
   }
 
   /**
@@ -207,7 +207,7 @@ export class ParserHook {
   }
 
   private static createGlobalSearchSource(): LampaGlobalSearchSource {
-    const title = translate('torrplay_provider_search_title', 'Jackett / Prowlarr');
+    const title = translate('torst_provider_search_title', 'Jackett / Prowlarr');
     return {
       onCancel: () => {
         Lampa.Parser?.clear?.();
@@ -263,7 +263,7 @@ export class ParserHook {
         event.name === NATIVE_GLOBAL_SEARCH_ENABLED_STORAGE_KEY
         || event.name === PROVIDER_SEARCH_ENABLED_STORAGE_KEY
         || event.name === STORAGE_KEY_PROVIDERS
-        || event.name === TORRPLAY_ENABLED_STORAGE_KEY
+        || event.name === TORST_ENABLED_STORAGE_KEY
       ) {
         this.syncGlobalSearchSource();
       }

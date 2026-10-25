@@ -5,29 +5,34 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import { TorrPlayApi } from '../src/api/torrplay';
+import { AuthenticationError } from '../src/api/auth';
+import { NetworkError } from '../src/api/http-client';
+import { TorstApi, TorstApiError } from '../src/api/torst';
+import { sortTorrentFiles } from '../src/engine/file-parser';
 import { displayFileList, playTorrentFile } from '../src/engine/playback-session';
 import { initPlayerPlaylist, resetPlayerPlaylistForTesting } from '../src/engine/player-playlist';
-import { TorrPlayEngine } from '../src/engine/torrplay-engine';
+import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
+import type { Torrent, TorrentAdd, TorstInstance } from '../src/types/torst';
 import { SAVE_TO_DATABASE_STORAGE_KEY } from '../src/ui/play-dialog';
 import { PreloadModal } from '../src/ui/preload-modal';
 import {
   PLAYBACK_MODE_STORAGE_KEY,
-  TORRPLAY_ENABLED_STORAGE_KEY,
+  TORST_ENABLED_STORAGE_KEY,
 } from '../src/ui/settings';
 import { createTestLanguage, getTestTranslation } from './support/translations';
 
-describe('TorrPlayEngine', () => {
+describe('TorstEngine', () => {
   const originalFetch = globalThis.fetch;
-  const originalWaitUntilReady = PreloadModal.waitUntilReady;
   const storageMap = new Map<string, any>();
   let lastSelectShow: any = null;
   let lastNoty: string | null = null;
 
   beforeEach(() => {
-    TorrPlayEngine.resetForTesting();
+    TorstEngine.resetForTesting();
     mock.method(PreloadModal, 'waitUntilReady', async () => true);
+    mock.method(TorstApi, 'getStreamUrl', async (instance: TorstInstance, hash: string, file: { index?: number }) =>
+      instance.url + '/api/v1/torrents/' + hash + '/files/' + (file.index ?? 0) + '/content');
     storageMap.clear();
     lastSelectShow = null;
     lastNoty = null;
@@ -66,196 +71,43 @@ describe('TorrPlayEngine', () => {
     };
 
     InstanceManager.init();
-    TorrPlayEngine.init();
+    TorstEngine.init();
   });
 
   afterEach(() => {
-    TorrPlayApi.resetForTesting();
+    TorstApi.resetForTesting();
     mock.restoreAll();
     globalThis.fetch = originalFetch;
-    TorrPlayEngine.resetForTesting();
+    TorstEngine.resetForTesting();
   });
 
   it('reports enabled status based on storage', () => {
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
-    assert.equal(TorrPlayEngine.isEnabled(), true);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    assert.equal(TorstEngine.isEnabled(), true);
 
-    storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, false);
-    assert.equal(TorrPlayEngine.isEnabled(), false);
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
+    assert.equal(TorstEngine.isEnabled(), false);
   });
 
   it('reports playback mode based on storage', () => {
-    assert.equal(TorrPlayEngine.getPlaybackMode(), 'torrplay');
+    assert.equal(TorstEngine.getPlaybackMode(), 'torst');
 
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
-    assert.equal(TorrPlayEngine.getPlaybackMode(), 'ask');
+    assert.equal(TorstEngine.getPlaybackMode(), 'ask');
 
     storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'context');
-    assert.equal(TorrPlayEngine.getPlaybackMode(), 'context');
+    assert.equal(TorstEngine.getPlaybackMode(), 'context');
 
-    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
-    assert.equal(TorrPlayEngine.getPlaybackMode(), 'torrplay');
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+    assert.equal(TorstEngine.getPlaybackMode(), 'torst');
   });
 
   it('prompts player choice when in ask mode', () => {
-    TorrPlayEngine.promptPlayerChoice({ Title: 'Test Movie' }, { title: 'Test Movie' });
+    TorstEngine.promptPlayerChoice({ Title: 'Test Movie' }, { title: 'Test Movie' });
     assert.ok(lastSelectShow);
     assert.equal(lastSelectShow.items.length, 2);
-    assert.equal(lastSelectShow.items[0].action, 'torrplay');
+    assert.equal(lastSelectShow.items[0].action, 'torst');
     assert.equal(lastSelectShow.items[1].action, 'default');
-  });
-
-  it('saves torrent to database without opening player', async () => {
-    let addPayload: any = null;
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('/api/v1/torrents')) {
-        addPayload = JSON.parse(String(init?.body));
-        return new Response(JSON.stringify({
-          files: [],
-          hash: 'abc12345',
-          name: 'Saved Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-    await TorrPlayEngine.saveToDatabase({
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}`,
-      Title: 'Test Movie',
-    });
-
-    assert.ok(addPayload);
-    assert.equal(addPayload.hash, testHash);
-    assert.equal(addPayload.magnet, `magnet:?xt=urn:btih:${testHash}`);
-    assert.equal(lastNoty, getTestTranslation('torrplay_noty_added_db', { title: 'Test Movie' }));
-  });
-
-  for (const sourceHash of [undefined, '0123456789abcdef0123456789abcdef01234567']) {
-    const sourceDescription = sourceHash ? 'with an info hash' : 'without an info hash';
-    it(`resolves HTTP torrent download links before saving ${sourceDescription}`, async () => {
-      const torrentLink = 'https://jackett.example.com/dl/indexer?id=release';
-      let addPayload: any = null;
-
-      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.endsWith('/api/system/health')) {
-          return new Response(null, { status: 200 });
-        }
-        if (url.endsWith('/api/v1/torrent-resolutions')) {
-          assert.equal(init?.method, 'POST');
-          assert.deepEqual(JSON.parse(String(init?.body)), { url: torrentLink });
-          return new Response(JSON.stringify({ hash: '0123456789abcdef0123456789abcdef01234567', magnet: 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567' }));
-        }
-        if (url.endsWith('/api/v1/torrents') && init?.method === 'POST') {
-          addPayload = JSON.parse(String(init.body));
-          return new Response(JSON.stringify({
-            files: [],
-            hash: '0123456789abcdef0123456789abcdef01234567',
-            name: 'Private Tracker Movie',
-            storage: 'memory',
-            total_size: 1000,
-          }), {
-            headers: { 'Content-Type': 'application/json' },
-            status: 201,
-          });
-        }
-        throw new Error(`Unexpected request: ${init?.method} ${url}`);
-      };
-
-      await TorrPlayEngine.saveToDatabase({ InfoHash: sourceHash, Link: torrentLink, Title: 'Private Tracker Movie' });
-
-      assert.equal(addPayload.link, undefined);
-      assert.equal(addPayload.hash, '0123456789abcdef0123456789abcdef01234567');
-      assert.equal(addPayload.magnet, 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567');
-    });
-  }
-
-  it('resolves relative movie poster to absolute URL and saves it to database', async () => {
-    let addPayload: any = null;
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('/api/v1/torrents')) {
-        addPayload = JSON.parse(String(init?.body));
-        return new Response(JSON.stringify({
-          files: [],
-          hash: '0123456789abcdef0123456789abcdef01234567',
-          name: 'Saved Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    const validHash = '0123456789abcdef0123456789abcdef01234567';
-    await TorrPlayEngine.saveToDatabase(
-      {
-        MagnetUri: `magnet:?xt=urn:btih:${validHash}`,
-        Title: 'Test Movie 2026',
-      },
-      {
-        poster_path: '/test-movie-poster.jpg',
-        title: 'Test Movie 2026',
-      }
-    );
-
-    assert.ok(addPayload);
-    assert.equal(addPayload.hash, validHash);
-    assert.equal(addPayload.poster, 'https://image.tmdb.org/t/p/w500/test-movie-poster.jpg');
-  });
-
-  it('resolves movie and poster from active Lampa activity when movie context is missing or jQuery element', async () => {
-    let addPayload: any = null;
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('/api/v1/torrents')) {
-        addPayload = JSON.parse(String(init?.body));
-        return new Response(JSON.stringify({
-          files: [],
-          hash: '0123456789abcdef0123456789abcdef01234567',
-          name: 'Active Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    (globalThis as any).Lampa.Activity.active = () => ({
-      component: 'torrents',
-      movie: {
-        img: 'https://images.example.org/poster.png',
-        title: 'Activity Movie',
-      },
-    });
-
-    const validHash = '0123456789abcdef0123456789abcdef01234567';
-    // Passing a fake jQuery object as movie argument (simulating event.item)
-    const fakeJQueryElement = {
-      attr: () => '',
-      find: () => ({}),
-    };
-    await TorrPlayEngine.saveToDatabase(
-      {
-        MagnetUri: `magnet:?xt=urn:btih:${validHash}`,
-      },
-      fakeJQueryElement
-    );
-
-    assert.ok(addPayload);
-    assert.equal(addPayload.hash, validHash);
-    assert.equal(addPayload.title, 'Activity Movie');
-    assert.equal(addPayload.poster, 'https://images.example.org/poster.png');
   });
 
   it('delegates to Lampa.Api.img if available for poster resolution', () => {
@@ -263,7 +115,7 @@ describe('TorrPlayEngine', () => {
       img: (path: string, size: string) => `https://proxy.lampa.app/${size}${path}`,
     };
 
-    const resolved = TorrPlayEngine.resolvePosterUrl(undefined, {
+    const resolved = TorstEngine.resolvePosterUrl(undefined, {
       poster_path: '/custom_path.jpg',
     });
 
@@ -273,56 +125,25 @@ describe('TorrPlayEngine', () => {
 
   it('handles absolute URLs, data URIs, and filters broken images in resolvePosterUrl', () => {
     assert.equal(
-      TorrPlayEngine.resolvePosterUrl({ poster: 'https://example.com/poster.jpg' }),
+      TorstEngine.resolvePosterUrl({ poster: 'https://example.com/poster.jpg' }),
       'https://example.com/poster.jpg'
     );
     assert.equal(
-      TorrPlayEngine.resolvePosterUrl({ poster: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' }),
+      TorstEngine.resolvePosterUrl({ poster: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' }),
       'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
     );
     assert.equal(
-      TorrPlayEngine.resolvePosterUrl({ poster: '//image.tmdb.org/t/p/w500/abc.jpg' }),
+      TorstEngine.resolvePosterUrl({ poster: '//image.tmdb.org/t/p/w500/abc.jpg' }),
       'https://image.tmdb.org/t/p/w500/abc.jpg'
     );
     // Skips broken image and uses movie poster_path
     assert.equal(
-      TorrPlayEngine.resolvePosterUrl(
+      TorstEngine.resolvePosterUrl(
         { poster: './img/img_broken.svg' },
         { poster_path: '/fallback.jpg' }
       ),
       'https://image.tmdb.org/t/p/w500/fallback.jpg'
     );
-  });
-
-  it('ignores numeric Lampa title hash and extracts real hash from magnet URI in saveToDatabase', async () => {
-    let addPayload: any = null;
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input).includes('/api/v1/torrents')) {
-        addPayload = JSON.parse(String(init?.body));
-        return new Response(JSON.stringify({
-          files: [],
-          hash: '0123456789abcdef0123456789abcdef01234567',
-          name: 'Saved Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    const validHash = '0123456789abcdef0123456789abcdef01234567';
-    await TorrPlayEngine.saveToDatabase({
-      hash: '2938472948', // Lampa parser generated numeric hash
-      MagnetUri: `magnet:?xt=urn:btih:${validHash}&dn=Test`,
-      Title: 'Test Movie',
-    });
-
-    assert.ok(addPayload);
-    assert.equal(addPayload.hash, validHash);
-    assert.equal(addPayload.magnet, `magnet:?xt=urn:btih:${validHash}&dn=Test`);
   });
 
   it('shows error notification when no supported torrent source is present', async () => {
@@ -332,73 +153,73 @@ describe('TorrPlayEngine', () => {
       return new Response(null, { status: 200 });
     };
 
-    await TorrPlayEngine.saveToDatabase({
+    await TorstEngine.saveToDatabase({
       hash: '2938472948', // Numeric hash without magnet
       Link: 'not-a-torrent-source',
       Title: 'Invalid Source',
     });
 
     assert.equal(requestMade, false);
-    assert.equal(lastNoty, getTestTranslation('torrplay_noty_hash_required'));
+    assert.equal(lastNoty, getTestTranslation('torst_noty_hash_required'));
   });
 
-  it('routes Lampa.Torrent.start directly to TorrPlay startPlayback', () => {
+  it('routes Lampa.Torrent.start directly to Torst startPlayback', () => {
     let startedPlaybackItem: any = null;
     let originalStarted = false;
-    const origStartPlayback = TorrPlayEngine.startPlayback;
-    const origOriginalStart = (TorrPlayEngine as any).originalTorrentStart;
+    const origStartPlayback = TorstEngine.startPlayback;
+    const origOriginalStart = (TorstEngine as any).originalTorrentStart;
 
-    TorrPlayEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
-    (TorrPlayEngine as any).originalTorrentStart = () => { originalStarted = true; };
+    TorstEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
+    (TorstEngine as any).originalTorrentStart = () => { originalStarted = true; };
 
     try {
       // When disabled, routes to original Lampa.Torrent.start
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, false);
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
       (globalThis as any).Lampa.Torrent.start({ title: 'Test' });
       assert.equal(originalStarted, true);
       assert.equal(startedPlaybackItem, null);
 
       // When enabled, forwards directly to startPlayback
       originalStarted = false;
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
       (globalThis as any).Lampa.Torrent.start({ title: 'Test Torrent' });
       assert.ok(startedPlaybackItem);
       assert.equal((startedPlaybackItem as any).title, 'Test Torrent');
       assert.equal(originalStarted, false);
     } finally {
-      TorrPlayEngine.startPlayback = origStartPlayback;
-      (TorrPlayEngine as any).originalTorrentStart = origOriginalStart;
+      TorstEngine.startPlayback = origStartPlayback;
+      (TorstEngine as any).originalTorrentStart = origOriginalStart;
     }
   });
 
-  it('routes Lampa.Torrent.open directly to TorrPlay startPlayback', () => {
+  it('routes Lampa.Torrent.open directly to Torst startPlayback', () => {
     let startedPlaybackItem: any = null;
     let originalOpenedHash = '';
-    const origStartPlayback = TorrPlayEngine.startPlayback;
-    const origOriginalOpen = (TorrPlayEngine as any).originalTorrentOpen;
+    const origStartPlayback = TorstEngine.startPlayback;
+    const origOriginalOpen = (TorstEngine as any).originalTorrentOpen;
 
-    TorrPlayEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
-    (TorrPlayEngine as any).originalTorrentOpen = (hash: string) => { originalOpenedHash = hash; };
+    TorstEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
+    (TorstEngine as any).originalTorrentOpen = (hash: string) => { originalOpenedHash = hash; };
 
     try {
       const testHash = '0123456789abcdef0123456789abcdef01234567';
 
       // When disabled, routes to original Lampa.Torrent.open
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, false);
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
       (globalThis as any).Lampa.Torrent.open(testHash);
       assert.equal(originalOpenedHash, testHash);
       assert.equal(startedPlaybackItem, null);
 
       // When enabled, forwards directly to startPlayback
       originalOpenedHash = '';
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
       (globalThis as any).Lampa.Torrent.open(testHash);
       assert.ok(startedPlaybackItem);
       assert.equal((startedPlaybackItem as any).hash, testHash);
       assert.equal(originalOpenedHash, '');
     } finally {
-      TorrPlayEngine.startPlayback = origStartPlayback;
-      (TorrPlayEngine as any).originalTorrentOpen = origOriginalOpen;
+      TorstEngine.startPlayback = origStartPlayback;
+      (TorstEngine as any).originalTorrentOpen = origOriginalOpen;
     }
   });
 
@@ -407,18 +228,18 @@ describe('TorrPlayEngine', () => {
     let originalStarted = false;
     let originalOpenedHash = '';
     let promptedItem: any = null;
-    const origStartPlayback = TorrPlayEngine.startPlayback;
-    const origPromptPlayerChoice = TorrPlayEngine.promptPlayerChoice;
-    const origOriginalStart = (TorrPlayEngine as any).originalTorrentStart;
-    const origOriginalOpen = (TorrPlayEngine as any).originalTorrentOpen;
+    const origStartPlayback = TorstEngine.startPlayback;
+    const origPromptPlayerChoice = TorstEngine.promptPlayerChoice;
+    const origOriginalStart = (TorstEngine as any).originalTorrentStart;
+    const origOriginalOpen = (TorstEngine as any).originalTorrentOpen;
 
-    TorrPlayEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
-    TorrPlayEngine.promptPlayerChoice = (item: any) => { promptedItem = item; };
-    (TorrPlayEngine as any).originalTorrentStart = () => { originalStarted = true; };
-    (TorrPlayEngine as any).originalTorrentOpen = (hash: string) => { originalOpenedHash = hash; };
+    TorstEngine.startPlayback = async (item: any) => { startedPlaybackItem = item; };
+    TorstEngine.promptPlayerChoice = (item: any) => { promptedItem = item; };
+    (TorstEngine as any).originalTorrentStart = () => { originalStarted = true; };
+    (TorstEngine as any).originalTorrentOpen = (hash: string) => { originalOpenedHash = hash; };
 
     try {
-      storageMap.set(TORRPLAY_ENABLED_STORAGE_KEY, true);
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
       const testHash = '0123456789abcdef0123456789abcdef01234567';
 
       // Manual mode: standard clicks fall through to the native player untouched.
@@ -430,7 +251,7 @@ describe('TorrPlayEngine', () => {
       assert.equal(originalOpenedHash, testHash);
       assert.equal(startedPlaybackItem, null);
 
-      // Ask mode: prompts the user to choose between TorrPlay and the default player.
+      // Ask mode: prompts the user to choose between Torst and the default player.
       originalStarted = false;
       originalOpenedHash = '';
       storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
@@ -442,22 +263,22 @@ describe('TorrPlayEngine', () => {
       assert.ok(promptedItem);
       assert.equal(startedPlaybackItem, null);
 
-      // A session opened via the dedicated TorrPlay button always plays directly, even in Manual/Ask mode.
+      // A session opened via the dedicated Torst button always plays directly, even in Manual/Ask mode.
       promptedItem = null;
-      (globalThis as any).Lampa.Torrent.start({ title: 'Test' }, { torrplay: true });
+      (globalThis as any).Lampa.Torrent.start({ title: 'Test' }, { torst: true });
       assert.ok(startedPlaybackItem);
       assert.equal(promptedItem, null);
     } finally {
-      TorrPlayEngine.startPlayback = origStartPlayback;
-      TorrPlayEngine.promptPlayerChoice = origPromptPlayerChoice;
-      (TorrPlayEngine as any).originalTorrentStart = origOriginalStart;
-      (TorrPlayEngine as any).originalTorrentOpen = origOriginalOpen;
-      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
+      TorstEngine.startPlayback = origStartPlayback;
+      TorstEngine.promptPlayerChoice = origPromptPlayerChoice;
+      (TorstEngine as any).originalTorrentStart = origOriginalStart;
+      (TorstEngine as any).originalTorrentOpen = origOriginalOpen;
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
     }
   });
 
   it('restores the launching controller when modal playback fails', async () => {
-    const originalStartPlayback = TorrPlayEngine.startPlayback;
+    const originalStartPlayback = TorstEngine.startPlayback;
     let activeController = '';
     let isModalClosed = false;
 
@@ -472,20 +293,20 @@ describe('TorrPlayEngine', () => {
         isModalClosed = true;
       },
     };
-    (TorrPlayEngine as any).startPlayback = async () => {
+    (TorstEngine as any).startPlayback = async () => {
       throw new Error('Playback failed');
     };
 
     try {
-      TorrPlayEngine.playTorrentDirect({ title: 'Movie' });
+      TorstEngine.playTorrentDirect({ title: 'Movie' });
       await new Promise(resolve => setTimeout(resolve, 0));
     } finally {
-      (TorrPlayEngine as any).startPlayback = originalStartPlayback;
+      (TorstEngine as any).startPlayback = originalStartPlayback;
     }
 
     assert.equal(isModalClosed, true);
     assert.equal(activeController, 'content');
-    assert.equal(lastNoty, getTestTranslation('torrplay_noty_error', { msg: 'Playback failed' }));
+    assert.equal(lastNoty, getTestTranslation('torst_noty_error', { msg: 'Playback failed' }));
   });
 
   it('renders multi-file torrents with the native TorrServer file dialog', async () => {
@@ -545,7 +366,7 @@ describe('TorrPlayEngine', () => {
     };
 
     await displayFileList(
-      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
       {
         files: [
           { length: 1000, name: 'episode.01.mkv', path: 'episode.01.mkv' },
@@ -553,7 +374,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'multi123',
         name: 'Series',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Series',
         total_size: 3000,
       }
@@ -567,389 +388,13 @@ describe('TorrPlayEngine', () => {
     assert.equal(modalOptions.title, 'Files');
     assert.ok(capturedHtml.some(html => html.includes('class="torrent-files"')));
     assert.equal(capturedHtml.filter(html => html.includes('torrent-file selector')).length, 2);
-    assert.equal(capturedHtml.some(html => html.includes('torrplay-file-item')), false);
+    assert.equal(capturedHtml.some(html => html.includes('torst-file-item')), false);
     assert.equal(capturedHtml.some(html => html.includes('style=')), false);
     assert.equal(timelineRenderCount, 2);
 
     modalOptions.onBack();
     assert.equal(isModalClosed, true);
     assert.equal(activeController, 'content');
-  });
-
-  it('plays single-file torrents directly via Loading screen without opening a modal before preload', async () => {
-    let modalOpened = false;
-    let loadingStarted = false;
-    let playedItem: any = null;
-    const providerResultHash = 'provider-result-hash';
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-
-    (globalThis as any).Lampa.Modal = {
-      close: () => {},
-      open: () => {
-        modalOpened = true;
-      },
-    };
-    (globalThis as any).Lampa.Loading = {
-      setProgress: () => {},
-      start: () => {
-        loadingStarted = true;
-      },
-      stop: () => {},
-    };
-    (globalThis as any).Lampa.Player = {
-      callback: () => {},
-      play: (item: any) => {
-        playedItem = item;
-      },
-      playlist: () => {},
-    };
-
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'single_video.mkv', path: 'single_video.mkv' }],
-          hash: testHash,
-          name: 'Single Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    const providerResult: LampaTorrentItem = {
-      hash: providerResultHash,
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Single%20Movie`,
-      Title: 'Single Movie',
-    };
-    await TorrPlayEngine.startPlayback(providerResult);
-
-    assert.equal(loadingStarted, true);
-    assert.equal(modalOpened, false);
-    assert.ok(playedItem);
-    assert.equal(playedItem.torrent_hash, testHash);
-    assert.equal('no_ad' in playedItem, false);
-    assert.equal('ad' in playedItem, false);
-    assert.equal(playedItem.continue_play, true);
-    assert.deepEqual(storageMap.get('torrents_view'), [providerResultHash]);
-    assert.equal(providerResult.viewed, true);
-  });
-
-  it('stops the "adding torrent" loading screen before preload starts its own for single-file torrents', async () => {
-    let playedItem: any = null;
-    PreloadModal.waitUntilReady = originalWaitUntilReady;
-    let isLoadingActive = false;
-    const loadingCallOrder: string[] = [];
-    const loadingStartOptions: any[] = [];
-    let preloadBody: any = null;
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-
-    (globalThis as any).Lampa.Modal = { close: () => {}, open: () => {} };
-    (globalThis as any).Lampa.Loading = {
-      setProgress: () => {},
-      start: (_onCancel: () => void, _text?: string, options?: any) => {
-        assert.equal(isLoadingActive, false, 'Loading.start must not be called while already active');
-        isLoadingActive = true;
-        loadingCallOrder.push('start');
-        loadingStartOptions.push(options);
-      },
-      stop: () => {
-        isLoadingActive = false;
-        loadingCallOrder.push('stop');
-      },
-    };
-    (globalThis as any).Lampa.Player = {
-      callback: () => {},
-      play: (item: any) => { playedItem = item; },
-      playlist: () => {},
-    };
-    let savedPositionSeconds = 321;
-    (globalThis as any).Lampa.Timeline = {
-      view: (hash: string) => {
-        const timeline = { hash, percent: 10, time: savedPositionSeconds };
-        savedPositionSeconds = 500;
-        return timeline;
-      },
-    };
-    storageMap.set('player_timecode', 'continue');
-
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes('/preload')) {
-        if (init?.method === 'PUT') preloadBody = JSON.parse(String(init.body));
-        return new Response(JSON.stringify({ completed_bytes: 100, status: 'ready', target_bytes: 100 }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'single_video.mkv', path: 'single_video.mkv' }],
-          hash: testHash,
-          name: 'Single Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    // Preload enabled is the default — do not disable it here.
-    await TorrPlayEngine.startPlayback({
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Single%20Movie`,
-      Title: 'Single Movie',
-    });
-
-    assert.ok(playedItem);
-    assert.equal(preloadBody.playback_position_seconds, 321);
-    assert.equal(playedItem.timeline.time, 500);
-    assert.deepEqual(loadingCallOrder, ['start', 'stop', 'start', 'stop']);
-    assert.equal(loadingStartOptions[0]?.media, undefined, 'adding the torrent must not show the buffer percentage screen');
-    assert.ok(loadingStartOptions[1]?.media, 'the preload shows the media loading screen');
-
-    storageMap.set('player_timecode', 'ask');
-    preloadBody = null;
-    await TorrPlayEngine.startPlayback({
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Single%20Movie`,
-      Title: 'Single Movie',
-    });
-    assert.ok(preloadBody);
-    assert.equal(preloadBody.playback_position_seconds, undefined);
-
-    storageMap.set('player_timecode', 'continue');
-    for (const timeline of [{ percent: 95, time: 6800 }, { percent: 1, time: 8 }]) {
-      (globalThis as any).Lampa.Timeline = { view: (hash: string) => ({ hash, ...timeline }) };
-      preloadBody = null;
-      await TorrPlayEngine.startPlayback({
-        MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Single%20Movie`,
-        Title: 'Single Movie',
-      });
-      assert.ok(preloadBody);
-      assert.equal(preloadBody.playback_position_seconds, undefined);
-    }
-  });
-
-  it('startPlayback persists via POST /api/v1/torrents when Save to Database is enabled', async () => {
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-    let addMethodUsed: string | undefined;
-
-    (globalThis as any).Lampa.Loading = { setProgress: () => {}, start: () => {}, stop: () => {} };
-    (globalThis as any).Lampa.Player = { callback: () => {}, play: () => {}, playlist: () => {} };
-
-    storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
-
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.endsWith('/api/v1/torrents')) {
-        addMethodUsed = init?.method;
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-          hash: testHash,
-          name: 'Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    await TorrPlayEngine.startPlayback({
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Movie`,
-      Title: 'Movie',
-    });
-
-    assert.equal(addMethodUsed, 'POST');
-  });
-
-  for (const sourceHash of [undefined, '0123456789abcdef0123456789abcdef01234567']) {
-    const sourceDescription = sourceHash ? 'with an info hash' : 'without an info hash';
-    it(`startPlayback persists an HTTP torrent download link ${sourceDescription} when database saving is enabled`, async () => {
-      const testHash = '0123456789abcdef0123456789abcdef01234567';
-      const torrentLink = 'https://prowlarr.example.com/1/download?id=release';
-      let addPayload: any = null;
-
-      (globalThis as any).Lampa.Controller = {
-        enabled: () => ({ name: 'content' }),
-        toggle: () => {},
-      };
-      (globalThis as any).Lampa.Loading = { setProgress: () => {}, start: () => {}, stop: () => {} };
-      (globalThis as any).Lampa.Player = { callback: () => {}, play: () => {}, playlist: () => {} };
-      storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
-
-      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input);
-        if (url.endsWith('/api/system/health')) {
-          return new Response(null, { status: 200 });
-        }
-        if (url.endsWith('/api/v1/torrent-resolutions')) {
-          assert.equal(init?.method, 'POST');
-          assert.deepEqual(JSON.parse(String(init?.body)), { url: torrentLink });
-          return new Response(JSON.stringify({ hash: '0123456789abcdef0123456789abcdef01234567', magnet: 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567' }));
-        }
-        if (url.endsWith('/api/v1/torrents') && init?.method === 'POST') {
-          addPayload = JSON.parse(String(init.body));
-          return new Response(JSON.stringify({
-            files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-            hash: testHash,
-            name: 'Private Tracker Movie',
-            storage: 'memory',
-            total_size: 1000,
-          }), {
-            headers: { 'Content-Type': 'application/json' },
-            status: 201,
-          });
-        }
-        throw new Error(`Unexpected request: ${init?.method} ${url}`);
-      };
-
-      await TorrPlayEngine.startPlayback({ InfoHash: sourceHash, Link: torrentLink, Title: 'Private Tracker Movie' });
-
-      assert.equal(addPayload.link, undefined);
-      assert.equal(addPayload.hash, '0123456789abcdef0123456789abcdef01234567');
-      assert.equal(addPayload.magnet, 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567');
-    });
-  }
-
-  for (const sourceHash of [undefined, '0123456789abcdef0123456789abcdef01234567']) {
-    const sourceDescription = sourceHash ? 'with an info hash' : 'without an info hash';
-    for (const storage of ['memory', 'file']) {
-      it(`resolves a link for temporary playback in memory with ${storage} selected ${sourceDescription}`, async () => {
-        const hash = '0123456789abcdef0123456789abcdef01234567';
-        const link = 'http://indexer.local/download/1';
-        let playedItem: any;
-        let resolveCalls = 0;
-        (globalThis as any).Lampa.Loading = { start: () => {}, stop: () => {} };
-        (globalThis as any).Lampa.Player = {
-          callback: () => {},
-          play: (item: any) => { playedItem = item; },
-          playlist: () => {},
-        };
-        storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
-        storageMap.set('torrplay_storage_type', storage);
-
-        globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = String(input);
-          if (url.endsWith('/api/system/health')) return new Response(null, { status: 200 });
-          assert.ok(url.endsWith('/api/v1/torrent-resolutions'), `unexpected request: ${url}`);
-          assert.equal(init?.method, 'POST');
-          assert.deepEqual(JSON.parse(String(init?.body)), { url: link });
-          resolveCalls++;
-          return new Response(JSON.stringify({
-            files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-            hash,
-            magnet: `magnet:?xt=urn:btih:${hash}`,
-            name: 'Movie',
-            storage: 'memory',
-            total_size: 1000,
-          }));
-        };
-        await TorrPlayEngine.startPlayback({ InfoHash: sourceHash, Link: link, Title: 'Movie' });
-        assert.equal(resolveCalls, 1);
-        assert.ok(playedItem.url.includes(hash));
-      });
-    }
-  }
-
-  it('does not persist or play when canceled during link resolution', async () => {
-    let cancel: () => void = () => {};
-    let resolveCalls = 0;
-    let torrentRequests = 0;
-    (globalThis as any).Lampa.Controller = { toggle: () => {} };
-    (globalThis as any).Lampa.Loading = {
-      start: (callback: () => void) => { cancel = callback; },
-      stop: () => {},
-    };
-    (globalThis as any).Lampa.Player = { play: () => assert.fail('must not play') };
-    storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/api/system/health')) return new Response(null, { status: 200 });
-      torrentRequests++;
-      assert.ok(url.endsWith('/api/v1/torrent-resolutions'), 'must not save after cancellation');
-      resolveCalls++;
-      cancel();
-      return new Response(JSON.stringify({ hash: 'resolved', magnet: 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567' }));
-    };
-    await TorrPlayEngine.startPlayback({ Link: 'http://indexer.local/torrent' });
-    assert.equal(resolveCalls, 1);
-    assert.equal(torrentRequests, 1);
-  });
-
-  it('resolves again on the fallback instance before saving a link', async () => {
-    const primary = { authType: 'none' as const, id: 'primary', name: 'Primary', url: 'http://primary.example.com' };
-    const fallback = { ...primary, id: 'fallback', url: 'http://fallback.example.com' };
-    const originalBest = InstanceManager.getBestInstance;
-    const originalFailover = InstanceManager.failover;
-    const requests: string[] = [];
-    InstanceManager.getBestInstance = async () => primary;
-    InstanceManager.failover = async () => fallback;
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      requests.push(url);
-      if (url === `${primary.url}/api/v1/torrents`) return new Response(null, { status: 503 });
-      return new Response(JSON.stringify({ hash: '0123456789abcdef0123456789abcdef01234567', magnet: 'magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567' }));
-    };
-    try {
-      await TorrPlayEngine.saveToDatabase({ Link: 'http://indexer.local/torrent' });
-      assert.deepEqual(requests, [
-        `${primary.url}/api/v1/torrent-resolutions`, `${primary.url}/api/v1/torrents`,
-        `${fallback.url}/api/v1/torrent-resolutions`, `${fallback.url}/api/v1/torrents`,
-      ]);
-      assert.equal(lastNoty, getTestTranslation('torrplay_noty_added_db', { title: 'Torrent' }));
-    } finally {
-      InstanceManager.getBestInstance = originalBest;
-      InstanceManager.failover = originalFailover;
-    }
-  });
-
-  it('startPlayback resolves via GET /api/v1/torrents/{hash} without persisting when Save to Database is disabled', async () => {
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-    const magnetUri = `magnet:?xt=urn:btih:${testHash}&dn=Movie`;
-    let getMethodUsed: string | undefined;
-    let requestedUrl = '';
-
-    (globalThis as any).Lampa.Loading = { setProgress: () => {}, start: () => {}, stop: () => {} };
-    (globalThis as any).Lampa.Player = { callback: () => {}, play: () => {}, playlist: () => {} };
-
-    storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
-
-    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url.includes(`/api/v1/torrents/${testHash}`) && !url.includes('/preload')) {
-        getMethodUsed = init?.method;
-        requestedUrl = url;
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-          hash: testHash,
-          name: 'Movie',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
-      assert.ok(!url.endsWith('/api/v1/torrents'), 'must never call POST /api/v1/torrents when Save to Database is disabled');
-      return new Response(null, { status: 200 });
-    };
-
-    await TorrPlayEngine.startPlayback({
-      MagnetUri: magnetUri,
-      Title: 'Movie',
-    });
-
-    assert.equal(getMethodUsed, 'GET');
-    assert.ok(requestedUrl.includes(`magnet=${encodeURIComponent(magnetUri)}`));
   });
 
   it('restores the caller\'s controller instead of the closed menu when playback cannot start', async () => {
@@ -963,12 +408,12 @@ describe('TorrPlayEngine', () => {
     storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
 
     // Neither a magnet, a link, nor an info hash: playback bails out before any request.
-    await TorrPlayEngine.startPlayback({ Title: 'Sourceless Torrent' }, undefined, 'content');
+    await TorstEngine.startPlayback({ Title: 'Sourceless Torrent' }, undefined, 'content');
 
     assert.deepEqual(toggledControllers, ['content'], 'the controller passed by the caller must win over the menu\'s own');
-    assert.equal(lastNoty, getTestTranslation('torrplay_noty_hash_required'));
+    assert.equal(lastNoty, getTestTranslation('torst_noty_hash_required'));
 
-    await TorrPlayEngine.startPlayback({ Title: 'Sourceless Torrent' });
+    await TorstEngine.startPlayback({ Title: 'Sourceless Torrent' });
 
     assert.deepEqual(
       toggledControllers,
@@ -1006,7 +451,7 @@ describe('TorrPlayEngine', () => {
     };
 
     await displayFileList(
-      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
       {
         files: [
           { length: 1000, name: 'part-1.mp4', path: 'part-1.mp4' },
@@ -1014,11 +459,10 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'multi-return',
         name: 'Part Series',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Part Series',
         total_size: 2000,
       },
-      undefined,
       undefined,
       undefined,
       'content'
@@ -1027,63 +471,6 @@ describe('TorrPlayEngine', () => {
     assert.ok(modalOptions);
     modalOptions.onBack();
     assert.deepEqual(toggledControllers, ['content'], 'closing the file list must not focus the menu that opened it');
-  });
-
-  it('fails over temporary playback when the selected instance request fails', async () => {
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-    const primaryInstance = {
-      authType: 'none' as const,
-      id: 'primary',
-      name: 'Primary',
-      url: 'http://primary.example.com',
-    };
-    const fallbackInstance = {
-      authType: 'none' as const,
-      id: 'fallback',
-      name: 'Fallback',
-      url: 'http://fallback.example.com',
-    };
-    const originalGetBestInstance = InstanceManager.getBestInstance;
-    const originalFailover = InstanceManager.failover;
-    let playedUrl = '';
-
-    InstanceManager.getBestInstance = async () => primaryInstance;
-    InstanceManager.failover = async instance => {
-      assert.equal(instance, primaryInstance);
-      return fallbackInstance;
-    };
-    (globalThis as any).Lampa.Loading = { setProgress: () => {}, start: () => {}, stop: () => {} };
-    (globalThis as any).Lampa.Player = {
-      callback: () => {},
-      play: (item: any) => { playedUrl = item.url; },
-      playlist: () => {},
-    };
-    storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
-
-    globalThis.fetch = async input => {
-      const url = String(input);
-      if (url.startsWith(primaryInstance.url)) {
-        return new Response(null, { status: 503 });
-      }
-      return new Response(JSON.stringify({
-        files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-        hash: testHash,
-        name: 'Movie',
-        storage: 'memory',
-        total_size: 1000,
-      }), { status: 200 });
-    };
-
-    try {
-      await TorrPlayEngine.startPlayback({
-        MagnetUri: `magnet:?xt=urn:btih:${testHash}`,
-        Title: 'Movie',
-      });
-      assert.ok(playedUrl.startsWith(fallbackInstance.url));
-    } finally {
-      InstanceManager.getBestInstance = originalGetBestInstance;
-      InstanceManager.failover = originalFailover;
-    }
   });
 
   it('fails over the save action when the selected instance request fails', async () => {
@@ -1116,13 +503,13 @@ describe('TorrPlayEngine', () => {
         files: [],
         hash: testHash,
         name: 'Movie',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         total_size: 1000,
       }), { status: 201 });
     };
 
     try {
-      await TorrPlayEngine.saveToDatabase({
+      await TorstEngine.saveToDatabase({
         MagnetUri: `magnet:?xt=urn:btih:${testHash}`,
         Title: 'Movie',
       });
@@ -1134,12 +521,12 @@ describe('TorrPlayEngine', () => {
   });
 
   it('awaits single-file playback and propagates its errors from the file list', async () => {
-    mock.method(TorrPlayApi, 'getStreamUrl', async () => { throw new Error('Stream unavailable'); });
+    mock.method(TorstApi, 'getStreamUrl', async () => { throw new Error('Stream unavailable'); });
     await assert.rejects(displayFileList(
-      { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8080' },
       {
         files: [{ length: 100, name: 'Sintel', path: 'Sintel.mkv' }],
-        hash: 'hash', name: 'Sintel', storage: 'memory', total_size: 100,
+        hash: 'hash', name: 'Sintel', retention: 'temporary' as const, storage: 'memory', total_size: 100,
       }
     ), /Stream unavailable/);
   });
@@ -1160,10 +547,10 @@ describe('TorrPlayEngine', () => {
         play: (item: any) => { played = item; calls.push('play'); },
         playlist: (items: any[]) => { handedPlaylist = items; calls.push('playlist'); },
       };
-      mock.method(TorrPlayApi, 'getStreamUrl', async () => 'http://127.0.0.1/stream');
+      mock.method(TorstApi, 'getStreamUrl', async () => 'http://127.0.0.1/stream');
 
       await playTorrentFile(
-        { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8090' },
+        { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8080' },
         'hash', fileIndex, currentItem, playlist
       );
 
@@ -1200,24 +587,16 @@ describe('TorrPlayEngine', () => {
       },
     };
 
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'video.mkv', path: 'video.mkv' }],
-          hash: testHash,
-          name: 'Video',
-          storage: 'memory',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
+    mock.method(InstanceManager, 'getBestInstance', async () => InstanceManager.getInstances()[0]);
+    mock.method(TorstApi, 'addTorrent', async () => ({
+      files: [{ length: 5000, name: 'video.mkv', path: 'video.mkv' }],
+      hash: testHash,
+      name: 'Sintel',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 5000,
+    }));
 
-    await TorrPlayEngine.startPlayback({
+    await TorstEngine.startPlayback({
       MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Video`,
       Title: 'Video',
     });
@@ -1266,22 +645,14 @@ describe('TorrPlayEngine', () => {
       },
     };
 
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 5000, name: 'movie.mkv', path: 'movie.mkv' }],
-          hash: testHash,
-          name: 'Example Film',
-          storage: 'memory',
-          total_size: 5000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
+    mock.method(InstanceManager, 'getBestInstance', async () => InstanceManager.getInstances()[0]);
+    mock.method(TorstApi, 'addTorrent', async () => ({
+      files: [{ length: 5000, name: 'video.mkv', path: 'video.mkv' }],
+      hash: testHash,
+      name: 'Sintel',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 5000,
+    }));
 
     const movieContext = {
       id: 4242,
@@ -1291,7 +662,7 @@ describe('TorrPlayEngine', () => {
       title: 'Example Film',
     };
 
-    await TorrPlayEngine.startPlayback(
+    await TorstEngine.startPlayback(
       {
         MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Example%20Film`,
         Title: 'Example Film',
@@ -1341,7 +712,7 @@ describe('TorrPlayEngine', () => {
         playlist: () => {},
       };
       await playTorrentFile(
-        { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8090' },
+        { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8080' },
         'hash', 0, { title: 'video.mkv' }, [], card
       );
       assert.deepEqual(savedCard, card);
@@ -1358,7 +729,7 @@ describe('TorrPlayEngine', () => {
     (globalThis as any).Lampa.Player = { callback: () => {}, play: () => {}, playlist: () => {} };
 
     await playTorrentFile(
-      { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8090' },
+      { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8080' },
       'hash',
       0,
       { path: 'Show/Show.S01E05.mkv', title: 'Show.S01E05.mkv' },
@@ -1392,7 +763,7 @@ describe('TorrPlayEngine', () => {
       { file_index: 1, path: 'Show/e02.mkv', title: 'e02.mkv' },
     ];
     await playTorrentFile(
-      { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8090' },
+      { authType: 'none', id: 'test', name: 'Test', url: 'http://localhost:8080' },
       'hash', 0, playlist[0], playlist, { id: 7, name: 'Show', original_name: 'Show' }
     );
 
@@ -1407,90 +778,22 @@ describe('TorrPlayEngine', () => {
     resetPlayerPlaylistForTesting();
   });
 
-  it('plays standalone torrents without adding unresolvable catalog history entries', async () => {
-    let favoriteCard: any = null;
-    let favoriteTarget = '';
-    let listenerEvent: any = null;
-    let playedItem: any = null;
-    const testHash = '0123456789abcdef0123456789abcdef01234567';
-
-    (globalThis as any).Lampa.Favorite = {
-      add: (where: string, card: any) => {
-        favoriteCard = card;
-        favoriteTarget = where;
-      },
-    };
-    (globalThis as any).Lampa.Listener = {
-      send: (type: string, data: any) => {
-        if (type === 'torrent_file') {
-          listenerEvent = data;
-        }
-      },
-    };
-    (globalThis as any).Lampa.Loading = {
-      setProgress: () => {},
-      start: () => {},
-      stop: () => {},
-    };
-    (globalThis as any).Lampa.Player = {
-      callback: () => {},
-      play: (item: any) => {
-        playedItem = item;
-      },
-      playlist: () => {},
-    };
-
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 2000, name: 'standalone.mp4', path: 'standalone.mp4' }],
-          hash: testHash,
-          name: 'Standalone Video',
-          storage: 'memory',
-          total_size: 2000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
-
-    await TorrPlayEngine.startPlayback({
-      MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Standalone%20Video`,
-      Title: 'Standalone Video',
-    });
-
-    assert.equal(favoriteTarget, '');
-    assert.equal(favoriteCard, null);
-
-    assert.ok(playedItem);
-    assert.equal(playedItem.card.id, undefined);
-    assert.equal(playedItem.card.title, 'Standalone Video');
-    assert.equal(playedItem.movie.id, undefined);
-
-    assert.ok(listenerEvent);
-    assert.equal(listenerEvent.type, 'onenter');
-    assert.equal(listenerEvent.params.movie.id, undefined);
-  });
-
   it('unwraps nested movie and card contexts and resolves from activity stack', () => {
     // Direct with id
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext({ id: 101, title: 'Direct' }),
+      TorstEngine.resolveMovieContext({ id: 101, title: 'Direct' }),
       { id: 101, title: 'Direct' }
     );
 
     // Nested in .movie
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext({ movie: { id: 102, title: 'Nested Movie' } }),
+      TorstEngine.resolveMovieContext({ movie: { id: 102, title: 'Nested Movie' } }),
       { id: 102, title: 'Nested Movie' }
     );
 
     // Nested in .card
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext({ card: { id: 103, title: 'Nested Card' } }),
+      TorstEngine.resolveMovieContext({ card: { id: 103, title: 'Nested Card' } }),
       { id: 103, title: 'Nested Card' }
     );
 
@@ -1499,7 +802,7 @@ describe('TorrPlayEngine', () => {
       movie: { id: 201, title: 'Active Activity Movie' },
     });
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext({ from_search: true }),
+      TorstEngine.resolveMovieContext({ from_search: true }),
       { id: 201, title: 'Active Activity Movie' }
     );
 
@@ -1510,14 +813,14 @@ describe('TorrPlayEngine', () => {
       { component: 'search' },
     ];
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext(),
+      TorstEngine.resolveMovieContext(),
       { id: 301, title: 'Stack Movie' }
     );
 
     // Fallback to title/name object if no id anywhere
     (globalThis as any).Lampa.Activity.all = () => [];
     assert.deepEqual(
-      TorrPlayEngine.resolveMovieContext({ title: 'Fallback Title' }),
+      TorstEngine.resolveMovieContext({ title: 'Fallback Title' }),
       { title: 'Fallback Title' }
     );
   });
@@ -1531,7 +834,7 @@ describe('TorrPlayEngine', () => {
       { name: 'Show.S01E03.mkv', path: 'Show.S01E03.mkv' },
     ];
 
-    const sorted = TorrPlayEngine.sortTorrentFiles(unsortedFiles);
+    const sorted = sortTorrentFiles(unsortedFiles);
     assert.deepEqual(
       sorted.map(f => f.name),
       [
@@ -1549,7 +852,7 @@ describe('TorrPlayEngine', () => {
       { path: 'Season 1/Episode 2.mkv' },
       { path: 'Season 1/Episode 1.mkv' },
     ];
-    const sortedFolders = TorrPlayEngine.sortTorrentFiles(folderFiles);
+    const sortedFolders = sortTorrentFiles(folderFiles);
     assert.deepEqual(
       sortedFolders.map(f => f.path),
       [
@@ -1566,7 +869,7 @@ describe('TorrPlayEngine', () => {
       { name: 'clip-2.mp4' },
       { name: 'clip-1.mp4' },
     ];
-    const sortedLargeNumbers = TorrPlayEngine.sortTorrentFiles(largeNumberFiles);
+    const sortedLargeNumbers = sortTorrentFiles(largeNumberFiles);
     assert.deepEqual(
       sortedLargeNumbers.map(f => f.name),
       [
@@ -1611,7 +914,7 @@ describe('TorrPlayEngine', () => {
     };
 
     await displayFileList(
-      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
       {
         files: [
           { length: 1000, name: 'part-10.mp4', path: 'part-10.mp4' },
@@ -1620,7 +923,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'multi-sort',
         name: 'Part Series',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Part Series',
         total_size: 3000,
       }
@@ -1684,7 +987,7 @@ describe('TorrPlayEngine', () => {
     };
 
     await displayFileList(
-      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
       {
         files: [
           { length: 1000, name: 'part-1.mp4', path: 'part-1.mp4' },
@@ -1692,7 +995,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'multi-exit-test',
         name: 'Part Series',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Part Series',
         total_size: 2000,
       }
@@ -1747,12 +1050,12 @@ describe('TorrPlayEngine', () => {
       },
     };
 
-    const originalGetStreamUrl = TorrPlayApi.getStreamUrl;
-    (TorrPlayApi as any).getStreamUrl = async () => { throw new Error('stream unavailable'); };
+    const originalGetStreamUrl = TorstApi.getStreamUrl;
+    (TorstApi as any).getStreamUrl = async () => { throw new Error('stream unavailable'); };
 
     try {
       await displayFileList(
-        { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+        { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
         {
           files: [
             { length: 1, name: 'part-1.mp4', path: 'part-1.mp4' },
@@ -1760,7 +1063,7 @@ describe('TorrPlayEngine', () => {
           ],
           hash: 'failed-playback',
           name: 'Parts',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 2,
         }
       );
@@ -1771,9 +1074,9 @@ describe('TorrPlayEngine', () => {
 
       assert.equal(loadingStopCount, 1);
       assert.equal(toggledController, 'modal');
-      assert.equal(lastNoty, getTestTranslation('torrplay_noty_error', { msg: 'stream unavailable' }));
+      assert.equal(lastNoty, getTestTranslation('torst_noty_error', { msg: 'stream unavailable' }));
     } finally {
-      TorrPlayApi.getStreamUrl = originalGetStreamUrl;
+      TorstApi.getStreamUrl = originalGetStreamUrl;
     }
   });
 
@@ -1825,7 +1128,7 @@ describe('TorrPlayEngine', () => {
     };
 
     await displayFileList(
-      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8090' },
+      { authType: 'none', id: 'test', name: 'Test Node', url: 'http://127.0.0.1:8080' },
       {
         files: [
           { length: 1000, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
@@ -1833,7 +1136,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'tv-show-hash',
         name: 'Show',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         title: 'Show',
         total_size: 2000,
       },
@@ -1852,7 +1155,7 @@ describe('TorrPlayEngine', () => {
 
   it('resolves standard Lampa timeline hash, season, and episode for movies and TV shows', () => {
     // Single movie: hash must match movie.original_title
-    const movieInfo = TorrPlayEngine.resolveFileInfo(
+    const movieInfo = TorstEngine.resolveFileInfo(
       { path: 'Example.Film.2026.1080p.mkv' },
       { original_title: 'Example Film', title: 'Пример фильма' },
       'torrent123'
@@ -1866,7 +1169,7 @@ describe('TorrPlayEngine', () => {
     );
 
     // TV show with S02E07 pattern
-    const showInfo = TorrPlayEngine.resolveFileInfo(
+    const showInfo = TorstEngine.resolveFileInfo(
       { path: 'Season 02/Example.Series.S02E07.mkv' },
       { number_of_seasons: 8, original_title: 'Example Series' },
       'torrent123'
@@ -1880,7 +1183,7 @@ describe('TorrPlayEngine', () => {
     );
 
     // TV show with Russian text "1 сезон 12 серия"
-    const ruShowInfo = TorrPlayEngine.resolveFileInfo(
+    const ruShowInfo = TorstEngine.resolveFileInfo(
       { path: '1 сезон 12 серия.mkv' },
       { original_name: 'Сериал' },
       'torrent123'
@@ -1894,7 +1197,7 @@ describe('TorrPlayEngine', () => {
     );
 
     // TV show in season folder with numeric episode "Season 3/09.mkv"
-    const folderShowInfo = TorrPlayEngine.resolveFileInfo(
+    const folderShowInfo = TorstEngine.resolveFileInfo(
       { path: 'Season 3/09.mkv' },
       { number_of_seasons: 5, original_title: 'Show' },
       'torrent123'
@@ -1907,7 +1210,7 @@ describe('TorrPlayEngine', () => {
     );
 
     // Season > 10 format uses colon separator (e.g. 11:4)
-    const lateSeasonInfo = TorrPlayEngine.resolveFileInfo(
+    const lateSeasonInfo = TorstEngine.resolveFileInfo(
       { path: 'S11E04.mkv' },
       { number_of_seasons: 15, original_title: 'Show' },
       'torrent123'
@@ -1920,7 +1223,7 @@ describe('TorrPlayEngine', () => {
     );
 
     // Standalone video without movie metadata falls back to torrent hash and path
-    const standaloneInfo = TorrPlayEngine.resolveFileInfo(
+    const standaloneInfo = TorstEngine.resolveFileInfo(
       { path: 'video.mp4' },
       undefined,
       'standalonehash'
@@ -1941,7 +1244,7 @@ describe('TorrPlayEngine', () => {
           serial: true,
         }),
       };
-      const nativeParsed = TorrPlayEngine.resolveFileInfo(
+      const nativeParsed = TorstEngine.resolveFileInfo(
         { path: 'dummy.mkv' },
         { original_title: 'Any' },
         'anyhash'
@@ -1968,7 +1271,7 @@ describe('TorrPlayEngine', () => {
       };
 
       try {
-        const fallbackParsed = TorrPlayEngine.resolveFileInfo(
+        const fallbackParsed = TorstEngine.resolveFileInfo(
           { path: 'Season 01/Show.S01E03.mkv' },
           { number_of_seasons: 1, original_title: 'Fallback Show' },
           'anyhash'
@@ -2009,7 +1312,7 @@ describe('TorrPlayEngine', () => {
           hash: testHash,
           name: 'My Saved Torrent',
           poster: 'https://example.com/my-torrent-poster.jpg',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           title: 'My Saved Torrent',
           total_size: 1000,
         }), {
@@ -2021,12 +1324,12 @@ describe('TorrPlayEngine', () => {
     };
 
     // No movie argument passed — matches how the database torrents browser calls this.
-    await TorrPlayEngine.startTorrentPlayback({
+    await TorstEngine.startTorrentPlayback({
       files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: testHash,
       name: 'My Saved Torrent',
       poster: 'https://example.com/my-torrent-poster.jpg',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       title: 'My Saved Torrent',
       total_size: 1000,
     });
@@ -2061,12 +1364,12 @@ describe('TorrPlayEngine', () => {
     };
 
     try {
-      const isHandedOff = await TorrPlayEngine.startTorrentPlayback(
+      const isHandedOff = await TorstEngine.startTorrentPlayback(
         {
           files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
           hash: testHash,
           name: 'Saved Movie',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 1000,
         },
         0,
@@ -2093,12 +1396,12 @@ describe('TorrPlayEngine', () => {
     };
 
     try {
-      const isHandedOff = await TorrPlayEngine.startTorrentPlayback(
+      const isHandedOff = await TorstEngine.startTorrentPlayback(
         {
           files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
           hash: '0123456789abcdef0123456789abcdef01234567',
           name: 'Saved Movie',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 1000,
         },
         0,
@@ -2118,7 +1421,7 @@ describe('TorrPlayEngine', () => {
     const preload = mock.method(PreloadModal, 'waitUntilReady', () => new Promise<boolean>(resolve => {
       finishPreload = resolve;
     }));
-    const streamUrl = mock.method(TorrPlayApi, 'getStreamUrl', async () => 'http://test.local/api/v1/stream/hash?index=0');
+    const streamUrl = mock.method(TorstApi, 'getStreamUrl', async () => 'http://test.local/api/v1/torrents/trr_test/files/fil_test/content');
     const playedItems: LampaPlayerItem[] = [];
     (globalThis as any).Lampa.Player = {
       callback: () => {},
@@ -2167,7 +1470,7 @@ describe('TorrPlayEngine', () => {
           files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
           hash: testHash,
           name: 'My Saved Torrent',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 1000,
         }), {
           headers: { 'Content-Type': 'application/json' },
@@ -2177,11 +1480,11 @@ describe('TorrPlayEngine', () => {
       return new Response(null, { status: 200 });
     };
 
-    await TorrPlayEngine.startTorrentPlayback({
+    await TorstEngine.startTorrentPlayback({
       files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: testHash,
       name: 'My Saved Torrent',
-      storage: 'memory',
+      retention: 'temporary' as const, storage: 'memory',
       total_size: 1000,
     });
 
@@ -2237,7 +1540,7 @@ describe('TorrPlayEngine', () => {
           ],
           hash: testHash,
           name: 'Show',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 10000,
         }), {
           headers: { 'Content-Type': 'application/json' },
@@ -2255,7 +1558,7 @@ describe('TorrPlayEngine', () => {
       title: 'Test Show',
     };
 
-    await TorrPlayEngine.startTorrentPlayback(
+    await TorstEngine.startTorrentPlayback(
       {
         files: [
           { length: 5000, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
@@ -2263,7 +1566,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: testHash,
         name: 'Show',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         total_size: 10000,
       },
       0,
@@ -2330,7 +1633,7 @@ describe('TorrPlayEngine', () => {
           files: torrentFiles,
           hash: testHash,
           name: 'Show',
-          storage: 'memory',
+          retention: 'temporary' as const, storage: 'memory',
           total_size: 10010,
         }), {
           headers: { 'Content-Type': 'application/json' },
@@ -2341,8 +1644,8 @@ describe('TorrPlayEngine', () => {
     };
 
     // Playlist position 0 (first video file) has real file_index 1, not 0.
-    await TorrPlayEngine.startTorrentPlayback(
-      { files: torrentFiles, hash: testHash, name: 'Show', storage: 'memory', total_size: 10010 },
+    await TorstEngine.startTorrentPlayback(
+      { files: torrentFiles, hash: testHash, name: 'Show', retention: 'temporary' as const, storage: 'memory', total_size: 10010 },
       0
     );
 
@@ -2366,7 +1669,7 @@ describe('TorrPlayEngine', () => {
       playlist: () => {},
     };
 
-    const isHandedOff = await TorrPlayEngine.startTorrentPlayback(
+    const isHandedOff = await TorstEngine.startTorrentPlayback(
       {
         files: [
           { length: 100, name: 'readme.txt', path: 'readme.txt' },
@@ -2374,7 +1677,7 @@ describe('TorrPlayEngine', () => {
         ],
         hash: 'non-video-torrent',
         name: 'Non-video Torrent',
-        storage: 'memory',
+        retention: 'temporary' as const, storage: 'memory',
         total_size: 300,
       },
       0,
@@ -2384,36 +1687,269 @@ describe('TorrPlayEngine', () => {
 
     assert.equal(isHandedOff, false);
     assert.equal(playCount, 0);
-    assert.equal(lastNoty, getTestTranslation('torrplay_noty_no_video'));
+    assert.equal(lastNoty, getTestTranslation('torst_noty_no_video'));
   });
 
-  it('routes Lampa.Torrent.start and open directly to TorrPlay startPlayback', () => {
+  it('routes Lampa.Torrent.start and open directly to Torst startPlayback', () => {
     let startedPlaybackItem: any = null;
     let startedPlaybackMovie: any = null;
-    const origStartPlayback = TorrPlayEngine.startPlayback;
-    TorrPlayEngine.startPlayback = async (item: any, movie?: any) => {
+    const origStartPlayback = TorstEngine.startPlayback;
+    TorstEngine.startPlayback = async (item: any, movie?: any) => {
       startedPlaybackItem = item;
       startedPlaybackMovie = movie;
     };
 
     try {
-      TorrPlayEngine.init();
+      TorstEngine.init();
 
-      // start() forwards directly to TorrPlay startPlayback
+      // start() forwards directly to Torst startPlayback
       (globalThis as any).Lampa.Torrent.start({ info_hash: '1111111111111111111111111111111111111111', Title: 'Fresh Torrent' }, { id: 10 });
       assert.ok(startedPlaybackItem);
       assert.equal((startedPlaybackItem as any).Title, 'Fresh Torrent');
       assert.equal((startedPlaybackMovie as any).id, 10);
 
-      // open() forwards directly to TorrPlay startPlayback
+      // open() forwards directly to Torst startPlayback
       startedPlaybackItem = null;
       (globalThis as any).Lampa.Torrent.open('2222222222222222222222222222222222222222', { id: 20 });
       assert.ok(startedPlaybackItem);
       assert.equal((startedPlaybackItem as any).hash, '2222222222222222222222222222222222222222');
       assert.equal((startedPlaybackMovie as any).id, 20);
     } finally {
-      TorrPlayEngine.startPlayback = origStartPlayback;
-      TorrPlayEngine.resetForTesting();
+      TorstEngine.startPlayback = origStartPlayback;
+      TorstEngine.resetForTesting();
     }
+  });
+});
+
+describe('Torst playback orchestration', () => {
+  const hash = 'a'.repeat(40);
+  const instance: TorstInstance = { authType: 'none', id: 'main', name: 'Main', url: 'http://main.test:8080' };
+  const torrent: Torrent = {
+    created_at: '2026-10-24', files: [{ fileId: 'fil_test', length: 1024, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
+    hash,
+    id: 'trr_test',
+    name: 'Sintel',
+    retention: 'persisted' as const,
+    storage: 'memory',
+    total_size: 1024,
+  };
+  let storage: Map<string, unknown>;
+  let played: any;
+  let playlist: any[];
+  let isLoading: boolean;
+  let cancel: () => void;
+  let notices: string[];
+
+  beforeEach(() => {
+    storage = new Map();
+    played = undefined;
+    playlist = [];
+    isLoading = false;
+    cancel = () => {};
+    notices = [];
+    (globalThis as any).Lampa = {
+      Activity: { active: () => null, all: () => [] },
+      Controller: { enabled: () => ({ name: 'content' }), toggle: () => {} },
+      Lang: createTestLanguage(),
+      Loading: {
+        start: (onCancel: () => void) => { isLoading = true; cancel = onCancel; },
+        stop: () => { isLoading = false; },
+      },
+      Noty: { show: (message: string) => notices.push(message) },
+      Player: {
+        callback: () => {},
+        play: (item: any) => { played = item; },
+        playlist: (items: any[]) => { playlist = items; },
+      },
+      Storage: {
+        field: (key: string) => storage.get(key),
+        get: (key: string, fallback: unknown) => storage.get(key) ?? fallback,
+        set: (key: string, value: unknown) => storage.set(key, value),
+      },
+      Utils: { bytesToSize: (bytes: number) => `${bytes} B`, clearHtmlTags: (value: string) => value, hash: (value: string) => value },
+    };
+    mock.method(InstanceManager, 'getBestInstance', async () => instance);
+    mock.method(InstanceManager, 'failover', async () => null);
+    mock.method(TorstApi, 'getStreamUrl', async () => `${instance.url}/api/v1/torrents/trr_test/files/fil_test/content`);
+    mock.method(PreloadModal, 'waitUntilReady', async () => {
+      assert.equal(isLoading, false, 'the metadata loading screen must be stopped before buffering');
+      return true;
+    });
+  });
+  afterEach(() => { mock.restoreAll(); });
+
+  it('saves a magnet with title and poster through the Torst client', async () => {
+    const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
+      assert.equal(request.hash, hash);
+      assert.equal(request.title, 'Sintel');
+      assert.equal(request.poster, 'https://images.test/sintel.jpg');
+      return torrent;
+    });
+    await TorstEngine.saveToDatabase({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, poster: 'https://images.test/sintel.jpg', Title: 'Sintel' });
+    assert.equal(add.mock.callCount(), 1);
+    assert.equal(played, undefined);
+    assert.equal(notices[0], getTestTranslation('torst_noty_added_db', { title: 'Sintel' }));
+  });
+
+  it('plays a persistent magnet after creation and preserves playlist item identity', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set('torst_storage_type', 'file');
+    const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
+      assert.equal(request.storage, 'file');
+      return torrent;
+    });
+    await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, Title: 'Sintel' });
+    assert.equal(add.mock.callCount(), 1);
+    assert.ok(playlist.includes(played));
+    assert.equal(played.continue_play, true);
+    assert.equal(played.torrent, true);
+    assert.doesNotThrow(() => JSON.stringify(played));
+  });
+
+  it('uploads persistent torrent links once and passes storage and title', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set('torst_storage_type', 'file');
+    const upload = mock.method(TorstApi, 'resolveTorrent', async (_instance: TorstInstance, url: string, options?: TorrentAdd) => {
+      assert.equal(url, 'https://indexer.test/sintel.torrent');
+      assert.equal(options?.storage, 'file');
+      assert.equal(options?.title, 'Sintel');
+      return torrent;
+    });
+    const add = mock.method(TorstApi, 'addTorrent', async () => { throw new Error('Already uploaded'); });
+    await TorstEngine.startPlayback({ Link: 'https://indexer.test/sintel.torrent', Title: 'Sintel' });
+    assert.equal(upload.mock.callCount(), 1);
+    assert.equal(add.mock.callCount(), 0);
+    assert.ok(played);
+  });
+
+  it('creates a temporary magnet in memory without marking it as saved', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storage.set('torst_storage_type', 'file');
+    const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
+      assert.equal(request.retention, 'temporary');
+      assert.equal(request.storage, 'memory');
+      return { ...torrent, retention: 'temporary' as const };
+    });
+    await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+    assert.equal(add.mock.callCount(), 1);
+    assert.ok(played);
+  });
+
+  it('uploads temporary torrent files with temporary retention and memory storage', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    const upload = mock.method(TorstApi, 'resolveTorrent', async (_instance: TorstInstance, url: string, request?: TorrentAdd) => {
+      assert.equal(url, 'https://indexer.test/sintel.torrent');
+      assert.equal(request?.retention, 'temporary');
+      assert.equal(request?.storage, 'memory');
+      return { ...torrent, retention: 'temporary' as const };
+    });
+    await TorstEngine.startPlayback({ Link: 'https://indexer.test/sintel.torrent' });
+    assert.equal(upload.mock.callCount(), 1);
+    assert.ok(played);
+  });
+
+  it('stops playback if canceled while creation is in flight', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    mock.method(TorstApi, 'addTorrent', async () => { cancel(); return torrent; });
+    await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+    assert.equal(played, undefined);
+    assert.equal(isLoading, false);
+  });
+
+  it('reads the separate file list when created torrent metadata is still arriving', async () => {
+    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
+    const read = mock.method(TorstApi, 'getTorrent', async () => torrent);
+    await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+    assert.equal(read.mock.callCount(), 1);
+    assert.ok(played);
+  });
+
+  for (const settings of [
+    { expectedFraction: 0.4, mode: 'continue', timeline: { duration: 1500, percent: 40, time: 600 } },
+    { expectedFraction: 0.4, mode: 'continue', timeline: { duration: 1500, time: 600 } },
+    { expectedFraction: undefined, mode: 'ask', timeline: { duration: 1500, percent: 40, time: 600 } },
+    { expectedFraction: undefined, mode: 'continue', timeline: { duration: 1500, percent: 95, time: 1425 } },
+    { expectedFraction: undefined, mode: 'continue', timeline: { duration: 1500, percent: 1, time: 8 } },
+  ]) {
+    it(`passes the saved resume fraction to buffering (${settings.mode}, ${settings.timeline.time} seconds)`, async () => {
+      storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+      storage.set('player_timecode', settings.mode);
+      (globalThis as any).Lampa.Timeline = { view: () => settings.timeline };
+      mock.method(TorstApi, 'addTorrent', async () => torrent);
+      const preload = mock.method(PreloadModal, 'waitUntilReady', async () => true);
+      await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+      assert.equal(preload.mock.calls[0].arguments[4], settings.expectedFraction);
+      assert.ok(played);
+    });
+  }
+
+  for (const status of [400, 401, 403, 404, 409, 422]) {
+    it(`does not fail over on an ordinary creation rejection (${status})`, async () => {
+      storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+      const error = new TorstApiError('Rejected', status);
+      mock.method(TorstApi, 'addTorrent', async () => { throw error; });
+      const failover = mock.method(InstanceManager, 'failover', async () => null);
+      await assert.rejects(TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` }), failure => failure === error);
+      assert.equal(failover.mock.callCount(), 0);
+      assert.equal(isLoading, false);
+    });
+  }
+
+  it('stops metadata polling when the viewer cancels', async () => {
+    mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
+    const read = mock.method(TorstApi, 'getTorrent', async () => {
+      cancel();
+      return { ...torrent, files: [] };
+    });
+    await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+    assert.equal(read.mock.callCount(), 1);
+    assert.equal(played, undefined);
+    assert.equal(isLoading, false);
+  });
+
+  for (const error of [new TorstApiError('Torrent failed', 422), new AuthenticationError('Password required')]) {
+    it(`stops metadata polling on a permanent error (${error.message})`, async () => {
+      mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
+      const read = mock.method(TorstApi, 'getTorrent', async () => { throw error; });
+      await assert.rejects(TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` }), failure => failure === error);
+      assert.equal(read.mock.callCount(), 1);
+      assert.equal(isLoading, false);
+    });
+  }
+
+  it('retries transient metadata failures and waits past the old thirty-second limit', async () => {
+    mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
+    let calls = 0;
+    mock.method(TorstApi, 'getTorrent', async () => {
+      if (++calls === 1) throw new TorstApiError('Unavailable', 503);
+      return calls > 31 ? torrent : { ...torrent, files: [] };
+    });
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const playback = TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+      await new Promise(resolve => setImmediate(resolve));
+      for (let index = 0; index < 31; index++) {
+        mock.timers.tick(1000);
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      await playback;
+      assert.equal(calls, 32);
+      assert.ok(played);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('retries a persistent import on the selected fallback instance', async () => {
+    const fallback = { ...instance, id: 'backup', url: 'http://backup.test' };
+    mock.method(InstanceManager, 'failover', async () => fallback);
+    const upload = mock.method(TorstApi, 'resolveTorrent', async (target: TorstInstance) => {
+      if (target.id === instance.id) throw new NetworkError('Unavailable');
+      return torrent;
+    });
+    await TorstEngine.saveToDatabase({ Link: 'https://indexer.test/sintel.torrent' });
+    assert.deepEqual(upload.mock.calls.map(call => call.arguments[0]), [instance, fallback]);
+    assert.equal(notices[0], getTestTranslation('torst_noty_added_db', { title: 'Torrent' }));
   });
 });

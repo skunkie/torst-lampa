@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: MIT
 
 import { resolveFileIndex } from '../engine/file-parser';
-import { TorrPlayEngine } from '../engine/torrplay-engine';
-import { Torrent, TorrentFile } from '../types/torrplay';
+import { TorstEngine } from '../engine/torst-engine';
+import { Torrent, TorrentFile } from '../types/torst';
 import { buildFileListItemElement } from './file-list-item';
 
 interface SavedTorrentFileListParams {
@@ -16,7 +16,7 @@ interface SavedTorrentFileListParams {
 }
 
 /**
- * Opens the file list of a torrent saved in the TorrPlay database, laid out like Lampa's own
+ * Opens the file list of a torrent saved in the Torst database, laid out like Lampa's own
  * torrent file list: episode stills, names and air dates where TMDB knows the episode, the
  * file size and type, and watched progress. The modal stays open while a file plays, so the
  * player can hand focus back to it.
@@ -24,20 +24,20 @@ interface SavedTorrentFileListParams {
 export async function showSavedTorrentFiles(params: SavedTorrentFileListParams): Promise<void> {
   const { isStale, onBack, onSelect, torrent, videoFiles } = params;
   const torrentFiles = torrent.files || [];
-  const movieContext = TorrPlayEngine.resolveMovieContext({
+  const movieContext = TorstEngine.resolveMovieContext({
     original_name: torrent.name,
     original_title: torrent.name,
     title: torrent.title || torrent.name,
   });
-  const fileInfos = videoFiles.map(file => TorrPlayEngine.resolveFileInfo(file, movieContext, torrent.hash, videoFiles));
+  const fileInfos = videoFiles.map(file => TorstEngine.resolveFileInfo(file, movieContext, torrent.hash, videoFiles));
   // Playback hashes progress against the torrent itself, whose lack of a catalog card makes
   // Lampa key it by file path, so the file list reads it back the same way.
   const timelineMovie = torrent as unknown as LampaMovie;
 
-  const seasonsData = await TorrPlayEngine.fetchSeasonEpisodes(movieContext, TorrPlayEngine.collectSeasonNumbers(fileInfos));
+  const seasonsData = await TorstEngine.fetchSeasonEpisodes(movieContext, TorstEngine.collectSeasonNumbers(fileInfos));
   if (isStale?.()) return;
 
-  const fallbackImage = TorrPlayEngine.resolvePosterUrl(torrent, movieContext);
+  const fallbackImage = TorstEngine.resolvePosterUrl(torrent, movieContext);
   const fileListElement = $('<div class="torrent-files"></div>');
 
   videoFiles.forEach((file, fallbackIndex) => {
@@ -51,9 +51,9 @@ export async function showSavedTorrentFiles(params: SavedTorrentFileListParams):
     const extension = extensionPosition > 0 ? fullName.slice(extensionPosition + 1) : '';
     const formattedSize = file.length > 0 ? Lampa.Utils.bytesToSize(file.length) : '';
     const fileInfo = fileInfos[fallbackIndex];
-    const preview = TorrPlayEngine.resolveEpisodePreview(fileInfo, seasonsData, fallbackImage);
+    const preview = TorstEngine.resolveEpisodePreview(fileInfo, seasonsData, fallbackImage);
     const timeline = Lampa.Timeline
-      ? Lampa.Timeline.view(TorrPlayEngine.resolveFileInfo(file, timelineMovie, torrent.hash, videoFiles).hash)
+      ? Lampa.Timeline.view(TorstEngine.resolveFileInfo(file, timelineMovie, torrent.hash, videoFiles).hash)
       : undefined;
 
     const fileItemElement = buildFileListItemElement({

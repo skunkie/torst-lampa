@@ -5,30 +5,28 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import { Torrent } from '../src/types/torrplay';
+import { TorstApi } from '../src/api/torst';
+import { Torrent, TorstInstance } from '../src/types/torst';
 import {
   buildSavedTorrentCard,
   describeViewedAction,
   setSavedTorrentCardViewed,
   summarizeSavedTorrent,
-  TORRPLAY_ACTIVE_BADGE,
-  TORRPLAY_STORAGE_BADGE,
+  TORST_STORAGE_BADGE,
   WatchedOverlayScheduler,
 } from '../src/ui/saved-torrent-card';
 import { FakeCardElement, installFakeJquery } from './support/fake-card-element';
 import { createTestLanguage, getTestTranslation } from './support/translations';
 
 const torrent: Torrent = {
-  active: true,
-  created_at: '2026-10-11T00:00:00Z',
-  files: [
+  created_at: '2026-10-11T00:00:00Z', files: [
     { length: 100, name: 'Show.S01E01.mkv', path: 'Show/Show.S01E01.mkv' },
     { length: 100, name: 'Show.S01E02.mkv', path: 'Show/Show.S01E02.mkv' },
   ],
   hash: 'a'.repeat(40),
-  magnet: 'magnet:?xt=urn:btih:aaaa',
   name: 'Show.S01.1080p',
   poster: 'https://images.local/poster.jpg',
+  retention: 'persisted' as const,
   storage: 'file',
   title: '<b>Show</b> Season 1',
   total_size: 2048,
@@ -50,13 +48,14 @@ describe('Saved Torrent Cards', () => {
   });
 
   afterEach(() => {
+    mock.restoreAll();
     delete (globalThis as any).$;
     mock.timers.reset();
   });
 
   it('keeps only what the card shows, so a cached search row stays small', () => {
     assert.deepEqual(summarizeSavedTorrent(torrent), {
-      active: true,
+      file_count: torrent.file_count,
       files: torrent.files.map(file => ({ length: file.length, name: file.name, path: file.path })),
       hash: torrent.hash,
       name: torrent.name,
@@ -67,24 +66,22 @@ describe('Saved Torrent Cards', () => {
     });
   });
 
-  it('builds the library card with its badges, markup-free title, and size and file count', () => {
+  it('builds the library card with its storage badge, markup-free title, and size and file count', () => {
     buildSavedTorrentCard(torrent, false);
 
     const { markup } = cards[0];
-    assert.ok(markup.includes(TORRPLAY_ACTIVE_BADGE));
-    assert.ok(markup.includes(TORRPLAY_STORAGE_BADGE));
+    assert.ok(markup.includes(TORST_STORAGE_BADGE));
     assert.ok(markup.includes('<div class="card__title">Show Season 1</div>'));
-    assert.ok(markup.includes(`<div class="card__age">2048 B · ${getTestTranslation('torrplay_card_file_count', { count: 2 })}</div>`));
+    assert.ok(markup.includes(`<div class="card__age">2048 B · ${getTestTranslation('torst_card_file_count', { count: 2 })}</div>`));
     assert.ok(!markup.includes('card__icon--viewed'));
     assert.equal(cards[0].image.src, torrent.poster);
   });
 
-  it('leaves out the badges a torrent does not earn and falls back to the broken poster image', () => {
-    buildSavedTorrentCard({ ...torrent, active: false, poster: undefined, storage: 'memory' }, true);
+  it('leaves out the disk badge for memory storage and falls back to the broken poster image', () => {
+    buildSavedTorrentCard({ ...torrent, poster: undefined, storage: 'memory' }, true);
 
     const card = cards[0];
-    assert.ok(!card.markup.includes(TORRPLAY_ACTIVE_BADGE));
-    assert.ok(!card.markup.includes(TORRPLAY_STORAGE_BADGE));
+    assert.ok(!card.markup.includes(TORST_STORAGE_BADGE));
     assert.ok(card.markup.includes('card__icon--viewed'));
     assert.equal(card.image.src, './img/img_broken.svg');
     assert.ok(card.classes.has('card--loaded'));
@@ -140,6 +137,66 @@ describe('Saved Torrent Cards', () => {
       mock.timers.tick(500);
 
       assert.equal(cards[0].overlays.length, 1);
+    });
+
+    it('loads file metadata for a cold listing and restores local watched progress', async () => {
+      const summary = { ...torrent, files: [] };
+      const card = buildSavedTorrentCard(summary, false);
+      const instance: TorstInstance = { authType: 'none', id: 'origin', name: 'Origin', url: 'http://origin.test' };
+      const read = mock.method(TorstApi, 'getTorrent', async () => torrent);
+      cards[0].classes.add('focus');
+      const scheduler = new WatchedOverlayScheduler();
+      scheduler.schedule(card, summary, instance);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.deepEqual(read.mock.calls[0].arguments, [instance, torrent.hash]);
+      assert.equal(cards[0].overlays.length, 1);
+      assert.deepEqual(summary.files, torrent.files);
+      scheduler.cancel();
+    });
+
+    for (const change of ['cancel', 'blur', 'disabled']) {
+      it(`does not attach a late watched overlay after ${change}`, async () => {
+        const summary = { ...torrent, files: [] };
+        const card = buildSavedTorrentCard(summary, false);
+        const instance: TorstInstance = { authType: 'none', id: 'origin', name: 'Origin', url: 'http://origin.test' };
+        let complete: (resource: Torrent) => void = () => {};
+        mock.method(TorstApi, 'getTorrent', () => new Promise<Torrent>(resolve => { complete = resolve; }));
+        cards[0].classes.add('focus');
+        const scheduler = new WatchedOverlayScheduler();
+        scheduler.schedule(card, summary, instance);
+        mock.timers.tick(500);
+        if (change === 'cancel') scheduler.cancel();
+        else if (change === 'blur') cards[0].classes.delete('focus');
+        else (globalThis as any).Lampa.Storage.field = () => false;
+        complete(torrent);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(cards[0].overlays.length, 0);
+        scheduler.cancel();
+      });
+    }
+
+    it('retries file metadata after a failed focus lookup', async () => {
+      const summary = { ...torrent, files: [] };
+      const card = buildSavedTorrentCard(summary, false);
+      const instance: TorstInstance = { authType: 'none', id: 'origin', name: 'Origin', url: 'http://origin.test' };
+      let attempts = 0;
+      mock.method(TorstApi, 'getTorrent', async () => {
+        if (++attempts === 1) throw new Error('Unavailable');
+        return torrent;
+      });
+      cards[0].classes.add('focus');
+      const scheduler = new WatchedOverlayScheduler();
+      scheduler.schedule(card, summary, instance);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(cards[0].overlays.length, 0);
+      scheduler.schedule(card, summary, instance);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(attempts, 2);
+      assert.equal(cards[0].overlays.length, 1);
+      scheduler.cancel();
     });
 
     it('skips a card that has lost focus by then, or that a canceled schedule left', () => {

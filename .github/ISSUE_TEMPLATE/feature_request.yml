@@ -9,7 +9,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The plugin stays a single dependency-free script that works with a TV remote on Android TV, Tizen, webOS and browsers, and talks to TorrPlay only through its own API. A request that fits those goals is the easiest to accept.
+        The plugin stays a single dependency-free script that works with a TV remote on Android TV, Tizen, webOS and browsers, and talks to Torst only through its own API. A request that fits those goals is the easiest to accept.
   - type: textarea
     id: problem
     attributes:

@@ -71,28 +71,28 @@ describe('Localization & Translations', () => {
   });
 
   it('returns fallback string or key when Lampa.Lang is unavailable', () => {
-    const resultWithFallback = translate('torrplay_enabled_name', 'Enable TorrPlay');
-    assert.equal(resultWithFallback, 'Enable TorrPlay');
+    const resultWithFallback = translate('torst_enabled_name', 'Enable Torst');
+    assert.equal(resultWithFallback, 'Enable Torst');
 
-    const resultWithoutFallback = translate('torrplay_unknown_key');
-    assert.equal(resultWithoutFallback, 'torrplay_unknown_key');
+    const resultWithoutFallback = translate('torst_unknown_key');
+    assert.equal(resultWithoutFallback, 'torst_unknown_key');
   });
 
   it('uses Lampa.Lang.translate when available', () => {
     (globalThis as any).Lampa = {
       Lang: {
         translate: (key: string) => {
-          if (key === 'torrplay_enabled_name') return 'Включить TorrPlay';
+          if (key === 'torst_enabled_name') return 'Включить Torst';
           return key;
         },
       },
     };
 
-    const translated = translate('torrplay_enabled_name', 'Enable TorrPlay');
-    assert.equal(translated, 'Включить TorrPlay');
+    const translated = translate('torst_enabled_name', 'Enable Torst');
+    assert.equal(translated, 'Включить Torst');
 
     // Unknown key where translate returns key returns the fallback
-    const fallbackUsed = translate('torrplay_nonexistent', 'Fallback Text');
+    const fallbackUsed = translate('torst_nonexistent', 'Fallback Text');
     assert.equal(fallbackUsed, 'Fallback Text');
   });
 
@@ -100,8 +100,8 @@ describe('Localization & Translations', () => {
     (globalThis as any).Lampa = {
       Lang: {
         translate: (key: string) => {
-          if (key === 'torrplay_noty_failover') {
-            return 'TorrPlay: {failed} недоступен → переключено на {next} ({latency} мс)';
+          if (key === 'torst_noty_failover') {
+            return 'Torst: {failed} недоступен → переключено на {next} ({latency} мс)';
           }
           return key;
         },
@@ -109,19 +109,19 @@ describe('Localization & Translations', () => {
     };
 
     const resultRu = translate(
-      'torrplay_noty_failover',
-      'TorrPlay: {failed} offline → Switched to {next} ({latency} ms)',
+      'torst_noty_failover',
+      'Torst: {failed} offline → Switched to {next} ({latency} ms)',
       { failed: 'Node A', latency: 42, next: 'Node B' }
     );
-    assert.equal(resultRu, 'TorrPlay: Node A недоступен → переключено на Node B (42 мс)');
+    assert.equal(resultRu, 'Torst: Node A недоступен → переключено на Node B (42 мс)');
 
     // Test with fallback when Lampa returns unchanged key
     delete (globalThis as any).Lampa;
     const resultEn = translate(
-      'torrplay_noty_failover',
-      'TorrPlay: {failed} offline → Switched to {next} ({latency} ms)',
+      'torst_noty_failover',
+      'Torst: {failed} offline → Switched to {next} ({latency} ms)',
       { failed: 'Node A', latency: 42, next: 'Node B' }
     );
-    assert.equal(resultEn, 'TorrPlay: Node A offline → Switched to Node B (42 ms)');
+    assert.equal(resultEn, 'Torst: Node A offline → Switched to Node B (42 ms)');
   });
 });

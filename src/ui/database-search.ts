@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: MIT
 
 import { isNetworkError } from '../api/http-client';
-import { TorrPlayApi, TorrPlayApiError } from '../api/torrplay';
+import { TorstApi, TorstApiError } from '../api/torst';
 import { DATABASE_SEARCH_ENABLED_STORAGE_KEY, searchDatabaseTorrents } from '../engine/database-search';
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
-import { TorrPlayEngine } from '../engine/torrplay-engine';
+import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
-import { Torrent } from '../types/torrplay';
+import { Torrent } from '../types/torst';
 import { decodeSearchQuery } from '../utils/search-query';
 import { readTriggerSetting } from '../utils/trigger-setting';
 import { generateUuid } from '../utils/uuid';
@@ -23,8 +23,8 @@ import {
   WatchedOverlayScheduler,
 } from './saved-torrent-card';
 import { showSavedTorrentFiles } from './saved-torrent-files';
-import { TORRPLAY_ENABLED_STORAGE_KEY } from './settings';
-import { TORRPLAY_TORRENTS_COMPONENT_ID } from './torrplay-torrents';
+import { TORST_ENABLED_STORAGE_KEY } from './settings';
+import { TORST_TORRENTS_COMPONENT_ID } from './torst-torrents';
 
 // Lampa offers a row's "More" view once its results span more than one page of this size.
 const RESULTS_PER_PAGE = 20;
@@ -64,7 +64,7 @@ interface DatabaseSearchSource {
 }
 
 /**
- * A saved torrent's card in the global search row: the same card as the TorrPlay library,
+ * A saved torrent's card in the global search row: the same card as the Torst library,
  * playing through the row's own selection and offering only the viewed mark on long press,
  * since storage switching and deletion belong to the library view.
  */
@@ -83,7 +83,10 @@ class SavedTorrentSearchCard {
     const { torrent } = this.item;
     const card = buildSavedTorrentCard(torrent, isTorrentViewed(torrent.hash));
     card.on('hover:enter', () => this.onEnter?.());
-    card.on('hover:focus', () => this.watchedOverlay.schedule(card, torrent));
+    card.on('hover:focus', () => {
+      const instance = InstanceManager.getInstances().find(candidate => candidate.id === this.item.instanceId);
+      this.watchedOverlay.schedule(card, torrent, instance);
+    });
     card.on('hover:long', () => this.showViewedAction());
     this.card = card;
   }
@@ -131,7 +134,7 @@ export class DatabaseSearch {
     this.databaseScopeId = generateUuid();
     this.syncSource();
     Lampa.Storage.listener?.follow('change', event => {
-      if (event.name === DATABASE_SEARCH_ENABLED_STORAGE_KEY || event.name === TORRPLAY_ENABLED_STORAGE_KEY) {
+      if (event.name === DATABASE_SEARCH_ENABLED_STORAGE_KEY || event.name === TORST_ENABLED_STORAGE_KEY) {
         this.syncSource();
       }
     });
@@ -140,7 +143,7 @@ export class DatabaseSearch {
   }
 
   /**
-   * Opens global search on this source's tab when it is opened from the TorrPlay library, since
+   * Opens global search on this source's tab when it is opened from the Torst library, since
    * a search started there is most likely after a saved torrent. Lampa builds the tabs between
    * its `sources` and `open` events and selects the first one itself, so the tab is noted as it
    * is built and selected once the search is open.
@@ -151,7 +154,7 @@ export class DatabaseSearch {
     Lampa.Search?.listener?.follow('sources', (event: { sources?: GlobalSearchTabs }) => {
       pendingTab = null;
       const tabs = event?.sources;
-      const isFromLibrary = Lampa.Activity?.active?.()?.component === TORRPLAY_TORRENTS_COMPONENT_ID;
+      const isFromLibrary = Lampa.Activity?.active?.()?.component === TORST_TORRENTS_COMPONENT_ID;
       if (!tabs?.listener || !this.isSourceActive || !isFromLibrary) return;
       let tabIndex = 0;
       tabs.listener.follow('create', (created: { result: unknown, source: unknown }) => {
@@ -182,7 +185,7 @@ export class DatabaseSearch {
   }
 
   private static isEnabled(): boolean {
-    return Boolean(Lampa.Storage.get(TORRPLAY_ENABLED_STORAGE_KEY, true))
+    return Boolean(Lampa.Storage.get(TORST_ENABLED_STORAGE_KEY, true))
       && readTriggerSetting(DATABASE_SEARCH_ENABLED_STORAGE_KEY);
   }
 
@@ -199,7 +202,7 @@ export class DatabaseSearch {
   }
 
   private static createSource(): DatabaseSearchSource {
-    const title = translate('torrplay_database_search_title', 'TorrPlay Database');
+    const title = translate('torst_database_search_title', 'Torst Database');
     return {
       onCancel: () => {
         this.playbackRequestId++;
@@ -208,7 +211,7 @@ export class DatabaseSearch {
       onMore: (params, close) => {
         close();
         Lampa.Activity.push({
-          component: TORRPLAY_TORRENTS_COMPONENT_ID,
+          component: TORST_TORRENTS_COMPONENT_ID,
           instanceId: params.data.instanceId,
           search: params.data.query,
           title,
@@ -236,7 +239,7 @@ export class DatabaseSearch {
         };
         this.openTorrent(params.element, returnController, restoreFocus).catch(error => {
           restoreFocus();
-          Lampa.Noty?.show(translate('torrplay_noty_error', 'TorrPlay: {msg}', {
+          Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', {
             msg: error instanceof Error ? error.message : String(error),
           }));
         });
@@ -264,7 +267,7 @@ export class DatabaseSearch {
           if (isSettled) return;
           let activeInstance = instance;
           const torrents = await searchDatabaseTorrents(instance, query).catch(async error => {
-            const isServerError = error instanceof TorrPlayApiError && error.status >= 500;
+            const isServerError = error instanceof TorstApiError && error.status >= 500;
             if (isSettled || (!isServerError && !isNetworkError(error))) throw error;
             const fallbackInstance = await InstanceManager.failover(instance, () => isSettled);
             if (isSettled || !fallbackInstance) throw error;
@@ -302,7 +305,7 @@ export class DatabaseSearch {
     if (!instance) return;
     let torrent: Torrent;
     try {
-      torrent = await TorrPlayApi.getTorrent(instance, item.torrentHash);
+      torrent = await TorstApi.getTorrent(instance, item.torrentHash);
     } catch (error) {
       if (playbackRequestId !== this.playbackRequestId) return;
       throw error;
@@ -317,7 +320,7 @@ export class DatabaseSearch {
         else restorePlaybackFocus();
       }).catch(error => {
         restorePlaybackFocus();
-        Lampa.Noty?.show(translate('torrplay_noty_error', 'TorrPlay: {msg}', {
+        Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', {
           msg: error instanceof Error ? error.message : String(error),
         }));
       });
@@ -342,6 +345,6 @@ export class DatabaseSearch {
   private static async playFile(torrent: Torrent, fileIndex: number, instanceId: string, returnController: string): Promise<boolean> {
     const instance = InstanceManager.getInstances().find(candidate => candidate.id === instanceId);
     if (!instance) return false;
-    return TorrPlayEngine.startTorrentPlayback(torrent, fileIndex, undefined, instance, returnController);
+    return TorstEngine.startTorrentPlayback(torrent, fileIndex, undefined, instance, returnController);
   }
 }

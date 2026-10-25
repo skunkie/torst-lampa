@@ -50,7 +50,7 @@ describe('player playlist', () => {
     assert.equal(lampaPlaylist, otherPlaylist);
   });
 
-  it('ignores playback that is not from the playlist TorrPlay handed over', () => {
+  it('ignores playback that is not from the playlist Torst handed over', () => {
     rememberPlayerPlaylist([{ title: 'e01' }]);
 
     create({ title: 'online video' });

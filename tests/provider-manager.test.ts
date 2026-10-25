@@ -83,7 +83,7 @@ describe('ProviderManager', () => {
 
     ProviderManager.addProvider(provider);
 
-    const rawSaved = storageMap.get('torrplay_providers');
+    const rawSaved = storageMap.get('torst_providers');
     assert.ok(rawSaved);
     const parsedSaved = JSON.parse(rawSaved);
     const savedEntry = parsedSaved.find((candidate: any) => candidate.id === 'prov-secret');
@@ -112,7 +112,7 @@ describe('ProviderManager', () => {
 
     ProviderManager.addProvider(provider);
 
-    const rawSaved = storageMap.get('torrplay_providers');
+    const rawSaved = storageMap.get('torst_providers');
     const parsedSaved = JSON.parse(rawSaved);
     const savedEntry = parsedSaved.find((candidate: any) => candidate.id === 'prov-ephemeral');
     assert.equal(savedEntry.status, 'unknown');
@@ -149,7 +149,7 @@ describe('ProviderManager', () => {
     assert.equal(storageMap.get('jackett_url'), 'http://startup.local');
   });
 
-  it('preserves native Lampa provider settings when the TorrPlay pool is empty', () => {
+  it('preserves native Lampa provider settings when the Torst pool is empty', () => {
     storageMap.set('jackett_key', 'native-key');
     storageMap.set('jackett_url', 'http://native.local');
 
@@ -206,7 +206,7 @@ describe('ProviderManager', () => {
   });
 
   it('surfaces a notice and drops the API key when a stored credential cannot be deobfuscated', () => {
-    storageMap.set('torrplay_providers', JSON.stringify([
+    storageMap.set('torst_providers', JSON.stringify([
       {
         apiKey: 'not-a-valid-obfuscated-value',
         id: 'corrupt-1',

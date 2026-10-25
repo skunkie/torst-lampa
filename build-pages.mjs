@@ -38,7 +38,7 @@ export function resolveDevVersion(
 
 export async function assemblePagesSite({
   downloadRelease = (repo, targetDir) => {
-    execFileSync('gh', ['release', 'download', '--repo', repo, '--pattern', 'torrplay*.js*', '--dir', targetDir], { stdio: 'inherit' });
+    execFileSync('gh', ['release', 'download', '--repo', repo, '--pattern', 'torst*.js*', '--dir', targetDir], { stdio: 'inherit' });
     const tag = execFileSync('gh', ['release', 'view', '--repo', repo, '--json', 'tagName', '-q', '.tagName'], { encoding: 'utf8' }).trim();
     return tag.replace(/^v/, '');
   },

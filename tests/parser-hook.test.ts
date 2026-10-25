@@ -30,7 +30,7 @@ describe('ParserHook', () => {
   let originalParserGet: any;
 
   function installGlobalSearchLampa(): void {
-    if (!storageMap.has('torrplay_provider_search')) storageMap.set('torrplay_provider_search', 'true');
+    if (!storageMap.has('torst_provider_search')) storageMap.set('torst_provider_search', 'true');
     (globalThis as any).Lampa.Lang = createTestLanguage();
     (globalThis as any).Lampa.Search = {
       addSource: (source: unknown) => addedSources.push(source),
@@ -235,8 +235,8 @@ describe('ParserHook', () => {
     }
   });
 
-  it('falls back to native Parser.get when TorrPlay is disabled', () => {
-    storageMap.set('torrplay_enabled', 'false');
+  it('falls back to native Parser.get when Torst is disabled', () => {
+    storageMap.set('torst_enabled', 'false');
     ProviderManager.addProvider({
       apiKey: 'k', id: 'p1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
     });
@@ -292,7 +292,7 @@ describe('ParserHook', () => {
     assert.equal(wasErrored, false);
   });
 
-  it('replaces the native global-search source and restores it when TorrPlay is disabled', async () => {
+  it('replaces the native global-search source and restores it when Torst is disabled', async () => {
     storageMap.set('parse_in_search', 'true');
     installGlobalSearchLampa();
     ProviderManager.addProvider({
@@ -312,7 +312,7 @@ describe('ParserHook', () => {
     });
     assert.equal(globalResults[0].results[0].Title, 'Global Provider Result');
 
-    Lampa.Storage.set('torrplay_enabled', 'false');
+    Lampa.Storage.set('torst_enabled', 'false');
 
     assert.equal(removedSources.length, 1);
     assert.equal(removedSources[0], addedSources[0]);
@@ -387,7 +387,7 @@ describe('ParserHook', () => {
   for (const preference of ['true', 'false']) {
     it(`seeds an unset provider search toggle from native search preference ${preference}`, () => {
       storageMap.set('parse_in_search', preference);
-      storageMap.set('torrplay_provider_search', '');
+      storageMap.set('torst_provider_search', '');
       installGlobalSearchLampa();
       ProviderManager.addProvider({
         apiKey: 'k', id: 'p1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
@@ -395,7 +395,7 @@ describe('ParserHook', () => {
 
       ParserHook.init();
 
-      assert.equal(storageMap.get('torrplay_provider_search'), preference);
+      assert.equal(storageMap.get('torst_provider_search'), preference);
       assert.equal(addedSources.length, preference === 'true' ? 1 : 0);
       assert.equal(readNativeGlobalSearch(), false);
     });
@@ -403,25 +403,25 @@ describe('ParserHook', () => {
 
   it('seeds the provider search toggle from the native preference held when a takeover starts', () => {
     storageMap.set('parse_in_search', 'false');
-    storageMap.set('torrplay_provider_search', '');
+    storageMap.set('torst_provider_search', '');
     installGlobalSearchLampa();
 
     ParserHook.init();
-    assert.equal(storageMap.get('torrplay_provider_search'), '');
+    assert.equal(storageMap.get('torst_provider_search'), '');
 
     Lampa.Storage.set('parse_in_search', 'true');
     ProviderManager.addProvider({
       apiKey: 'k', id: 'p1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
     });
 
-    assert.equal(storageMap.get('torrplay_provider_search'), 'true');
+    assert.equal(storageMap.get('torst_provider_search'), 'true');
     assert.equal(addedSources.length, 1);
     assert.equal(readNativeGlobalSearch(), false);
   });
 
   it('applies a takeover in a single pass even though seeding writes the toggle', () => {
     storageMap.set('parse_in_search', 'true');
-    storageMap.set('torrplay_provider_search', '');
+    storageMap.set('torst_provider_search', '');
     installGlobalSearchLampa();
     ParserHook.init();
     let passCount = 0;
@@ -440,7 +440,7 @@ describe('ParserHook', () => {
     }
 
     assert.equal(passCount, 1);
-    assert.equal(storageMap.get('torrplay_provider_search'), 'true');
+    assert.equal(storageMap.get('torst_provider_search'), 'true');
     assert.equal(addedSources.length, 1);
   });
 
@@ -460,7 +460,7 @@ describe('ParserHook', () => {
 
   it('leaves provider results out of global search while the toggle is off', () => {
     storageMap.set('parse_in_search', 'true');
-    storageMap.set('torrplay_provider_search', 'false');
+    storageMap.set('torst_provider_search', 'false');
     installGlobalSearchLampa();
     ProviderManager.addProvider({
       apiKey: 'k', id: 'p1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
@@ -470,7 +470,7 @@ describe('ParserHook', () => {
 
     assert.equal(addedSources.length, 0);
     assert.equal(readNativeGlobalSearch(), false);
-    assert.equal(storageMap.get('torrplay_provider_search'), 'false');
+    assert.equal(storageMap.get('torst_provider_search'), 'false');
   });
 
   it('adds and removes the provider source as the toggle changes', () => {
@@ -482,12 +482,12 @@ describe('ParserHook', () => {
     ParserHook.init();
     assert.equal(addedSources.length, 1);
 
-    Lampa.Storage.set('torrplay_provider_search', 'false');
+    Lampa.Storage.set('torst_provider_search', 'false');
     assert.equal(removedSources.length, 1);
     assert.equal(removedSources[0], addedSources[0]);
     assert.equal(readNativeGlobalSearch(), false);
 
-    Lampa.Storage.set('torrplay_provider_search', 'true');
+    Lampa.Storage.set('torst_provider_search', 'true');
     assert.equal(addedSources.length, 2);
     assert.equal(addedSources[1], addedSources[0]);
   });
@@ -517,7 +517,7 @@ describe('ParserHook', () => {
 
     ParserHook.init();
 
-    assert.equal(addedSources[0].title, getTestTranslation('torrplay_provider_search_title'));
+    assert.equal(addedSources[0].title, getTestTranslation('torst_provider_search_title'));
     const rows: any = await new Promise(resolve => {
       addedSources[0].search({ query: 'ubuntu' }, resolve);
     });
@@ -554,7 +554,7 @@ describe('ParserHook', () => {
     Lampa.Storage.set('parse_in_search', 'false');
 
     assert.equal(removedSources.length, 0);
-    Lampa.Storage.set('torrplay_enabled', 'false');
+    Lampa.Storage.set('torst_enabled', 'false');
     assert.equal(readNativeGlobalSearch(), false);
   });
   for (const preference of ['true', 'false']) {
@@ -570,7 +570,7 @@ describe('ParserHook', () => {
       (ParserHook as any).shouldEnableNativeGlobalSearch = false;
       (ParserHook as any).isGlobalSearchSourceActive = false;
       ParserHook.init();
-      Lampa.Storage.set('torrplay_enabled', 'false');
+      Lampa.Storage.set('torst_enabled', 'false');
       assert.equal(storageMap.get('parse_in_search'), preference);
     });
   }
@@ -588,9 +588,9 @@ describe('ParserHook', () => {
       originalSet(key, value);
     }) as typeof Lampa.Storage.set;
     ParserHook.init();
-    assert.equal(writtenKeys.filter(key => key === 'torrplay_native_global_search').length, 1);
+    assert.equal(writtenKeys.filter(key => key === 'torst_native_global_search').length, 1);
     Lampa.Storage.set(STORAGE_KEY_PROVIDERS, storageMap.get(STORAGE_KEY_PROVIDERS));
-    assert.equal(writtenKeys.filter(key => key === 'torrplay_native_global_search').length, 1);
+    assert.equal(writtenKeys.filter(key => key === 'torst_native_global_search').length, 1);
   });
 
   it('uses the current native preference after takeover has ended', () => {
@@ -600,14 +600,14 @@ describe('ParserHook', () => {
       apiKey: 'k', id: 'p1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
     });
     ParserHook.init();
-    Lampa.Storage.set('torrplay_enabled', 'false');
+    Lampa.Storage.set('torst_enabled', 'false');
     storageListeners.length = 0;
     storageMap.set('parse_in_search', 'false');
     (ParserHook as any).isGlobalSearchSourceActive = false;
     ParserHook.init();
     assert.equal(readNativeGlobalSearch(), false);
-    Lampa.Storage.set('torrplay_enabled', 'true');
-    Lampa.Storage.set('torrplay_enabled', 'false');
+    Lampa.Storage.set('torst_enabled', 'true');
+    Lampa.Storage.set('torst_enabled', 'false');
     assert.equal(readNativeGlobalSearch(), false);
   });
 

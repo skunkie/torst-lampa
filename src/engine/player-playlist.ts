@@ -7,13 +7,13 @@
  * only while that item is in the player's current playlist. Switching episodes inside the
  * player tears the player down first, which empties that playlist, and restores it only after
  * the next episode has passed the ad check. Lampa announces each playback before that check,
- * so the playlist TorrPlay handed over is put back at that point.
+ * so the playlist Torst handed over is put back at that point.
  */
-let torrPlayPlaylist: LampaPlayerItem[] = [];
+let torstPlaylist: LampaPlayerItem[] = [];
 let isInitialized = false;
 
 export function rememberPlayerPlaylist(playlist: LampaPlayerItem[]): void {
-  torrPlayPlaylist = playlist;
+  torstPlaylist = playlist;
 }
 
 export function initPlayerPlaylist(): void {
@@ -22,15 +22,15 @@ export function initPlayerPlaylist(): void {
 
   Lampa.Player.listener.follow('create', (event: { data?: unknown }) => {
     const item = event?.data as LampaPlayerItem | undefined;
-    if (!item || !torrPlayPlaylist.includes(item)) return;
+    if (!item || !torstPlaylist.includes(item)) return;
 
     const playerPlaylist = Lampa.PlayerPlaylist;
     if (!playerPlaylist || playerPlaylist.get().length > 0) return;
-    playerPlaylist.set(torrPlayPlaylist);
+    playerPlaylist.set(torstPlaylist);
   });
 }
 
 export function resetPlayerPlaylistForTesting(): void {
-  torrPlayPlaylist = [];
+  torstPlaylist = [];
   isInitialized = false;
 }

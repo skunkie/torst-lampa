@@ -5,10 +5,10 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
-import { TorrPlayApi } from '../src/api/torrplay';
-import { SavedTorrents } from '../src/engine/saved-torrents';
+import { TorstApi } from '../src/api/torst';
+import { isPersistedTorrent, SavedTorrents } from '../src/engine/saved-torrents';
 import { InstanceManager } from '../src/instances/instance-manager';
-import { TorrentsResponse, TorrPlayInstance } from '../src/types/torrplay';
+import { TorrentsResponse, TorstInstance } from '../src/types/torst';
 
 describe('Saved torrent database scope', () => {
   const originalLampa = (globalThis as any).Lampa;
@@ -62,12 +62,12 @@ describe('Saved torrent database scope', () => {
       mock.method(InstanceManager, 'getBestInstance', () => new Promise<typeof instance>(resolve => {
         selections.push(() => resolve(instance));
       }));
-      const listing = mock.method(TorrPlayApi, 'getTorrents', async (_instance: TorrPlayInstance, options?: { hashes?: string[] }) => ({
+      const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { hashes?: string[] }) => ({
         torrents: (options?.hashes || []).map(hash => ({
-          created_at: '2026-10-12',
-          files: [],
+          created_at: '2026-10-12', files: [],
           hash,
           name: 'Saved',
+          retention: 'persisted' as const,
           storage: 'memory' as const,
           total_size: 0,
         })),
@@ -96,13 +96,13 @@ describe('Saved torrent database scope', () => {
       let finishLookup: () => void = () => {};
       let announceStart: () => void = () => {};
       const started = new Promise<void>(resolve => { announceStart = resolve; });
-      mock.method(TorrPlayApi, 'getTorrents', () => new Promise<TorrentsResponse>((resolve, reject) => {
+      mock.method(TorstApi, 'getTorrents', () => new Promise<TorrentsResponse>((resolve, reject) => {
         announceStart();
         finishLookup = () => {
           if (shouldReject) reject(new Error('Old database is unavailable'));
           else resolve({
             facets: { categories: [], total: 1, version: 'v1' },
-            torrents: [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory', total_size: 0 }],
+            torrents: [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
           });
         };
       }));
@@ -129,9 +129,9 @@ describe('Saved torrent database scope', () => {
     const selection = mock.method(InstanceManager, 'getBestInstance', () => new Promise<typeof nextInstance>(resolve => {
       finishSelection = () => resolve(nextInstance);
     }));
-    const listing = mock.method(TorrPlayApi, 'getTorrents', async (_instance: TorrPlayInstance, options?: { hashes?: string[] }) => ({
+    const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { hashes?: string[] }) => ({
       torrents: (options?.hashes || []).map(hash => ({
-        created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory' as const, total_size: 0,
+        created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory' as const, total_size: 0,
       })),
     }));
 
@@ -146,7 +146,7 @@ describe('Saved torrent database scope', () => {
     await new Promise<void>(resolve => setImmediate(resolve));
 
     assert.equal(listing.mock.callCount(), 2);
-    assert.deepEqual(listing.mock.calls[0].arguments[1], { hashes: [firstHash], limit: 1, shouldRevalidate: false });
+    assert.deepEqual(listing.mock.calls[0].arguments[1], { hashes: [firstHash], shouldRevalidate: false });
     assert.equal(SavedTorrents.isSaved(hash), undefined);
     assert.equal(SavedTorrents.isSaved(firstHash), true);
     assert.equal(SavedTorrents.isSaved(queuedHash), true);
@@ -159,13 +159,13 @@ describe('Saved torrent database scope', () => {
         let finishLookup: () => void = () => {};
         let announceStart: () => void = () => {};
         const started = new Promise<void>(resolve => { announceStart = resolve; });
-        mock.method(TorrPlayApi, 'getTorrents', () => new Promise<TorrentsResponse>((resolve, reject) => {
+        mock.method(TorstApi, 'getTorrents', () => new Promise<TorrentsResponse>((resolve, reject) => {
           announceStart();
           finishLookup = () => {
             if (shouldReject) reject(new Error('Lookup failed'));
             else resolve({
               facets: { categories: [], total: 1, version: 'v1' },
-              torrents: isSaved ? [] : [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', storage: 'memory', total_size: 0 }],
+              torrents: isSaved ? [] : [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
             });
           };
         }));
@@ -190,7 +190,7 @@ describe('Saved torrent database scope', () => {
     mock.method(InstanceManager, 'getBestInstance', () => new Promise<typeof instance>(resolve => {
       finishSelection = () => resolve(instance);
     }));
-    const listing = mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [] }));
+    const listing = mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
 
     SavedTorrents.queueLookup(hash);
     mock.timers.tick(300);
@@ -209,7 +209,7 @@ describe('Saved torrent database scope', () => {
     mock.method(InstanceManager, 'getBestInstance', () => new Promise<typeof instance>(resolve => {
       finishSelection = () => resolve(instance);
     }));
-    mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [] }));
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
 
     SavedTorrents.queueLookup(hash);
     SavedTorrents.queueLookup(otherHash);
@@ -235,7 +235,7 @@ describe('Saved torrent database scope', () => {
           else resolve(instance);
         };
       }));
-      const listing = mock.method(TorrPlayApi, 'getTorrents', async () => ({ torrents: [] }));
+      const listing = mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
 
       SavedTorrents.queueLookup(hash);
       mock.timers.tick(300);
@@ -248,4 +248,12 @@ describe('Saved torrent database scope', () => {
       assert.equal((SavedTorrents as any).queuedHashes.size, 0);
     });
   }
+});
+
+describe('Torst torrent retention', () => {
+  it('uses retention rather than creation time to recognize saved torrents', () => {
+    const torrent = { created_at: '2026-10-25', retention: 'temporary' as const };
+    assert.equal(isPersistedTorrent(torrent), false);
+    assert.equal(isPersistedTorrent({ ...torrent, retention: 'persisted' }), true);
+  });
 });

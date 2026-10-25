@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { EpisodePreview } from '../engine/episode-preview';
-import { ParsedFileInfo } from '../types/torrplay';
+import { ParsedFileInfo } from '../types/torst';
 
 interface FileListItemParams {
   exe: string,

@@ -8,18 +8,18 @@ import { translate } from '../lang/translations';
 import { ParserHook } from '../providers/parser-hook';
 import { STORAGE_KEY_PROVIDERS } from '../providers/provider-manager';
 import type { TorrentProvider } from '../types/provider';
-import type { TorrPlayInstance } from '../types/torrplay';
+import type { TorstInstance } from '../types/torst';
 import { AboutUi } from './about';
 import { InstancePoolUi } from './instance-pool';
 import { SAVE_TO_DATABASE_STORAGE_KEY, STORAGE_TYPE_STORAGE_KEY } from './play-dialog';
 import { ProviderSettingsUi } from './provider-settings';
-import { TORRPLAY_ENABLED_STORAGE_KEY } from './settings-keys';
+import { TORST_ENABLED_STORAGE_KEY } from './settings-keys';
 
-export const PLAYBACK_MODE_STORAGE_KEY = 'torrplay_playback_mode';
-export { TORRPLAY_ENABLED_STORAGE_KEY };
-export const TORRPLAY_SETTINGS_COMPONENT_ID = 'torrplay_settings';
+export const PLAYBACK_MODE_STORAGE_KEY = 'torst_playback_mode';
+export { TORST_ENABLED_STORAGE_KEY };
+export const TORST_SETTINGS_COMPONENT_ID = 'torst_settings';
 
-export const TORRPLAY_ICON = `
+export const TORST_ICON = `
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
   <path d="M 6 16.5 C 3.8 16.2 2 14.3 2 12 C 2 9.5 3.9 7.4 6.4 7.1 C 7 4.2 9.5 2 12.5 2 C 16.1 2 19.1 4.7 19.6 8.2 C 21.5 8.7 23 10.4 23 12.5 C 23 14.7 21.3 16.4 19.2 16.6" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M 6.8 6.5 C 8 5.2 9.6 4.5 11.5 4.5" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
@@ -30,7 +30,6 @@ export const TORRPLAY_ICON = `
 const ICON_ATTRS = 'width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;flex-shrink:0;width:1em !important;min-width:1em !important;max-width:1em !important;height:1em !important;vertical-align:middle"';
 
 export const ICON_ARROW_LEFT = `<svg ${ICON_ATTRS}><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>`;
-export const ICON_DATABASE   = `<svg ${ICON_ATTRS}><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>`;
 export const ICON_DOWNLOAD   = `<svg ${ICON_ATTRS}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>`;
 export const ICON_KEY        = `<svg ${ICON_ATTRS}><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>`;
 export const ICON_LOCK       = `<svg ${ICON_ATTRS}><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
@@ -39,20 +38,19 @@ export const ICON_PLUS       = `<svg ${ICON_ATTRS}><path d="M5 12h14"/><path d="
 export const ICON_SEARCH     = `<svg ${ICON_ATTRS}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
 export const ICON_STAR       = `<svg ${ICON_ATTRS}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
 export const ICON_TRASH      = `<svg ${ICON_ATTRS}><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
-export const ICON_USER       = `<svg ${ICON_ATTRS}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
 export const ICON_ZAP        = `<svg ${ICON_ATTRS}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
 
 export function iconLabel(icon: string, label: string): string {
   return `<span style="display:inline-flex;gap:0.5em;align-items:center">${icon}${label}</span>`;
 }
 
-export function describeConnectionStatus(target: Pick<TorrentProvider, 'latencyMs' | 'status'> | Pick<TorrPlayInstance, 'latencyMs' | 'status'>): string {
+export function describeConnectionStatus(target: Pick<TorrentProvider, 'latencyMs' | 'status'> | Pick<TorstInstance, 'latencyMs' | 'status'>): string {
   if (target.status === 'online' && target.latencyMs !== undefined && target.latencyMs < Infinity) {
-    return translate('torrplay_latency_ms', `${target.latencyMs} ms`, { latency: target.latencyMs });
+    return translate('torst_latency_ms', `${target.latencyMs} ms`, { latency: target.latencyMs });
   }
-  if (target.status === 'offline') return translate('torrplay_status_offline', 'Offline');
-  if (target.status === 'checking') return translate('torrplay_status_checking', 'Checking...');
-  return translate('torrplay_status_unknown', 'Unknown');
+  if (target.status === 'offline') return translate('torst_status_offline', 'Offline');
+  if (target.status === 'checking') return translate('torst_status_checking', 'Checking...');
+  return translate('torst_status_unknown', 'Unknown');
 }
 
 export class SettingsUi {
@@ -63,35 +61,35 @@ export class SettingsUi {
       // 'tmdb' is never conditionally removed, unlike 'parser'/'server' (dropped
       // when torrents_use is disabled) — anchoring to a removed component id is a no-op.
       before: 'tmdb',
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
-      icon: TORRPLAY_ICON,
-      name: translate('torrplay_settings_name', 'TorrPlay'),
+      component: TORST_SETTINGS_COMPONENT_ID,
+      icon: TORST_ICON,
+      name: translate('torst_settings_name', 'Torst'),
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torrplay_enabled_descr', 'Torrent playback and search via TorrPlay'),
-        name: translate('torrplay_enabled_name', 'Enable TorrPlay'),
+        description: translate('torst_enabled_descr', 'Torrent playback and search via Torst'),
+        name: translate('torst_enabled_name', 'Enable Torst'),
       },
       onChange: () => {
         this.updateTorrServerVisibility();
       },
       param: {
         default: true,
-        name: TORRPLAY_ENABLED_STORAGE_KEY,
+        name: TORST_ENABLED_STORAGE_KEY,
         type: 'trigger',
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
         description: translate(
-          'torrplay_database_search_descr',
+          'torst_database_search_descr',
           'Show saved torrents in Lampa global search'
         ),
-        name: translate('torrplay_database_search_name', 'TorrPlay Database in Global Search'),
+        name: translate('torst_database_search_name', 'Torst Database in Global Search'),
       },
       param: {
         default: false,
@@ -101,13 +99,13 @@ export class SettingsUi {
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
         description: translate(
-          'torrplay_selection_mode_descr',
+          'torst_selection_mode_descr',
           'Lowest latency or a manually chosen instance'
         ),
-        name: translate('torrplay_selection_mode_name', 'Instance Selection'),
+        name: translate('torst_selection_mode_name', 'Instance Selection'),
       },
       onChange: (selectionMode: string) => {
         InstanceManager.setMode(selectionMode as SelectionMode);
@@ -117,121 +115,121 @@ export class SettingsUi {
       },
       param: {
         default: 'auto',
-        name: 'torrplay_selection_mode',
+        name: 'torst_selection_mode',
         type: 'select',
         values: {
-          auto: translate('torrplay_selection_mode_auto', 'Auto (Lowest Latency)'),
-          manual: translate('torrplay_selection_mode_manual', 'Manual Selection'),
+          auto: translate('torst_selection_mode_auto', 'Auto (Lowest Latency)'),
+          manual: translate('torst_selection_mode_manual', 'Manual Selection'),
         },
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
         description: translate(
-          'torrplay_manage_pool_descr',
+          'torst_manage_pool_descr',
           'Instances, authentication, and latency checks'
         ),
-        name: translate('torrplay_manage_pool_name', 'Manage Instance Pool'),
+        name: translate('torst_manage_pool_name', 'Manage Instance Pool'),
       },
       onChange: () => {
         InstancePoolUi.openPoolManager();
       },
       param: {
-        name: 'torrplay_instances_btn',
+        name: 'torst_instances_btn',
         type: 'button',
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
         description: translate(
-          'torrplay_manage_providers_descr',
+          'torst_manage_providers_descr',
           'Configure Jackett and Prowlarr providers'
         ),
-        name: translate('torrplay_manage_providers_name', 'Manage Search Providers'),
+        name: translate('torst_manage_providers_name', 'Manage Search Providers'),
       },
       onChange: () => {
         ProviderSettingsUi.openPoolManager();
       },
       param: {
-        name: 'torrplay_providers_btn',
+        name: 'torst_providers_btn',
         type: 'button',
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torrplay_playback_mode_descr', 'TorrPlay or TorrServer when a torrent starts'),
-        name: translate('torrplay_playback_mode_name', 'Torrent Playback'),
+        description: translate('torst_playback_mode_descr', 'Torst or TorrServer when a torrent starts'),
+        name: translate('torst_playback_mode_name', 'Torrent Playback'),
       },
       onChange: () => {
         this.updateTorrServerVisibility();
       },
       param: {
-        default: 'torrplay',
+        default: 'torst',
         name: PLAYBACK_MODE_STORAGE_KEY,
         type: 'select',
         /* eslint-disable perfectionist/sort-objects -- Lampa lists select options in insertion order */
         values: {
-          torrplay: translate('torrplay_playback_mode_torrplay', 'Always TorrPlay'),
-          context: translate('torrplay_playback_mode_context', 'Manual (Context Menu & Button)'),
-          ask: translate('torrplay_playback_mode_ask', 'Ask Before Play (TorrPlay / TorrServer)'),
+          torst: translate('torst_playback_mode_torst', 'Always Torst'),
+          context: translate('torst_playback_mode_context', 'Manual (Context Menu & Button)'),
+          ask: translate('torst_playback_mode_ask', 'Ask Before Play (Torst / TorrServer)'),
         },
         /* eslint-enable perfectionist/sort-objects */
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torrplay_storage_type_descr', 'Where to keep the torrent during playback'),
-        name: translate('torrplay_storage_type_name', 'Storage Type'),
+        description: translate('torst_storage_type_descr', 'Where to keep the torrent during playback'),
+        name: translate('torst_storage_type_name', 'Storage Type'),
       },
       param: {
         default: 'memory',
         name: STORAGE_TYPE_STORAGE_KEY,
         type: 'select',
         values: {
-          ask: translate('torrplay_storage_type_ask', 'Ask Before Play'),
-          file: translate('torrplay_storage_type_disk', 'Disk'),
-          memory: translate('torrplay_storage_type_ram', 'RAM'),
+          ask: translate('torst_storage_type_ask', 'Ask Before Play'),
+          file: translate('torst_storage_type_disk', 'Disk'),
+          memory: translate('torst_storage_type_ram', 'RAM'),
         },
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torrplay_save_to_db_descr', 'Save torrents to the TorrPlay database'),
-        name: translate('torrplay_save_to_db_name', 'Save to Database'),
+        description: translate('torst_save_to_db_descr', 'Save torrents to the Torst database'),
+        name: translate('torst_save_to_db_name', 'Save to Database'),
       },
       param: {
         default: 'false',
         name: SAVE_TO_DATABASE_STORAGE_KEY,
         type: 'select',
         values: {
-          ask: translate('torrplay_save_to_db_ask', 'Ask Before Play'),
-          false: translate('torrplay_save_to_db_false', 'Never'),
-          true: translate('torrplay_save_to_db_true', 'Always'),
+          ask: translate('torst_save_to_db_ask', 'Ask Before Play'),
+          false: translate('torst_save_to_db_false', 'Never'),
+          true: translate('torst_save_to_db_true', 'Always'),
         },
       },
     });
 
     Lampa.SettingsApi.addParam({
-      component: TORRPLAY_SETTINGS_COMPONENT_ID,
+      component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torrplay_about_descr', 'Plugin version and build info'),
-        name: translate('torrplay_about_name', 'About Plugin'),
+        description: translate('torst_about_descr', 'Plugin version and build info'),
+        name: translate('torst_about_name', 'About Plugin'),
       },
       onChange: () => {
         AboutUi.show();
       },
       param: {
-        name: 'torrplay_about_btn',
+        name: 'torst_about_btn',
         type: 'button',
       },
     });
@@ -243,7 +241,7 @@ export class SettingsUi {
         if (
           event.name === PLAYBACK_MODE_STORAGE_KEY
           || event.name === STORAGE_KEY_PROVIDERS
-          || event.name === TORRPLAY_ENABLED_STORAGE_KEY
+          || event.name === TORST_ENABLED_STORAGE_KEY
         ) {
           this.updateTorrServerVisibility();
         }
@@ -253,28 +251,28 @@ export class SettingsUi {
 
   public static updateTorrServerVisibility(): void {
     if (typeof Lampa === 'undefined' || !Lampa.Storage) return;
-    const isEnabled = Lampa.Storage.get<boolean>(TORRPLAY_ENABLED_STORAGE_KEY, true);
-    const playbackMode = Lampa.Storage.get<string>(PLAYBACK_MODE_STORAGE_KEY, 'torrplay');
-    const isAlwaysTorrPlay = isEnabled && playbackMode === 'torrplay';
+    const isEnabled = Lampa.Storage.get<boolean>(TORST_ENABLED_STORAGE_KEY, true);
+    const playbackMode = Lampa.Storage.get<string>(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+    const isAlwaysTorst = isEnabled && playbackMode === 'torst';
     const shouldHideNativeParser = ParserHook.isReplacingNativeParser();
 
     if (typeof document !== 'undefined') {
-      const styleId = 'torrplay-hide-torrserver-style';
+      const styleId = 'torst-hide-torrserver-style';
       if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
         style.id = styleId;
         style.textContent = `
-          body.torrplay--hide-torrserver .settings-folder[data-component="server"],
-          body.torrplay--hide-torrserver .settings-folder[data-component="parser"],
-          body.torrplay--hide-torrserver .menu__item[data-action="mytorrents"],
-          body.torrplay--hide-torrserver .menu__item[data-action="torrents"],
-          body.torrplay--hide-torrserver [data-action="mytorrents"],
-          body.torrplay--hide-torrserver [data-action="torrents"],
-          body.torrplay--hide-torrserver .full-start__button.view--torrent,
-          body.torrplay--hide-torrserver .view--torrent {
+          body.torst--hide-torrserver .settings-folder[data-component="server"],
+          body.torst--hide-torrserver .settings-folder[data-component="parser"],
+          body.torst--hide-torrserver .menu__item[data-action="mytorrents"],
+          body.torst--hide-torrserver .menu__item[data-action="torrents"],
+          body.torst--hide-torrserver [data-action="mytorrents"],
+          body.torst--hide-torrserver [data-action="torrents"],
+          body.torst--hide-torrserver .full-start__button.view--torrent,
+          body.torst--hide-torrserver .view--torrent {
             display: none !important;
           }
-          body.torrplay--hide-native-parser .settings-folder[data-component="parser"] {
+          body.torst--hide-native-parser .settings-folder[data-component="parser"] {
             display: none !important;
           }
         `;
@@ -286,22 +284,22 @@ export class SettingsUi {
         || (typeof window !== 'undefined' ? window.$ : undefined);
       const targetSelector = '[data-action="mytorrents"], [data-action="torrents"], .settings-folder[data-component="server"], .settings-folder[data-component="parser"], .view--torrent';
       if (typeof jquery !== 'undefined' && typeof jquery('body').toggleClass === 'function') {
-        jquery('body').toggleClass('torrplay--hide-torrserver', isAlwaysTorrPlay);
-        jquery('body').toggleClass('torrplay--hide-native-parser', shouldHideNativeParser);
+        jquery('body').toggleClass('torst--hide-torrserver', isAlwaysTorst);
+        jquery('body').toggleClass('torst--hide-native-parser', shouldHideNativeParser);
         const nativeElements = jquery(targetSelector);
         if (nativeElements && typeof nativeElements.toggleClass === 'function') {
-          nativeElements.toggleClass('hide', isAlwaysTorrPlay);
-          nativeElements.toggleClass('selector', !isAlwaysTorrPlay);
+          nativeElements.toggleClass('hide', isAlwaysTorst);
+          nativeElements.toggleClass('selector', !isAlwaysTorst);
         }
       } else if (document.body) {
-        document.body.classList.toggle('torrplay--hide-torrserver', isAlwaysTorrPlay);
-        document.body.classList.toggle('torrplay--hide-native-parser', shouldHideNativeParser);
+        document.body.classList.toggle('torst--hide-torrserver', isAlwaysTorst);
+        document.body.classList.toggle('torst--hide-native-parser', shouldHideNativeParser);
         if (typeof document.querySelectorAll === 'function') {
           const nativeElements = document.querySelectorAll(targetSelector);
           nativeElements.forEach(element => {
             if (element && element.classList) {
-              element.classList.toggle('hide', isAlwaysTorrPlay);
-              element.classList.toggle('selector', !isAlwaysTorrPlay);
+              element.classList.toggle('hide', isAlwaysTorst);
+              element.classList.toggle('selector', !isAlwaysTorst);
             }
           });
         }

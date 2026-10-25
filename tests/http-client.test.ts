@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { isNetworkError, NetworkError, requestHttp } from '../src/api/http-client';
 
@@ -30,6 +30,43 @@ describe('HTTP Client (requestHttp)', () => {
     }
   });
 
+  it('preserves binary downloads and their media type', async () => {
+    const bytes = new Uint8Array([0, 128, 255, 13, 10]);
+    globalThis.fetch = async () => new Response(bytes, { headers: { 'Content-Type': 'application/x-bittorrent' } });
+    (globalThis as any).Lampa = { Reguest: class { constructor() { throw new Error('Binary data requires fetch'); } } };
+    const response = await requestHttp('http://indexer.test/sintel.torrent', { responseType: 'blob' });
+    const blob = await response.blob();
+    assert.equal(blob.type, 'application/x-bittorrent');
+    assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), bytes);
+  });
+
+  it('times out a stalled binary response body', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    globalThis.fetch = async (_input, options) => ({
+      blob: () => new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => reject(createAbortError()), { once: true });
+      }),
+    }) as Response;
+    try {
+      const download = requestHttp('http://indexer.test/sintel.torrent', { responseType: 'blob', timeoutMs: 1000 });
+      await new Promise(resolve => setImmediate(resolve));
+      const failure = assert.rejects(download, (error: Error) => error.name === 'AbortError');
+      mock.timers.tick(1000);
+      await failure;
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('uses fetch for real mutations if a native-only wrapper has no ajax transport', async () => {
+    (globalThis as any).Lampa = { Reguest: class { public timeout() {} public native() { throw new Error('Incorrect native verb'); } } };
+    globalThis.fetch = async (_input, options) => {
+      assert.equal(options?.method, 'DELETE');
+      return new Response(null, { status: 204 });
+    };
+    assert.equal((await requestHttp('http://instance.test/api/v1/torrents/trr_test', { method: 'DELETE' })).status, 204);
+  });
+
   it('uses fetch fallback when Lampa.Reguest is absent', async () => {
     let capturedRequestUrl = '';
     let capturedRequestOptions: RequestInit | undefined;
@@ -44,12 +81,12 @@ describe('HTTP Client (requestHttp)', () => {
       });
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/system/health', {
+    const response = await requestHttp('http://127.0.0.1:8080/readyz', {
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       method: 'GET',
     });
 
-    assert.equal(capturedRequestUrl, 'http://127.0.0.1:8090/api/system/health');
+    assert.equal(capturedRequestUrl, 'http://127.0.0.1:8080/readyz');
     assert.equal(capturedRequestOptions?.method, 'GET');
     assert.equal(response.ok, true);
     assert.equal(response.status, 200);
@@ -91,7 +128,7 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     const controller = new AbortController();
-    const pendingRequest = requestHttp('http://127.0.0.1:8090/api/system/health', {
+    const pendingRequest = requestHttp('http://127.0.0.1:8080/readyz', {
       method: 'GET',
       signal: controller.signal,
       timeoutMs: 50000,
@@ -126,7 +163,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/system/health', {
+    const response = await requestHttp('http://127.0.0.1:8080/readyz', {
       body: JSON.stringify({ test: 123 }),
       headers: {
         'Content-Type': 'application/json',
@@ -137,7 +174,7 @@ describe('HTTP Client (requestHttp)', () => {
     });
 
     assert.equal(configuredTimeoutMs, 5000);
-    assert.equal(capturedSilentCall.url, 'http://127.0.0.1:8090/api/system/health');
+    assert.equal(capturedSilentCall.url, 'http://127.0.0.1:8080/readyz');
     assert.equal(capturedSilentCall.requestBody, JSON.stringify({ test: 123 }));
     assert.equal(capturedSilentCall.requestOptions.type, 'POST');
     assert.equal(capturedSilentCall.requestOptions.crossDomain, true);
@@ -166,7 +203,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/preload');
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/preload');
     assert.equal(response.ok, true);
     assert.equal(response.status, 204);
     assert.equal(response.statusText, 'No Content');
@@ -191,7 +228,7 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     for (const headerName of ['If-None-Match', 'if-none-match']) {
-      const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+      const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents', {
         headers: { [headerName]: 'W/"v1"' },
       });
       assert.equal(response.ok, false);
@@ -216,7 +253,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents', {
       headers: { 'If-None-Match': 'W/"v1"' },
     });
     assert.equal(response.ok, false);
@@ -230,7 +267,7 @@ describe('HTTP Client (requestHttp)', () => {
       return new Response(null, { status: 304 });
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents', {
       headers: { 'If-None-Match': 'W/"v1"' },
     });
     assert.deepEqual(sentHeaders, { 'If-None-Match': 'W/"v1"' });
@@ -258,7 +295,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents/unknown');
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents/unknown');
     assert.equal(response.ok, false);
     assert.equal(response.status, 404);
     assert.equal(response.statusText, 'Not Found');
@@ -287,7 +324,7 @@ describe('HTTP Client (requestHttp)', () => {
 
     await assert.rejects(
       async () => {
-        await requestHttp('http://127.0.0.1:8090/api/system/health');
+        await requestHttp('http://127.0.0.1:8080/readyz');
       },
       /Network error/
     );
@@ -308,7 +345,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
     const controller = new AbortController();
-    const request = requestHttp('http://127.0.0.1:8090/api/system/health', {
+    const request = requestHttp('http://127.0.0.1:8080/readyz', {
       signal: controller.signal,
     });
     controller.abort();
@@ -343,11 +380,11 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguestWithNative,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents', {
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents', {
       method: 'POST',
     });
 
-    assert.equal(capturedNativeCall.url, 'http://127.0.0.1:8090/api/v1/torrents');
+    assert.equal(capturedNativeCall.url, 'http://127.0.0.1:8080/api/v1/torrents');
     assert.equal(capturedNativeCall.requestBody, '{}');
     assert.equal(capturedNativeCall.requestOptions.type, 'POST');
     assert.equal(response.ok, true);
@@ -356,55 +393,30 @@ describe('HTTP Client (requestHttp)', () => {
     assert.deepEqual(body, { status: 'ok' });
   });
 
-  it('sends PATCH/DELETE through the native bridge as POST with X-HTTP-Method-Override', async () => {
-    // Lampa Android's native httpReq bridge ignores the intended verb entirely: it
-    // sends GET when there is no body and POST when there is one (see AndroidJS.kt).
-    // A real PUT/PATCH/DELETE must be smuggled through as POST + an override header.
-    let capturedNativeCall: any = null;
-
-    class MockReguestWithNative {
-      public timeout(_timeoutMs: number) {}
-      public native(
-        url: string,
-        onSuccess: (responseBody: any) => void,
-        _onFailure: (error: any) => void,
-        requestBody: any,
-        requestOptions: any
-      ) {
-        capturedNativeCall = { requestBody, requestOptions, url };
-        onSuccess(JSON.stringify({ status: 'updated' }));
-      }
-    }
-
+  it('sends mutations through ajax with their real verbs when the native bridge is available', async () => {
+    const calls: Array<{ body: unknown, params: any }> = [];
     (globalThis as any).Lampa = {
-      Reguest: MockReguestWithNative,
-    };
-
-    const responsePatch = await requestHttp('http://127.0.0.1:8090/api/v1/torrents/abcdef', {
-      body: JSON.stringify({ storage: 'file' }),
-      headers: {
-        'Content-Type': 'application/json',
+      Reguest: class {
+        public timeout() {}
+        public native() { throw new Error('The bridge cannot send these verbs'); }
+        public silent(_url: string, success: any, _failure: any, body: unknown, params: any) {
+          calls.push({ body, params });
+          success('{}');
+        }
       },
-      method: 'PATCH',
-    });
+    };
+    await requestHttp('http://localhost:8080/api/v1/settings', { body: '{"background_downloads":false}', method: 'PATCH' });
+    await requestHttp('http://localhost:8080/api/v1/torrents/trr_test', { method: 'DELETE' });
+    assert.deepEqual(calls.map(call => call.params.type), ['PATCH', 'DELETE']);
+    assert.deepEqual(calls.map(call => call.params.headers), [{}, {}]);
+    assert.equal(calls[1].body, false);
+  });
 
-    assert.equal(capturedNativeCall.requestOptions.type, 'POST');
-    assert.equal(capturedNativeCall.requestOptions.headers['X-HTTP-Method-Override'], 'PATCH');
-    assert.equal(capturedNativeCall.requestOptions.contentType, 'application/json');
-    assert.equal(responsePatch.ok, true);
-    assert.equal(responsePatch.status, 200);
-
-    const responseDelete = await requestHttp('http://127.0.0.1:8090/api/v1/torrents/abcdef', {
-      method: 'DELETE',
-    });
-
-    assert.equal(capturedNativeCall.requestOptions.type, 'POST');
-    assert.equal(capturedNativeCall.requestOptions.headers['X-HTTP-Method-Override'], 'DELETE');
-    // A bodyless DELETE must still carry a body, otherwise the bridge's own
-    // GET-vs-POST check (body present or not) would send it as a GET.
-    assert.equal(capturedNativeCall.requestBody, '{}');
-    assert.equal(responseDelete.ok, true);
-    assert.equal(responseDelete.status, 200);
+  it('uses a header-capable transport when the caller needs an ETag', async () => {
+    (globalThis as any).Lampa = { Reguest: class { constructor() { throw new Error('Headers unavailable'); } } };
+    globalThis.fetch = async () => new Response('{}', { headers: { ETag: '"cfg-test"' } });
+    const response = await requestHttp('http://localhost:8080/api/v1/settings', { needsResponseHeaders: true });
+    assert.equal(response.headers?.get('ETag'), '"cfg-test"');
   });
 
   it('sends the real PUT/DELETE verb (no override) through the ajax fallback transport', async () => {
@@ -434,8 +446,8 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguestNativeThrows,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents/abcdef/preload', {
-      body: JSON.stringify({ file_index: 0 }),
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/settings', {
+      body: JSON.stringify({ background_downloads: false }),
       method: 'PUT',
     });
 
@@ -466,8 +478,8 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     await assert.rejects(
-      requestHttp('http://127.0.0.1:8090/api/v1/torrents/abcdef', {
-        method: 'DELETE',
+      requestHttp('http://127.0.0.1:8080/api/v1/torrents/abcdef', {
+        method: 'POST',
       }),
       /Network error/
     );
@@ -485,7 +497,7 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     const controller = new AbortController();
-    const pendingRequest = requestHttp('http://127.0.0.1:8090/api/v1/torrents', { signal: controller.signal });
+    const pendingRequest = requestHttp('http://127.0.0.1:8080/api/v1/torrents', { signal: controller.signal });
     await new Promise(resolve => setImmediate(resolve));
     controller.abort();
 
@@ -504,7 +516,7 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     await assert.rejects(
-      requestHttp('http://127.0.0.1:8090/api/v1/torrents', { signal: AbortSignal.abort() }),
+      requestHttp('http://127.0.0.1:8080/api/v1/torrents', { signal: AbortSignal.abort() }),
       (error: Error) => error.name === 'AbortError'
     );
     assert.equal(fetchCallCount, 0);
@@ -529,7 +541,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguestWithNative,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8090/api/v1/torrents');
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents');
     assert.equal(response.ok, false);
     assert.equal(response.status, 401);
     assert.equal(response.statusText, 'request error: Invalid response from server: 401 Unauthorized');
@@ -551,7 +563,7 @@ describe('HTTP Client (isNetworkError)', () => {
   it('reports a fetch connection failure as a network error', async () => {
     delete (globalThis as any).Lampa;
     globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
-    const error = await requestHttp('http://first.local/api/system/health', { method: 'GET' })
+    const error = await requestHttp('http://first.local/readyz', { method: 'GET' })
       .then(() => undefined, (rejection: unknown) => rejection);
     assert.equal(isNetworkError(error), true);
     assert.equal((error as Error).message, 'Failed to fetch');
@@ -576,7 +588,7 @@ describe('HTTP Client (isNetworkError)', () => {
         }
       }
       (globalThis as any).Lampa = { Reguest: MockReguest };
-      const error = await requestHttp('http://first.local/api/system/health', { method: 'GET', timeoutMs: 10 })
+      const error = await requestHttp('http://first.local/readyz', { method: 'GET', timeoutMs: 10 })
         .then(() => undefined, (rejection: unknown) => rejection);
       assert.equal(isNetworkError(error), true);
     }
@@ -589,7 +601,7 @@ describe('HTTP Client (isNetworkError)', () => {
       fetchCallCount += 1;
       throw new TypeError('Failed to fetch');
     };
-    const error = await requestHttp('http://first.local/api/system/health', {
+    const error = await requestHttp('http://first.local/readyz', {
       headers: { 'X-Bad': 'line\nbreak' },
       method: 'GET',
     }).then(() => undefined, (rejection: unknown) => rejection);

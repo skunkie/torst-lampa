@@ -118,9 +118,9 @@ jobs:
         with:
           name: release-bundles
           path: |
-            dist-pages/torrplay.js
-            dist-pages/torrplay.js.map
-            dist-pages/torrplay.min.js
+            dist-pages/torst.js
+            dist-pages/torst.js.map
+            dist-pages/torst.min.js
 
   changelog:
     name: Generate Changelog

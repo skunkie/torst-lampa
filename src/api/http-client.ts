@@ -3,14 +3,18 @@
 // SPDX-License-Identifier: MIT
 
 interface HttpRequestOptions {
-  body?: string,
+  body?: string | FormData | Blob,
   headers?: Record<string, string>,
   method?: string,
+  needsResponseHeaders?: boolean,
+  responseType?: 'blob',
   signal?: AbortSignal,
   timeoutMs?: number
 }
 
 interface HttpResponse {
+  blob: () => Promise<Blob>,
+  headers?: Headers,
   json: () => Promise<unknown>,
   ok: boolean,
   status: number,
@@ -33,13 +37,6 @@ interface LampaFailureResponse {
   status?: number,
   statusText?: string
 }
-
-// Lampa Android's native httpReq bridge (AndroidJS.kt/Http.java) never reads
-// the intended HTTP verb at all: it always issues a GET when there is no
-// request body and a POST when there is one. A PUT/PATCH/DELETE must be sent
-// as a POST carrying this header, which the TorrPlay server rewrites to the
-// real verb before routing.
-const METHOD_OVERRIDE_HEADER = 'X-HTTP-Method-Override';
 
 /**
  * A request that failed before the server answered at all (connection failure or timeout).
@@ -87,21 +84,18 @@ export async function requestHttp(
   const isConditional = Object.keys(headers).some(name => name.toLowerCase() === 'if-none-match');
 
   // Prefer `Lampa.Reguest` when running in Lampa environment
-  if (typeof Lampa !== 'undefined' && Lampa.Reguest) {
+  if (typeof Lampa !== 'undefined' && Lampa.Reguest && !options.needsResponseHeaders && !options.responseType && !(options.body instanceof FormData) && !(options.body instanceof Blob)) {
     const lampaRequest = new Lampa.Reguest();
     lampaRequest.timeout(timeoutMs);
 
-    const buildAjaxParams = (overrideMethod?: string): LampaAjaxParams => {
+    const buildAjaxParams = (): LampaAjaxParams => {
       const params: LampaAjaxParams = {
         crossDomain: true,
         dataType: 'text',
         headers: { ...headers },
         timeout: timeoutMs,
-        type: overrideMethod || method,
+        type: method,
       };
-      if (overrideMethod) {
-        params.headers[METHOD_OVERRIDE_HEADER] = method;
-      }
       const contentType = headers['Content-Type'] || headers['content-type'];
       if (contentType) {
         params.contentType = contentType;
@@ -177,6 +171,7 @@ export async function requestHttp(
             const statusText = hasBody ? 'OK' : (isNotModified ? 'Not Modified' : 'No Content');
 
             settleResolve({
+              blob: async () => new Blob([responseText]),
               json: async () => (
                 responseBody && typeof responseBody === 'object'
                   ? responseBody
@@ -194,6 +189,7 @@ export async function requestHttp(
             const responseText = lampaResponse?.responseText || lampaResponse?.message || '';
             if (status >= 200 && status < 300) {
               settleResolve({
+                blob: async () => new Blob([responseText]),
                 json: async () => (responseText ? JSON.parse(responseText) : {}),
                 ok: true,
                 status,
@@ -202,6 +198,7 @@ export async function requestHttp(
               });
             } else if (status > 0) {
               settleResolve({
+                blob: async () => new Blob([responseText]),
                 json: async () => (responseText ? JSON.parse(responseText) : {}),
                 ok: false,
                 status,
@@ -222,17 +219,12 @@ export async function requestHttp(
       }
     });
 
-    const realPostData = options.body || (method === 'POST' ? '{}' : false);
+    const realPostData = (options.body as string) || (method === 'POST' ? '{}' : false);
     const isNativeBridgeUnsupportedMethod = method !== 'GET' && method !== 'POST' && method !== 'HEAD';
 
-    if (typeof lampaRequest.native === 'function') {
-      const nativeAjaxParams = isNativeBridgeUnsupportedMethod ? buildAjaxParams('POST') : buildAjaxParams();
-      // Force a non-empty body so the bridge's GET-vs-POST body check picks POST,
-      // otherwise a bodyless DELETE would silently become a GET on the wire.
-      const nativePostData = isNativeBridgeUnsupportedMethod ? (options.body || '{}') : realPostData;
-
+    if (typeof lampaRequest.native === 'function' && !isNativeBridgeUnsupportedMethod) {
       try {
-        return await dispatch(lampaRequest.native.bind(lampaRequest), nativeAjaxParams, nativePostData);
+        return await dispatch(lampaRequest.native.bind(lampaRequest), buildAjaxParams(), realPostData);
       } catch (err) {
         const isReadOnlyMethod = method === 'GET' || method === 'HEAD';
         // A caller that aborted mid-flight wants the request gone, not re-issued on the
@@ -247,7 +239,9 @@ export async function requestHttp(
       }
     }
 
-    return dispatch(lampaRequest.silent.bind(lampaRequest), buildAjaxParams(), realPostData);
+    if (typeof lampaRequest.silent === 'function') {
+      return dispatch(lampaRequest.silent.bind(lampaRequest), buildAjaxParams(), realPostData);
+    }
   }
 
   // Fallback to fetch (Node.js test environment or when `Lampa.Reguest` is unavailable)
@@ -270,13 +264,19 @@ export async function requestHttp(
       if (error instanceof TypeError) throw new NetworkError(error.message);
       throw error;
     });
-    const responseText = await response.text();
+    const responseBlob = options.responseType === 'blob' ? await response.blob() : undefined;
+    const responseText = responseBlob ? '' : await response.text();
     return {
-      json: async () => (responseText ? JSON.parse(responseText) : {}),
+      blob: async () => responseBlob || new Blob([responseText]),
+      headers: response.headers,
+      json: async () => {
+        const text = responseBlob ? await responseBlob.text() : responseText;
+        return text ? JSON.parse(text) : {};
+      },
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
-      text: async () => responseText,
+      text: async () => responseBlob ? responseBlob.text() : responseText,
     };
   } finally {
     if (timeoutHandle) clearTimeout(timeoutHandle);

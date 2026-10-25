@@ -81,7 +81,7 @@ describe('ProviderSettingsUi', () => {
     ProviderSettingsUi.openPoolManager();
     assert.ok(findGlobalSearchToggle());
 
-    storageMap.set('torrplay_enabled', false);
+    storageMap.set('torst_enabled', false);
     ProviderSettingsUi.openPoolManager();
     assert.equal(findGlobalSearchToggle(), undefined);
   });
@@ -99,12 +99,12 @@ describe('ProviderSettingsUi', () => {
     storageMap.set(PROVIDER_SEARCH_ENABLED_STORAGE_KEY, 'false');
 
     ProviderSettingsUi.openPoolManager();
-    assert.ok(findGlobalSearchToggle().subtitle.endsWith(getTestTranslation('torrplay_status_disabled')));
+    assert.ok(findGlobalSearchToggle().subtitle.endsWith(getTestTranslation('torst_status_disabled')));
     lastSelectOptions.onSelect(findGlobalSearchToggle());
     assert.equal(storageMap.get(PROVIDER_SEARCH_ENABLED_STORAGE_KEY), 'true');
 
     // The pool manager reopens with the new state.
-    assert.ok(findGlobalSearchToggle().subtitle.endsWith(getTestTranslation('torrplay_status_enabled')));
+    assert.ok(findGlobalSearchToggle().subtitle.endsWith(getTestTranslation('torst_status_enabled')));
     lastSelectOptions.onSelect(findGlobalSearchToggle());
     assert.equal(storageMap.get(PROVIDER_SEARCH_ENABLED_STORAGE_KEY), 'false');
   });
@@ -116,7 +116,7 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.openPoolManager();
     assert.ok(lastSelectOptions);
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_provider_pool_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_provider_pool_title'));
 
     const addAction = lastSelectOptions.items.find((i: any) => i.action === 'add');
     assert.ok(addAction);
@@ -138,7 +138,7 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.openPoolManager();
     const providerItem = lastSelectOptions.items.find((item: any) => item.action === 'provider');
-    assert.ok(providerItem.subtitle.includes(getTestTranslation('torrplay_latency_ms', { latency: 35 }, 'ru')));
+    assert.ok(providerItem.subtitle.includes(getTestTranslation('torst_latency_ms', { latency: 35 }, 'ru')));
   });
 
   it('opens provider actions and lists expected menu items', () => {
@@ -218,16 +218,16 @@ describe('ProviderSettingsUi', () => {
       ProviderSettingsUi.openProviderActions(provider);
       const editUrl = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
       const back = lastSelectOptions.items.find((item: any) => item.action === 'back');
-      assert.ok(editUrl.title.includes(getTestTranslation('torrplay_provider_edit_url', {}, locale)));
-      assert.equal(back.subtitle, getTestTranslation('torrplay_provider_back_to_list', {}, locale));
+      assert.ok(editUrl.title.includes(getTestTranslation('torst_provider_edit_url', {}, locale)));
+      assert.equal(back.subtitle, getTestTranslation('torst_provider_back_to_list', {}, locale));
 
       ProviderSettingsUi.promptEditProviderUrl(provider);
-      assert.equal(lastInputOptions.title, getTestTranslation('torrplay_provider_edit_url', {}, locale));
+      assert.equal(lastInputOptions.title, getTestTranslation('torst_provider_edit_url', {}, locale));
 
       lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'delete'));
-      assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_provider_confirm_delete_title', {}, locale));
+      assert.equal(lastSelectOptions.title, getTestTranslation('torst_provider_confirm_delete_title', {}, locale));
       const cancel = lastSelectOptions.items.find((item: any) => item.action === 'cancel');
-      assert.equal(cancel.subtitle, getTestTranslation('torrplay_provider_keep', {}, locale));
+      assert.equal(cancel.subtitle, getTestTranslation('torst_provider_keep', {}, locale));
     }
   });
 
@@ -239,7 +239,7 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.promptAddProvider();
     assert.equal(ProviderManager.getProviders().length, 0);
-    assert.equal(notifications[0], getTestTranslation('torrplay_provider_noty_valid_url'));
+    assert.equal(notifications[0], getTestTranslation('torst_provider_noty_valid_url'));
   });
 
   it('rejects duplicate provider URLs when adding', () => {
@@ -249,12 +249,12 @@ describe('ProviderSettingsUi', () => {
 
     ProviderSettingsUi.promptAddProvider();
     assert.equal(ProviderManager.getProviders().length, 1);
-    assert.equal(notifications[0], getTestTranslation('torrplay_provider_noty_duplicate_url'));
+    assert.equal(notifications[0], getTestTranslation('torst_provider_noty_duplicate_url'));
   });
 
   it('adds a new provider defaulting to jackett type and hostname-based name', () => {
     ProviderSettingsUi.promptAddProvider();
-    assert.equal(lastInputOptions.title, getTestTranslation('torrplay_provider_url_placeholder'));
+    assert.equal(lastInputOptions.title, getTestTranslation('torst_provider_url_placeholder'));
     const added = ProviderManager.getProviders().find(p => p.url === 'http://192.168.1.200:9117');
     assert.ok(added);
     assert.equal(added?.type, 'jackett');
@@ -273,7 +273,7 @@ describe('ProviderSettingsUi', () => {
 
     // Confirmation dialog shown, provider not yet removed
     assert.equal(ProviderManager.getProviders().length, 1);
-    assert.equal(lastSelectOptions.title, getTestTranslation('torrplay_provider_confirm_delete_title'));
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_provider_confirm_delete_title'));
 
     const confirmAction = lastSelectOptions.items.find((i: any) => i.action === 'confirm_delete');
     lastSelectOptions.onSelect(confirmAction);

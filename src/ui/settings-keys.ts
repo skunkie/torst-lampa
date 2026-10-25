@@ -2,4 +2,4 @@
 //
 // SPDX-License-Identifier: MIT
 
-export const TORRPLAY_ENABLED_STORAGE_KEY = 'torrplay_enabled';
+export const TORST_ENABLED_STORAGE_KEY = 'torst_enabled';

@@ -12,7 +12,7 @@ import { generateLandingPage } from './landing-page.mjs';
 
 export function createBuildOptions(version, buildCommit, buildDate) {
   const banner = `/**
- * TorrPlay Lampa Plugin v${version}
+ * Torst Lampa Plugin v${version}
  * SPDX-FileCopyrightText: 2026 TorrPlay
  * SPDX-License-Identifier: MIT
  */`;
@@ -68,7 +68,7 @@ export async function buildPluginBundles({
     resolvedMetadata.buildDate,
   );
 
-  const jsPath = join(outDir, 'torrplay.js');
+  const jsPath = join(outDir, 'torst.js');
   console.log(`Building unminified bundle: ${jsPath}...`);
   await esbuild.build({
     ...commonOptions,
@@ -77,7 +77,7 @@ export async function buildPluginBundles({
     sourcemap: true,
   });
 
-  const minJsPath = join(outDir, 'torrplay.min.js');
+  const minJsPath = join(outDir, 'torst.min.js');
   console.log(`Building minified bundle: ${minJsPath}...`);
   await esbuild.build({
     ...commonOptions,

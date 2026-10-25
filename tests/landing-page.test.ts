@@ -136,7 +136,7 @@ describe('Landing Page', () => {
       const attributes: Record<string, string> = {};
       runInNewContext(script, {
         document: { documentElement: { setAttribute: (name: string, value: string) => { attributes[name] = value; } } },
-        localStorage: { getItem: (key: string) => key === 'torrplay-theme' ? savedTheme : null },
+        localStorage: { getItem: (key: string) => key === 'torst-theme' ? savedTheme : null },
         navigator: { language: 'ru' },
         window: {},
       });
@@ -173,8 +173,8 @@ describe('Landing Page', () => {
 
     assert.equal(first, second);
     assert.match(markup, /<title\b[^>]*id="page-title"[^>]*>[^<]*v1\.2\.3<\/title>/);
-    assert.match(first, /torrplay\.min\.js/);
-    assert.match(first, /torrplay\.js/);
+    assert.match(first, /torst\.min\.js/);
+    assert.match(first, /torst\.js/);
     assert.match(first, /<style>[\s\S]+:root/);
     assert.match(first, /<script>[\s\S]+var i18n/);
     assert.match(first, /@media \(max-width: 1080px\)[\s\S]+\.nav-mobile-toggle/);
@@ -289,7 +289,7 @@ describe('Landing Page', () => {
 
   it('localizes desktop and mobile documentation links on load and language changes', () => {
     for (const channel of ['production', 'dev'] as const) {
-      for (const repository of ['torrplay/lampa-plugin', 'fork-owner/my-plugin']) {
+      for (const repository of ['torrplay/torst-lampa', 'fork-owner/my-plugin']) {
         for (const initialLanguage of ['en', 'ru']) {
           const { context, documentationLinks } = createLandingPageHarness(channel, initialLanguage, repository);
           assert.equal(documentationLinks.length, 2);
@@ -333,7 +333,7 @@ describe('Landing Page', () => {
     runInNewContext("copyUrl('url-min', 'btn-copy-min'); setLanguage('ru')", context);
     finishCopy();
     await Promise.resolve();
-    assert.deepEqual(copiedUrls, ['https://example.com/torrplay.min.js']);
+    assert.deepEqual(copiedUrls, ['https://example.com/torst.min.js']);
     assertCopyButtonLabel(buttons[0], translations.ru.btnCopied);
     runInNewContext("setLanguage('en')", context);
     timers.shift()?.();
@@ -366,7 +366,7 @@ describe('Landing Page', () => {
     context.document.execCommand = () => false;
     runInNewContext("copyUrl('url-dev', 'btn-copy-dev'); setLanguage('ru')", context);
     await new Promise<void>(resolve => setImmediate(resolve));
-    assert.deepEqual(prompts, [[translations.ru.copyManually, 'https://example.com/torrplay.js']]);
+    assert.deepEqual(prompts, [[translations.ru.copyManually, 'https://example.com/torst.js']]);
   });
 
   it('renders production channel with link to dev and no warning banner', () => {
@@ -388,15 +388,15 @@ describe('Landing Page', () => {
   it('links to the default repository', () => {
     const html = generateLandingPage('1.2.3');
 
-    assert.match(html, /href="https:\/\/github\.com\/torrplay\/lampa-plugin#readme"/);
-    assert.match(html, /href="https:\/\/github\.com\/torrplay\/lampa-plugin" target="_blank" rel="noopener" class="nav-gh-pill/);
+    assert.match(html, /href="https:\/\/github\.com\/torrplay\/torst-lampa#readme"/);
+    assert.match(html, /href="https:\/\/github\.com\/torrplay\/torst-lampa" target="_blank" rel="noopener" class="nav-gh-pill/);
   });
 
   it('links every repository reference to the given repository', () => {
     const html = generateLandingPage('1.2.3', undefined, 'production', 'fork-owner/my-plugin');
 
     assert.equal((html.match(/https:\/\/github\.com\/fork-owner\/my-plugin/g) || []).length, 6);
-    assert.doesNotMatch(html, /github\.com\/torrplay\/lampa-plugin/);
+    assert.doesNotMatch(html, /github\.com\/torrplay\/torst-lampa/);
   });
 
   it('escapes the repository before inserting it into HTML', () => {
@@ -407,7 +407,7 @@ describe('Landing Page', () => {
   });
 
   it('rejects a template missing a required placeholder', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'torrplay-landing-'));
+    const directory = mkdtempSync(join(tmpdir(), 'torst-landing-'));
     try {
       writeFileSync(join(directory, 'index.html'), '{{LANDING_STYLES}}{{PLUGIN_VERSION}}');
       writeFileSync(join(directory, 'styles.css'), 'body {}');

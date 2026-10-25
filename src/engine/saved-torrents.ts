@@ -2,15 +2,12 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { extractHashFromMagnet, normalizeInfoHash, TorrPlayApi } from '../api/torrplay';
+import { extractHashFromMagnet, normalizeInfoHash, TorstApi } from '../api/torst';
 import { InstanceManager } from '../instances/instance-manager';
-import { Torrent } from '../types/torrplay';
+import { Torrent } from '../types/torst';
 
-// GET /api/v1/torrents lists the database rows together with every torrent merely loaded
-// in the torrent client, so a listing entry is not proof of persistence on its own. Only
-// a database row carries the creation stamp the server writes when it stores the torrent.
-export function isPersistedTorrent(torrent: Pick<Torrent, 'created_at'>): boolean {
-  return typeof torrent.created_at === 'string' && torrent.created_at.trim().length > 0;
+export function isPersistedTorrent(torrent: Pick<Torrent, 'retention'>): boolean {
+  return torrent.retention === 'persisted';
 }
 
 /**
@@ -183,12 +180,10 @@ export class SavedTorrents {
         if (this.generation !== generation) return;
         const chunk = hashes.slice(offset, offset + LOOKUP_CHUNK_SIZE);
         try {
-          // The limit caps the response should the server not know the filter and answer
-          // with the whole listing instead. A resolved hash is never looked up again, so
+          // A resolved hash is never looked up again, so
           // the batch would only crowd recurring listings out of the revalidation cache.
-          const response = await TorrPlayApi.getTorrents(instance, {
+          const response = await TorstApi.getTorrents(instance, {
             hashes: chunk,
-            limit: chunk.length,
             shouldRevalidate: false,
           });
           if (this.generation !== generation) return;

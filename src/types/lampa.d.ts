@@ -125,7 +125,7 @@ declare global {
     runtime?: number,
     source?: string,
     title?: string,
-    torrplay?: boolean
+    torst?: boolean
   }
 
   interface LampaNavigator {
@@ -503,7 +503,7 @@ declare global {
     jQuery: any,
     Lampa: LampaNamespace,
     Navigator?: LampaNavigator,
-    plugin_torrplay_ready?: boolean
+    plugin_torst_ready?: boolean
   }
 
   const $: LampaJQuery;

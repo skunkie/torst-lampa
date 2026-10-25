@@ -1,6 +1,6 @@
 ---
 name: russian-technical-translation
-description: Guidelines and principles for translating and writing natural, idiomatic Russian technical documentation for software and developer tools. Use this skill whenever writing, translating, or reviewing Russian documentation (content/ru/) or Russian UI strings (the `ru` entries in src/lang/translations.ts) to avoid mechanical translation, English grammatical calques, and awkward passive phrasing.
+description: Guidelines and principles for translating and writing natural, idiomatic Russian technical documentation for software and developer tools. Use this skill whenever writing, translating, or reviewing Russian documentation (README.ru.md) or Russian UI strings (the `ru` entries in src/lang/translations.ts) to avoid mechanical translation, English grammatical calques, and awkward passive phrasing.
 ---
 
 <!--
@@ -23,8 +23,8 @@ Documentation and UI copy in Russian must read as if originally authored by an e
 
 ### A. Overuse of Passive Voice & Copula Verbs ("является", "быть")
 
-- **Mechanical:** `TorrPlay является приложением для потоковой передачи торрентов.`
-- **Natural:** `TorrPlay — приложение для потоковой передачи торрентов.`
+- **Mechanical:** `Torst является приложением для потоковой передачи торрентов.`
+- **Natural:** `Torst — приложение для потоковой передачи торрентов.`
 - **Mechanical:** `Этот токен может быть использован внешними плеерами.`
 - **Natural:** `Этот токен используют внешние плееры.` / `Токен подходит для внешних плееров.`
 
@@ -40,7 +40,7 @@ Documentation and UI copy in Russian must read as if originally authored by an e
 | в целях обеспечения       | чтобы / для                                                 | Simplify bureaucratic fluff                                                                                       |
 | при осуществлении запуска | при запуске                                                 | Avoid split verbs with "осуществление"                                                                            |
 | данный / соответствующий  | этот / нужный / omit                                        | Avoid unnecessary demonstratives                                                                                  |
-| в экземпляре включена     | в TorrPlay включена                                         | "Экземпляр" is often a clunky calque for "instance"                                                               |
+| в экземпляре включена     | в Torst включена                                         | "Экземпляр" is often a clunky calque for "instance"                                                               |
 | позволяет вам выполнять   | позволяет выполнять / вы можете                             | Avoid literal "allows you to"                                                                                     |
 | предоставляет возможность | умеет / поддерживает / позволяет                            | Avoid pompous phrases                                                                                             |
 | под капотом               | внутри / на уровне движка                                   | "Under the hood" calque                                                                                           |
@@ -115,7 +115,7 @@ Lampa runs on TV platforms (Android TV, Tizen, WebOS) where screen real estate i
 
 - **Action Buttons**: Prefer concise infinitives or clear noun phrases.
   - *Good:* `Воспроизвести`, `Сохранить`, `Удалить`, `Тест подключения`.
-  - *Too wordy:* `Начать воспроизведение видео`, `Сохранить в базу данных TorrPlay`.
+  - *Too wordy:* `Начать воспроизведение видео`, `Сохранить в базу данных Torst`.
 - **Subtitles & Badges**: Keep under one line of text (~30–45 characters). Avoid wrapping across multiple lines in settings and select dialogs.
 - **Toast Notifications (`Lampa.Noty`)**: Keep short, direct, and factual.
   - *Good:* `Инстанс доступен (12 мс)`
@@ -124,11 +124,11 @@ Lampa runs on TV platforms (Android TV, Tizen, WebOS) where screen real estate i
   - *Good:* `Сохранение в базе` → `Всегда` / `Никогда` / `Спрашивать перед просмотром`.
   - *Avoid:* `Save to Database` → `Save to Database`, the same text twice in one row; its Russian echo `Сохранение в базе` → `Сохранять в базу` is the same mistake.
 
-### B. Lampa & TorrPlay UI Vocabulary
+### B. Lampa & Torst UI Vocabulary
 
 | UI Concept / English     | Preferred Russian           | Lampa Context / Notes                                                 |
 | :----------------------- | :-------------------------- | :-------------------------------------------------------------------- |
-| **Instance**             | Инстанс                     | The only term for a TorrPlay node; never `сервер` or `экземпляр`      |
+| **Instance**             | Инстанс                     | The only term for a Torst node; never `сервер` or `экземпляр`      |
 | **Instance Pool**        | Пул инстансов               | Settings component and instance manager                               |
 | **Active Instance**      | Активный инстанс            | Badge and menu selection in pool                                      |
 | **Latency / Ping**       | Задержка                    | Millisecond response time (`мс`); not `пинг`                          |
@@ -145,7 +145,7 @@ Lampa runs on TV platforms (Android TV, Tizen, WebOS) where screen real estate i
 Borrowed nouns that name software entities (`провайдер`, `инстанс`, `плагин`, `сервер`) are inanimate in UI copy and documentation: the accusative matches the nominative.
 
 - *Good:* `Добавить провайдер`, `Удалить провайдер из пула`, `Проверить все провайдеры`, `Добавить инстанс`.
-- *Avoid:* `Добавить провайдера`, `Проверить всех провайдеров`. The animate form is for a provider as a company or legal entity (an ISP or service vendor), which is never the meaning in TorrPlay's settings.
+- *Avoid:* `Добавить провайдера`, `Проверить всех провайдеров`. The animate form is for a provider as a company or legal entity (an ISP or service vendor), which is never the meaning in Torst's settings.
 - Genitive forms are unaffected: `тип провайдера`, `задержку всех провайдеров`.
 
 ### D. Templates & Placeholders
@@ -163,18 +163,18 @@ UI strings are templates: `{name}`, `{storage}`, `{value}` and similar placehold
 
 - **Confirmation dialogs** are mirrored yes/no questions: `Добавить инстанс?` / `Удалить инстанс?`, not noun phrases like `Подтверждение инстанса`.
 - **Mood.** Setting and menu item descriptions use infinitives or noun phrases (`Проверить задержку всех провайдеров`, `Выбрать инстанс для обработки запросов`). Imperatives (`Введите`, `Укажите`) are reserved for direct instructions in errors and notifications.
-- **Availability.** Short status labels may use `Офлайн`; full sentences use `доступен` / `недоступен` (`TorrPlay: {failed} недоступен → переключено на {next}`).
-- **Capitalization.** Running text that continues the sentence after `→` or a colon stays lowercase (`→ переключено на {next}`, `Внимание: инстанс недоступен`). A label or value inserted after a colon keeps its own capital (`Текущее значение: Включено`, `Тип хранилища изменен: Оперативная память`), and so does the message after a leading `TorrPlay:` prefix.
+- **Availability.** Short status labels may use `Офлайн`; full sentences use `доступен` / `недоступен` (`Torst: {failed} недоступен → переключено на {next}`).
+- **Capitalization.** Running text that continues the sentence after `→` or a colon stays lowercase (`→ переключено на {next}`, `Внимание: инстанс недоступен`). A label or value inserted after a colon keeps its own capital (`Текущее значение: Включено`, `Тип хранилища изменен: Оперативная память`), and so does the message after a leading `Torst:` prefix.
 
 ### F. Accuracy Before Wording
 
 A faithful translation of a wrong English string is still wrong. Settle what a string means before deciding how it reads.
 
-- **Describe what the code does.** Check the behavior in the plugin source before writing or translating a description, and check the TorrPlay server source for the effect of an API call.
+- **Describe what the code does.** Check the behavior in the plugin source before writing or translating a description, and check the Torst server source for the effect of an API call.
   - *Wrong:* `Через стандартный торрент-плеер Lampa`. Lampa has no torrent player; the option hands the torrent to TorrServer, so the text is `Воспроизведение через TorrServer`.
   - *Verified:* `Удалить торрент и скачанные данные`. The server's delete call drops the torrent from the client and removes its downloaded files, so "from the database" would understate it.
-- **Cover everything a setting controls.** A setting's description names every area it switches, not just the most visible one. The TorrPlay toggle also governs torrent search, so its description is `Просмотр и поиск торрентов через TorrPlay`, not playback alone. When everything cannot fit the length limit, length wins: leave out what the user sees as soon as the item opens, never what the setting changes elsewhere. `Инстансы, аутентификация и проверка задержки` can omit choosing the active instance, because that choice is on the pool screen itself.
-- **Fit every call site of a shared key.** When one key is shown in several places, its text must be true in all of them. `torrplay_test_conn_descr` appears for both instances and search providers, so it reads `Проверить доступность и задержку` and does not mention an instance.
+- **Cover everything a setting controls.** A setting's description names every area it switches, not just the most visible one. The Torst toggle also governs torrent search, so its description is `Просмотр и поиск торрентов через Torst`, not playback alone. When everything cannot fit the length limit, length wins: leave out what the user sees as soon as the item opens, never what the setting changes elsewhere. `Инстансы, аутентификация и проверка задержки` can omit choosing the active instance, because that choice is on the pool screen itself.
+- **Fit every call site of a shared key.** When one key is shown in several places, its text must be true in all of them. `torst_test_conn_descr` appears for both instances and search providers, so it reads `Проверить доступность и задержку` and does not mention an instance.
 - **Fix jargon in the English source first.** Developer terms leak into UI copy in English too: "persistence", "health endpoint", "native", or "handles playback" where the thing actually handles every request. Rewrite the English to plain behavior (`Save to Database`, `Check availability and measure latency`), then translate the corrected string.
 
 ---
@@ -186,12 +186,12 @@ A faithful translation of a wrong English string is still wrong. Settle what a s
   - `15 Мбит/с` (not `15Mbps`, `15Мбит/с` or `15 Мб/с`)
   - `4 ГБ` / `700 МБ` (not `4гб` or `700мб`)
 - **Quotation Marks**:
-  - Use Russian typographic angle quotes («ёлочки») in prose: `«TorrPlay»`.
-  - If nested quotes are needed, use inner quotes („лапки“): `«кнопка „TorrPlay“ в карточке»`.
-  - Titles and names shown to the user inside UI strings also use angle quotes: `TorrPlay: «{title}» добавлен в базу!`.
+  - Use Russian typographic angle quotes («ёлочки») in prose: `«Torst»`.
+  - If nested quotes are needed, use inner quotes („лапки“): `«кнопка „Torst“ в карточке»`.
+  - Titles and names shown to the user inside UI strings also use angle quotes: `Torst: «{title}» добавлен в базу!`.
   - Straight quotes (`"..."` / `'...'`) are only for code identifiers, never for user-visible text.
 - **Dashes & Hyphens**:
-  - Em-dash (`—`) with surrounding spaces for definitions and parenthetical statements: `TorrPlay — клиент для Lampa`.
+  - Em-dash (`—`) with surrounding spaces for definitions and parenthetical statements: `Torst — клиент для Lampa`.
   - Hyphen (`-`) without spaces for compound words: `интернет-соединение`, `D-pad`.
 
 ---
@@ -199,7 +199,7 @@ A faithful translation of a wrong English string is still wrong. Settle what a s
 ## 5. Code, Command & Placeholder Rules
 
 - **Code, commands, flags, parameters, and snippets are NEVER translated into Russian.**
-- All shell commands (`curl`, `docker`, CLI flags), JSON keys, and placeholder tokens (`your-username`, `your-password`, `your-jwt-token`, `YOUR_API_KEY`) remain in English across all Russian pages.
+- All shell commands (`curl`, `docker`, CLI flags), JSON keys, and placeholder tokens (`your-password`, `your-access-token`, `YOUR_API_KEY`) remain in English across all Russian pages.
 - Explanatory comments inside shell snippets may be in Russian, provided they are concise and natural.
 
 ---

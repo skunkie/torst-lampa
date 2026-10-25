@@ -2,10 +2,9 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ExternalProgress } from './engine/external-progress';
 import { initPlayerPlaylist } from './engine/player-playlist';
 import { SavedTorrents } from './engine/saved-torrents';
-import { TorrPlayEngine } from './engine/torrplay-engine';
+import { TorstEngine } from './engine/torst-engine';
 import { InstanceManager } from './instances/instance-manager';
 import { initTranslations, translate } from './lang/translations';
 import { ParserHook } from './providers/parser-hook';
@@ -19,7 +18,7 @@ import { PLUGIN_BUILD_COMMIT, PLUGIN_BUILD_DATE, PLUGIN_VERSION } from './versio
 export { PLUGIN_BUILD_COMMIT, PLUGIN_BUILD_DATE, PLUGIN_VERSION };
 
 function initPlugin(): void {
-  if (window.plugin_torrplay_ready) return;
+  if (window.plugin_torst_ready) return;
 
   try {
     initTranslations();
@@ -29,25 +28,24 @@ function initPlugin(): void {
     SettingsUi.init();
     SidebarManager.init();
     CatalogChoice.init();
-    TorrPlayEngine.init();
-    ExternalProgress.init();
+    TorstEngine.init();
     initPlayerPlaylist();
     ParserHook.init();
     DatabaseSearch.init();
 
     if (Lampa.Manifest) {
       Lampa.Manifest.plugins = {
-        description: translate('torrplay_desc', 'TorrPlay client for torrent streaming'),
-        name: 'TorrPlay',
+        description: translate('torst_desc', 'Torst client for torrent streaming'),
+        name: 'Torst',
         type: 'video',
         version: PLUGIN_VERSION,
       };
     }
 
-    window.plugin_torrplay_ready = true;
-    console.log(`[TorrPlay] Plugin v${PLUGIN_VERSION} initialized successfully`);
+    window.plugin_torst_ready = true;
+    console.log(`[Torst] Plugin v${PLUGIN_VERSION} initialized successfully`);
   } catch (error) {
-    console.error('[TorrPlay] Failed to initialize plugin:', error);
+    console.error('[Torst] Failed to initialize plugin:', error);
   }
 }
 

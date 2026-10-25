@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { resolveTorrentItemHash, SavedTorrents } from '../engine/saved-torrents';
-import { TorrPlayEngine } from '../engine/torrplay-engine';
+import { TorstEngine } from '../engine/torst-engine';
 import { translate } from '../lang/translations';
 
 interface CatalogFullEvent {
@@ -28,7 +28,7 @@ interface CatalogTorrentEvent {
   type: string
 }
 
-const TORRPLAY_BUTTON_ICON = `
+const TORST_BUTTON_ICON = `
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg">
   <circle cx="12" cy="12" r="10"/>
   <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"/>
@@ -44,9 +44,9 @@ export class CatalogChoice {
 
     if (typeof Lampa === 'undefined' || !Lampa.Listener) return;
 
-    // Hook into Movie Card Details (inject TorrPlay into Sources / button bar)
+    // Hook into Movie Card Details (inject Torst into Sources / button bar)
     Lampa.Listener.follow('full', (event: CatalogFullEvent) => {
-      if (!TorrPlayEngine.isEnabled()) return;
+      if (!TorstEngine.isEnabled()) return;
       if (event.type !== 'complite' || !event.body) return;
 
       const globalJquery = (globalThis as typeof globalThis & { $?: LampaJQuery }).$;
@@ -58,13 +58,13 @@ export class CatalogChoice {
         : jquery(event.body);
       if (!body || typeof body.find !== 'function') return;
 
-      if (body.find('.view--torrplay').length) return;
+      if (body.find('.view--torst').length) return;
 
-      const subtitle = translate('torrplay_btn_subtitle', 'Torrents via TorrPlay');
+      const subtitle = translate('torst_btn_subtitle', 'Torrents via Torst');
       const buttonHtml = `
-        <div class="full-start__button selector view--torrplay" data-subtitle="${subtitle}">
-          ${TORRPLAY_BUTTON_ICON}
-          <span>TorrPlay</span>
+        <div class="full-start__button selector view--torst" data-subtitle="${subtitle}">
+          ${TORST_BUTTON_ICON}
+          <span>Torst</span>
         </div>
       `.trim();
 
@@ -92,27 +92,27 @@ export class CatalogChoice {
         const parseLang = (typeof Lampa !== 'undefined' && Lampa.Storage?.field?.('parse_lang')) || 'df';
         const searchQuery = combinations[parseLang] || title || originalTitle;
 
-        const movieWithTorrPlay = { ...movie, torrplay: true };
+        const movieWithTorst = { ...movie, torst: true };
 
         if (typeof Lampa !== 'undefined' && Lampa.Activity) {
           Lampa.Activity.push({
             component: 'torrents',
-            movie: movieWithTorrPlay,
+            movie: movieWithTorst,
             page: 1,
             search: searchQuery,
             search_one: title,
             search_two: originalTitle,
-            title: 'TorrPlay',
-            torrplay: true,
+            title: 'Torst',
+            torst: true,
             url: '',
           });
         }
       });
 
-      const isAlwaysTorrPlay = TorrPlayEngine.isEnabled() && TorrPlayEngine.getPlaybackMode() === 'torrplay';
+      const isAlwaysTorst = TorstEngine.isEnabled() && TorstEngine.getPlaybackMode() === 'torst';
       const container = body.find('.buttons--container');
       const target = body.find('.view--torrent');
-      if (isAlwaysTorrPlay && target.length) {
+      if (isAlwaysTorst && target.length) {
         target.addClass('hide');
         target.removeClass('selector');
       }
@@ -130,7 +130,7 @@ export class CatalogChoice {
 
     // Hook into Torrent Cards (Parser / Search results)
     Lampa.Listener.follow('torrent', (event: CatalogTorrentEvent) => {
-      if (!TorrPlayEngine.isEnabled()) return;
+      if (!TorstEngine.isEnabled()) return;
 
       // Rendering a result is the earliest point the menu's own state can be prepared: the
       // menu itself is built synchronously, so whether a torrent is already stored has to be
@@ -144,7 +144,7 @@ export class CatalogChoice {
         // Captured before the menu opens: the native items restore focus themselves, so the
         // injected ones must do the same or the card list is left with nothing focused.
         const returnController = Lampa.Controller?.enabled?.().name || 'content';
-        const isAlwaysTorrPlay = TorrPlayEngine.getPlaybackMode() === 'torrplay';
+        const isAlwaysTorst = TorstEngine.getPlaybackMode() === 'torst';
         const viewedList: string[] = (typeof Lampa !== 'undefined' && Lampa.Storage?.get('torrents_view', [])) || [];
         const isViewed = Boolean(
           event.element?.viewed ||
@@ -154,7 +154,7 @@ export class CatalogChoice {
         // Dynamic state toggle for mark/unmark viewed:
         // If already viewed, retain only "unmark"; if unviewed, retain only "mark".
         const nativeItems = event.menu.filter(menuItem => {
-          if (isAlwaysTorrPlay && menuItem.tomy) return false;
+          if (isAlwaysTorst && menuItem.tomy) return false;
           if (isViewed && menuItem.mark) return false;
           if (!isViewed && menuItem.unmark) return false;
           return true;
@@ -171,10 +171,10 @@ export class CatalogChoice {
         // Structured hierarchy: Play -> Save -> Native actions (Library/Mark)
         event.menu.push({
           onSelect: () => {
-            TorrPlayEngine.playTorrentDirect(event.element, movie, returnController);
+            TorstEngine.playTorrentDirect(event.element, movie, returnController);
           },
-          subtitle: translate('torrplay_play_via_descr', 'Stream via active TorrPlay instance'),
-          title: translate('torrplay_play_via', 'Play via TorrPlay'),
+          subtitle: translate('torst_play_via_descr', 'Stream via active Torst instance'),
+          title: translate('torst_play_via', 'Play via Torst'),
         });
 
         // A torrent the database already holds keeps its row, as a plain statement of that
@@ -184,18 +184,18 @@ export class CatalogChoice {
           event.menu.push({
             ghost: true,
             noenter: true,
-            subtitle: translate('torrplay_already_saved_descr', 'Available in the TorrPlay database'),
-            title: translate('torrplay_already_saved', 'Already in TorrPlay'),
+            subtitle: translate('torst_already_saved_descr', 'Available in the Torst database'),
+            title: translate('torst_already_saved', 'Already in Torst'),
           });
         } else {
           event.menu.push({
             onSelect: () => {
               // Focus goes back right away; the save reports its outcome through a notification.
-              void TorrPlayEngine.saveToDatabase(event.element, movie);
+              void TorstEngine.saveToDatabase(event.element, movie);
               if (Lampa.Controller) Lampa.Controller.toggle(returnController);
             },
-            subtitle: translate('torrplay_save_to_descr', 'Save torrent to the database for later'),
-            title: translate('torrplay_save_to', 'Save to TorrPlay'),
+            subtitle: translate('torst_save_to_descr', 'Save torrent to the database for later'),
+            title: translate('torst_save_to', 'Save to Torst'),
           });
         }
 

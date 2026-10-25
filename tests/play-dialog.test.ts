@@ -100,10 +100,10 @@ describe('PlayDialog', () => {
   it('uses one native activation handler for every modal control', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     const selectors = [
-      '.torrplay-opt-storage',
-      '.torrplay-opt-savedb',
-      '.torrplay-opt-remember',
-      '.torrplay-btn-play',
+      '.torst-opt-storage',
+      '.torst-opt-savedb',
+      '.torst-opt-remember',
+      '.torst-btn-play',
     ];
 
     for (const selector of selectors) {
@@ -111,7 +111,7 @@ describe('PlayDialog', () => {
       assert.deepEqual(events, ['hover:enter']);
     }
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
       saveToDb: false,
@@ -123,13 +123,13 @@ describe('PlayDialog', () => {
 
   it('toggles Remember choice through the focusable remote control', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
-    const rememberControl = controls.get('.torrplay-opt-remember');
-    const rememberCheckbox = controls.get('.torrplay-opt-remember input');
+    const rememberControl = controls.get('.torst-opt-remember');
+    const rememberCheckbox = controls.get('.torst-opt-remember input');
 
     rememberControl.listeners.get('hover:enter')();
     assert.equal(rememberCheckbox.prop('checked'), true);
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
     await resultPromise;
 
     assert.equal(storage.get(STORAGE_TYPE_STORAGE_KEY), 'memory');
@@ -138,17 +138,17 @@ describe('PlayDialog', () => {
 
   it('removes disabled storage from D-pad navigation and restores it when enabled', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
-    const storageControl = controls.get('.torrplay-opt-storage');
-    const saveDbControl = controls.get('.torrplay-opt-savedb');
+    const storageControl = controls.get('.torst-opt-storage');
+    const saveDbControl = controls.get('.torst-opt-savedb');
 
     assert.equal(storageControl.classes.has('selector'), false);
-    assert.equal(storageControl.classes.has('torrplay-opt-disabled'), true);
+    assert.equal(storageControl.classes.has('torst-opt-disabled'), true);
 
     saveDbControl.listeners.get('hover:enter')();
     assert.equal(storageControl.classes.has('selector'), true);
-    assert.equal(storageControl.classes.has('torrplay-opt-disabled'), false);
+    assert.equal(storageControl.classes.has('torst-opt-disabled'), false);
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
     await resultPromise;
   });
 
@@ -156,15 +156,15 @@ describe('PlayDialog', () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
-    const storageControl = controls.get('.torrplay-opt-storage');
-    const saveDbControl = controls.get('.torrplay-opt-savedb');
+    const storageControl = controls.get('.torst-opt-storage');
+    const saveDbControl = controls.get('.torst-opt-savedb');
 
     // Save to Database defaults to off (storage key is 'ask' in beforeEach) — toggling storage must be a no-op.
     storageControl.listeners.get('hover:enter')();
     saveDbControl.listeners.get('hover:enter')(); // turn Save to Database on
     storageControl.listeners.get('hover:enter')(); // now toggles memory -> file
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
       saveToDb: true,
@@ -176,14 +176,14 @@ describe('PlayDialog', () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
-    const storageControl = controls.get('.torrplay-opt-storage');
-    const saveDbControl = controls.get('.torrplay-opt-savedb');
+    const storageControl = controls.get('.torst-opt-storage');
+    const saveDbControl = controls.get('.torst-opt-savedb');
 
     saveDbControl.listeners.get('hover:enter')(); // turn Save to Database on
     storageControl.listeners.get('hover:enter')(); // memory -> file
     saveDbControl.listeners.get('hover:enter')(); // turn Save to Database back off
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
       saveToDb: false,
@@ -197,7 +197,7 @@ describe('PlayDialog', () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
       saveToDb: false,
@@ -236,7 +236,7 @@ describe('PlayDialog', () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
-    controls.get('.torrplay-btn-play').listeners.get('hover:enter')();
+    controls.get('.torst-btn-play').listeners.get('hover:enter')();
     assert.deepEqual(await resultPromise, {
       saveToDb: false,
       storage: 'memory',

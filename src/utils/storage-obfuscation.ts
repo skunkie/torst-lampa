@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 const STORAGE_OBFUSCATION_PREFIX = 'enc:v1:';
-const STORAGE_SALT = 'TorrPlay$SecSalt@2026';
+const STORAGE_SALT = 'Torst$SecSalt@2026';
 
 function utf8ToBase64(str: string): string {
   if (typeof Buffer !== 'undefined') {

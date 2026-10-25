@@ -2,22 +2,22 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { TorrPlayApi } from '../api/torrplay';
+import { TorstApi } from '../api/torst';
 import { translate } from '../lang/translations';
-import { TorrPlayInstance } from '../types/torrplay';
+import { TorstInstance } from '../types/torst';
 import { deobfuscateCredential, obfuscateCredential } from '../utils/storage-obfuscation';
 import { generateUuid } from '../utils/uuid';
 
-export const STORAGE_KEY_INSTANCES = 'torrplay_instances';
-const STORAGE_KEY_MODE = 'torrplay_selection_mode';
-const STORAGE_KEY_SELECTED = 'torrplay_selected_instance';
+export const STORAGE_KEY_INSTANCES = 'torst_instances';
+const STORAGE_KEY_MODE = 'torst_selection_mode';
+const STORAGE_KEY_SELECTED = 'torst_selected_instance';
 
 export const BENCHMARK_FRESHNESS_MS = 2 * 60 * 1000;
 
 export type SelectionMode = 'auto' | 'manual';
 
 export class InstanceManager {
-  private static instances: TorrPlayInstance[] = [];
+  private static instances: TorstInstance[] = [];
   // Which databases requests can reach: null until the pool is first loaded.
   private static instancePoolSignature: string | null = null;
   private static isInitialized = false;
@@ -74,19 +74,19 @@ export class InstanceManager {
     if (previousId !== id) this.notifySelectionChanged();
   }
 
-  public static load(): TorrPlayInstance[] {
+  public static load(): TorstInstance[] {
     const storedInstances = Lampa.Storage.get(STORAGE_KEY_INSTANCES, '[]');
     try {
       const rawInstances = typeof storedInstances === 'string' ? JSON.parse(storedInstances) : storedInstances;
       if (Array.isArray(rawInstances)) {
         const unreadableCredentialInstances: string[] = [];
-        this.instances = (rawInstances as TorrPlayInstance[]).map(
+        this.instances = (rawInstances as TorstInstance[]).map(
           instance => {
             let password = instance.password;
             if (password !== undefined) {
               const deobfuscated = deobfuscateCredential(password);
               if (password !== '' && deobfuscated === '') {
-                unreadableCredentialInstances.push(instance.name || instance.url || 'TorrPlay');
+                unreadableCredentialInstances.push(instance.name || instance.url || 'Torst');
               }
               password = deobfuscated;
             }
@@ -102,8 +102,8 @@ export class InstanceManager {
           const names = unreadableCredentialInstances.join(', ');
           Lampa.Noty.show(
             translate(
-              'torrplay_invalid_credentials_noty',
-              `TorrPlay: Saved credentials for ${names} could not be read. Please re-enter the password in Settings.`,
+              'torst_invalid_credentials_noty',
+              `Torst: Saved credentials for ${names} could not be read. Please re-enter the password in Settings.`,
               { names }
             )
           );
@@ -121,9 +121,9 @@ export class InstanceManager {
         {
           authType: 'none',
           id: generateUuid(),
-          name: 'Local TorrPlay',
+          name: 'Local Torst',
           status: 'unknown' as const,
-          url: 'http://127.0.0.1:8090',
+          url: 'http://127.0.0.1:8080',
         },
       ];
       this.save();
@@ -134,20 +134,18 @@ export class InstanceManager {
   }
 
   public static save(): void {
-    // Ephemeral tokens (jwtToken, playbackToken) and runtime benchmarks (checkedAtMs, checkedUrl, latencyMs)
+    // Ephemeral tokens (accessToken, playbackToken) and runtime benchmarks (checkedAtMs, checkedUrl, latencyMs)
     // are strictly kept in-memory to prevent persistent credential leakage in localStorage.
     // Stored passwords are obfuscated to prevent plaintext leakage in storage dumps.
     const sanitized = this.instances.map(instance => {
-      const persisted: TorrPlayInstance = {
+      const persisted: TorstInstance = {
         authType: instance.authType,
         ...(instance.enableDownloader !== undefined ? { enableDownloader: instance.enableDownloader } : {}),
-        ...(instance.fileStoragePath !== undefined ? { fileStoragePath: instance.fileStoragePath } : {}),
         id: instance.id,
         name: instance.name,
         ...(instance.password !== undefined ? { password: obfuscateCredential(instance.password) } : {}),
         status: 'unknown' as const,
         url: instance.url,
-        ...(instance.username !== undefined ? { username: instance.username } : {}),
       };
       return persisted;
     });
@@ -168,12 +166,12 @@ export class InstanceManager {
     if (!isFirstLoad) this.notifySelectionChanged();
   }
 
-  public static getInstances(): TorrPlayInstance[] {
+  public static getInstances(): TorstInstance[] {
     if (!this.isInitialized) this.init();
     return this.instances;
   }
 
-  public static getPrimaryInstance(): TorrPlayInstance {
+  public static getPrimaryInstance(): TorstInstance {
     const list = this.getInstances();
     if (list.length === 0) {
       return this.load()[0];
@@ -191,12 +189,12 @@ export class InstanceManager {
     return list.find(instance => instance.id === selectedId) || list[0];
   }
 
-  public static addInstance(instance: TorrPlayInstance): void {
+  public static addInstance(instance: TorstInstance): void {
     this.instances.push(instance);
     this.save();
   }
 
-  public static updateInstance(instance: TorrPlayInstance): void {
+  public static updateInstance(instance: TorstInstance): void {
     const instanceIndex = this.instances.findIndex(candidate => candidate.id === instance.id);
     if (instanceIndex !== -1) {
       this.instances[instanceIndex] = instance;
@@ -213,16 +211,16 @@ export class InstanceManager {
   }
 
   /**
-   * Pings all instances in parallel using /api/system/health and measures latency.
+   * Pings all instances in parallel using `/readyz` and measures latency.
    */
-  public static async pingAll(): Promise<TorrPlayInstance[]> {
+  public static async pingAll(): Promise<TorstInstance[]> {
     const instances = this.getInstances();
     if (instances.length === 0) return [];
 
     await Promise.all(
       instances.map(async instance => {
         instance.status = 'checking';
-        await TorrPlayApi.checkHealth(instance);
+        await TorstApi.checkHealth(instance);
       })
     );
 
@@ -231,15 +229,15 @@ export class InstanceManager {
   }
 
   /**
-   * Resolves the best available TorrPlay instance according to selection mode and latency.
+   * Resolves the best available Torst instance according to selection mode and latency.
    */
-  public static async getBestInstance(): Promise<TorrPlayInstance> {
+  public static async getBestInstance(): Promise<TorstInstance> {
     if (!this.isInitialized) this.init();
     const mode = this.getMode();
     const instances = this.instances;
 
     if (instances.length === 0) {
-      throw new Error('No TorrPlay instances configured');
+      throw new Error('No Torst instances configured');
     }
 
     if (mode === 'manual') {
@@ -247,7 +245,7 @@ export class InstanceManager {
       const selectedInstance = instances.find(instance => instance.id === selectedId) || instances[0];
 
       // Quick health verification
-      const healthResult = await TorrPlayApi.checkHealth(selectedInstance, 2500);
+      const healthResult = await TorstApi.checkHealth(selectedInstance, 2500);
       if (healthResult.isOk) {
         return selectedInstance;
       }
@@ -271,7 +269,7 @@ export class InstanceManager {
       return reachableInstances[0];
     }
 
-    throw new Error('All configured TorrPlay instances are unreachable');
+    throw new Error('All configured Torst instances are unreachable');
   }
 
   /**
@@ -279,10 +277,10 @@ export class InstanceManager {
    * reachable instance, and benchmarking only when there is none. A benchmark only counts for
    * the URL it measured, since editing an instance changes its URL in place.
    */
-  public static async getBestKnownInstance(): Promise<TorrPlayInstance> {
+  public static async getBestKnownInstance(): Promise<TorstInstance> {
     if (!this.isInitialized) this.init();
     const nowMs = Date.now();
-    const isReachable = (instance: TorrPlayInstance) => (
+    const isReachable = (instance: TorstInstance) => (
       instance.status === 'online'
       && instance.latencyMs !== undefined
       && instance.latencyMs < Infinity
@@ -308,7 +306,7 @@ export class InstanceManager {
   /**
    * Failover to the next best available instance when an active instance goes offline.
    */
-  public static async failover(failedInstance: TorrPlayInstance, isAborted?: () => boolean): Promise<TorrPlayInstance | null> {
+  public static async failover(failedInstance: TorstInstance, isAborted?: () => boolean): Promise<TorstInstance | null> {
     if (isAborted?.()) return null;
     failedInstance.status = 'offline';
     failedInstance.latencyMs = Infinity;
@@ -317,7 +315,7 @@ export class InstanceManager {
     if (remainingInstances.length === 0) return null;
 
     // Ping remaining instances concurrently
-    await Promise.all(remainingInstances.map(instance => TorrPlayApi.checkHealth(instance, 2500)));
+    await Promise.all(remainingInstances.map(instance => TorstApi.checkHealth(instance, 2500)));
     if (isAborted?.()) return null;
 
     const reachableInstances = remainingInstances
@@ -331,8 +329,8 @@ export class InstanceManager {
       if (typeof Lampa !== 'undefined' && Lampa.Noty) {
         Lampa.Noty.show(
           translate(
-            'torrplay_noty_failover',
-            `TorrPlay: ${failedInstance.name} offline → Switched to ${nextInstance.name} (${nextInstance.latencyMs} ms)`,
+            'torst_noty_failover',
+            `Torst: ${failedInstance.name} offline → Switched to ${nextInstance.name} (${nextInstance.latencyMs} ms)`,
             {
               failed: failedInstance.name,
               latency: nextInstance.latencyMs ?? 0,

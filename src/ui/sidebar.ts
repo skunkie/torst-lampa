@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { SettingsUi, TORRPLAY_ICON } from './settings';
-import { TORRPLAY_TORRENTS_COMPONENT_ID, TorrPlayTorrentsComponent } from './torrplay-torrents';
+import { SettingsUi, TORST_ICON } from './settings';
+import { TORST_TORRENTS_COMPONENT_ID, TorstTorrentsComponent } from './torst-torrents';
 
 const MENU_SORT_STORAGE_KEY = 'menu_sort';
-const SIDEBAR_ITEM_LABEL = 'TorrPlay';
+const SIDEBAR_ITEM_LABEL = 'Torst';
 
 export class SidebarManager {
   private static isRegistered = false;
@@ -33,9 +33,9 @@ export class SidebarManager {
     if (this.isRegistered) return;
     this.isRegistered = true;
 
-    // Register TorrPlay Torrents component
+    // Register Torst Torrents component
     if (typeof Lampa !== 'undefined' && Lampa.Component) {
-      Lampa.Component.add(TORRPLAY_TORRENTS_COMPONENT_ID, TorrPlayTorrentsComponent);
+      Lampa.Component.add(TORST_TORRENTS_COMPONENT_ID, TorstTorrentsComponent);
     }
 
     const addSidebarButton = () => {
@@ -47,7 +47,7 @@ export class SidebarManager {
 
       SettingsUi.updateTorrServerVisibility();
 
-      if (jquery('.menu__item[data-action="torrplay"]').length) return;
+      if (jquery('.menu__item[data-action="torst"]').length) return;
 
       const primaryMenuList = jquery('.menu .menu__list:eq(0)');
       if (!primaryMenuList.length) return;
@@ -61,15 +61,15 @@ export class SidebarManager {
       if (!firstMenuItem.length) return;
 
       const sidebarItem = jquery(`
-        <li class="menu__item selector" data-action="torrplay">
-          <div class="menu__ico">${TORRPLAY_ICON}</div>
+        <li class="menu__item selector" data-action="torst">
+          <div class="menu__ico">${TORST_ICON}</div>
           <div class="menu__text">${SIDEBAR_ITEM_LABEL}</div>
         </li>
       `);
 
       sidebarItem.on('hover:enter', () => {
         Lampa.Activity.push({
-          component: TORRPLAY_TORRENTS_COMPONENT_ID,
+          component: TORST_TORRENTS_COMPONENT_ID,
           page: 1,
           title: SIDEBAR_ITEM_LABEL,
           url: '',

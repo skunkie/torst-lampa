@@ -47,11 +47,11 @@ describe('Pages Deployment Assembly', () => {
       });
 
       assert.ok(existsSync(join(tempDir, 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'torrplay.js')));
-      assert.ok(existsSync(join(tempDir, 'torrplay.min.js')));
+      assert.ok(existsSync(join(tempDir, 'torst.js')));
+      assert.ok(existsSync(join(tempDir, 'torst.min.js')));
       assert.ok(existsSync(join(tempDir, 'dev', 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'dev', 'torrplay.js')));
-      assert.ok(existsSync(join(tempDir, 'dev', 'torrplay.min.js')));
+      assert.ok(existsSync(join(tempDir, 'dev', 'torst.js')));
+      assert.ok(existsSync(join(tempDir, 'dev', 'torst.min.js')));
 
       const rootHtml = readFileSync(join(tempDir, 'index.html'), 'utf8');
       assert.match(rootHtml, /v2\.0\.0/);
@@ -76,8 +76,8 @@ describe('Pages Deployment Assembly', () => {
           downloadedRepository = repo;
           // Mock release download by creating dummy production assets
           const dummyBanner = '// Mock release';
-          writeFileSync(join(targetDir, 'torrplay.js'), dummyBanner);
-          writeFileSync(join(targetDir, 'torrplay.min.js'), dummyBanner);
+          writeFileSync(join(targetDir, 'torst.js'), dummyBanner);
+          writeFileSync(join(targetDir, 'torst.min.js'), dummyBanner);
           return '1.9.9';
         },
         environment: { GITHUB_REPOSITORY: 'fork-owner/my-plugin', GITHUB_SHA: 'abcdef1234567890' },
@@ -86,11 +86,11 @@ describe('Pages Deployment Assembly', () => {
       });
 
       assert.ok(existsSync(join(tempDir, 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'torrplay.js')));
-      assert.ok(existsSync(join(tempDir, 'torrplay.min.js')));
+      assert.ok(existsSync(join(tempDir, 'torst.js')));
+      assert.ok(existsSync(join(tempDir, 'torst.min.js')));
       assert.ok(existsSync(join(tempDir, 'dev', 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'dev', 'torrplay.js')));
-      assert.ok(existsSync(join(tempDir, 'dev', 'torrplay.min.js')));
+      assert.ok(existsSync(join(tempDir, 'dev', 'torst.js')));
+      assert.ok(existsSync(join(tempDir, 'dev', 'torst.min.js')));
 
       assert.equal(downloadedRepository, 'fork-owner/my-plugin');
 
@@ -120,9 +120,9 @@ describe('Pages Deployment Assembly', () => {
       });
 
       assert.ok(existsSync(join(tempDir, 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'torrplay.js')));
+      assert.ok(existsSync(join(tempDir, 'torst.js')));
       assert.ok(existsSync(join(tempDir, 'dev', 'index.html')));
-      assert.ok(existsSync(join(tempDir, 'dev', 'torrplay.js')));
+      assert.ok(existsSync(join(tempDir, 'dev', 'torst.js')));
     } finally {
       rmSync(tempDir, { force: true, recursive: true });
     }

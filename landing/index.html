@@ -8,17 +8,17 @@ SPDX-License-Identifier: MIT
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title id="page-title">TorrPlay Lampa Plugin v{{PLUGIN_VERSION}}</title>
-  <meta id="page-description" name="description" content="TorrPlay plugin for the Lampa media client. Stream torrents on Android TV, Tizen, and WebOS.">
+  <title id="page-title">Torst Lampa Plugin v{{PLUGIN_VERSION}}</title>
+  <meta id="page-description" name="description" content="Torst plugin for the Lampa media client. Stream torrents on Android TV, Tizen, and WebOS.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M%206%2016.5%20C%203.8%2016.2%202%2014.3%202%2012%20C%202%209.5%203.9%207.4%206.4%207.1%20C%207%204.2%209.5%202%2012.5%202%20C%2016.1%202%2019.1%204.7%2019.6%208.2%20C%2021.5%208.7%2023%2010.4%2023%2012.5%20C%2023%2014.7%2021.3%2016.4%2019.2%2016.6%20Z%22%20fill%3D%22%23E8EBF7%22%20stroke%3D%22%23000000%22%20stroke-width%3D%221.2%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M%206.8%206.5%20C%208%205.2%209.6%204.5%2011.5%204.5%22%20stroke%3D%22%23000000%22%20stroke-width%3D%221.2%22%20stroke-linecap%3D%22round%22%2F%3E%3Cpath%20d%3D%22M%2010.38%209.24%20L%2013.62%209.24%20L%2013.21%2010.85%20A%204.8%204.8%200%200%201%2015.60%2012.23%20L%2016.79%2011.08%20L%2018.41%2013.88%20L%2016.80%2014.33%20A%204.8%204.8%200%200%201%2016.80%2017.07%20L%2018.41%2017.52%20L%2016.79%2020.32%20L%2015.60%2019.17%20A%204.8%204.8%200%200%201%2013.21%2020.55%20L%2013.62%2022.16%20L%2010.38%2022.16%20L%2010.79%2020.55%20A%204.8%204.8%200%200%201%208.40%2019.17%20L%207.21%2020.32%20L%205.59%2017.52%20L%207.20%2017.07%20A%204.8%204.8%200%200%201%207.20%2014.33%20L%205.59%2013.88%20L%207.21%2011.08%20L%208.40%2012.23%20A%204.8%204.8%200%200%201%2010.79%2010.85%20Z%22%20fill%3D%22%23315175%22%20stroke%3D%22%23000000%22%20stroke-width%3D%221.2%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M%2010.8%2013.5%20C%2010.8%2012.8%2011.5%2012.4%2012.1%2012.8%20L%2014.8%2014.9%20C%2015.4%2015.3%2015.4%2016.1%2014.8%2016.5%20L%2012.1%2018.6%20C%2011.5%2019.0%2010.8%2018.6%2010.8%2017.9%20Z%22%20fill%3D%22%23FFFFFF%22%20stroke%3D%22%23000000%22%20stroke-width%3D%221.0%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E">
   <script>
     (function () {
       try {
-        var savedTheme = localStorage.getItem('torrplay-theme');
+        var savedTheme = localStorage.getItem('torst-theme');
         var theme = savedTheme || 'dark';
         document.documentElement.setAttribute('data-theme', theme);
 
-        var savedLang = localStorage.getItem('torrplay-lang');
+        var savedLang = localStorage.getItem('torst-lang');
         var browserLang = (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en';
         var lang = savedLang || browserLang;
         document.documentElement.setAttribute('data-lang', lang);
@@ -40,7 +40,7 @@ SPDX-License-Identifier: MIT
           <path d="M 10.38 9.24 L 13.62 9.24 L 13.21 10.85 A 4.8 4.8 0 0 1 15.60 12.23 L 16.79 11.08 L 18.41 13.88 L 16.80 14.33 A 4.8 4.8 0 0 1 16.80 17.07 L 18.41 17.52 L 16.79 20.32 L 15.60 19.17 A 4.8 4.8 0 0 1 13.21 20.55 L 13.62 22.16 L 10.38 22.16 L 10.79 20.55 A 4.8 4.8 0 0 1 8.40 19.17 L 7.21 20.32 L 5.59 17.52 L 7.20 17.07 A 4.8 4.8 0 0 1 7.20 14.33 L 5.59 13.88 L 7.21 11.08 L 8.40 12.23 A 4.8 4.8 0 0 1 10.79 10.85 Z" fill="#315175" stroke="#000000" stroke-width="1.2" stroke-linejoin="round"/>
           <path d="M 10.8 13.5 C 10.8 12.8 11.5 12.4 12.1 12.8 L 14.8 14.9 C 15.4 15.3 15.4 16.1 14.8 16.5 L 12.1 18.6 C 11.5 19.0 10.8 18.6 10.8 17.9 Z" fill="#FFFFFF" stroke="#000000" stroke-width="1.0" stroke-linejoin="round"/>
         </svg>
-        <span>TorrPlay</span>
+        <span>Torst</span>
         {{BRAND_BADGE}}
       </a>
 
@@ -51,8 +51,8 @@ SPDX-License-Identifier: MIT
         <a href="{{REPOSITORY_URL}}#readme" data-docs-url="{{REPOSITORY_URL}}" target="_blank" rel="noopener" class="nav-link nav-links-desktop" data-i18n="navDocs">
           Documentation ↗
         </a>
-        <a href="https://github.com/torrplay/torrplay" target="_blank" rel="noopener" class="nav-link nav-links-desktop" data-i18n="navTorrPlay">
-          TorrPlay ↗
+        <a href="https://github.com/torrplay/torst" target="_blank" rel="noopener" class="nav-link nav-links-desktop" data-i18n="navTorst">
+          Torst ↗
         </a>
         {{CHANNEL_NAV_LINK}}
         <a href="{{REPOSITORY_URL}}" target="_blank" rel="noopener" class="nav-gh-pill nav-links-desktop" data-i18n-aria="labelRepository" aria-label="GitHub Repository">
@@ -87,7 +87,7 @@ SPDX-License-Identifier: MIT
       <a href="#features" class="mobile-nav-link" onclick="closeMobileMenu()" data-i18n="navFeatures">Features</a>
       <a href="#installation" class="mobile-nav-link" onclick="closeMobileMenu()" data-i18n="navInstall">Install</a>
       <a href="{{REPOSITORY_URL}}#readme" data-docs-url="{{REPOSITORY_URL}}" target="_blank" rel="noopener" class="mobile-nav-link" onclick="closeMobileMenu()" data-i18n="navDocs">Documentation ↗</a>
-      <a href="https://github.com/torrplay/torrplay" target="_blank" rel="noopener" class="mobile-nav-link" onclick="closeMobileMenu()" data-i18n="navTorrPlay">TorrPlay ↗</a>
+      <a href="https://github.com/torrplay/torst" target="_blank" rel="noopener" class="mobile-nav-link" onclick="closeMobileMenu()" data-i18n="navTorst">Torst ↗</a>
       {{CHANNEL_MOBILE_LINK}}
       <a href="{{REPOSITORY_URL}}" target="_blank" rel="noopener" class="mobile-nav-link" onclick="closeMobileMenu()">GitHub ↗</a>
     </div>
@@ -116,10 +116,10 @@ SPDX-License-Identifier: MIT
       </div>
       <div class="prerequisite-content">
         <div class="section-tag" data-i18n="prerequisiteTag">Prerequisite</div>
-        <h2 id="prerequisite-title" class="prerequisite-title" data-i18n="prerequisiteTitle">TorrPlay Application Required</h2>
-        <p class="prerequisite-text" data-i18n="prerequisiteText">This plugin is a client for Lampa. Torrent streaming requires a running, self-hosted TorrPlay application. Set up TorrPlay first, then connect the plugin to it.</p>
+        <h2 id="prerequisite-title" class="prerequisite-title" data-i18n="prerequisiteTitle">Torst Application Required</h2>
+        <p class="prerequisite-text" data-i18n="prerequisiteText">This plugin is a client for Lampa. Torrent streaming requires a running, self-hosted Torst application. Set up Torst first, then connect the plugin to it.</p>
       </div>
-      <a class="prerequisite-link" href="https://github.com/torrplay/torrplay" target="_blank" rel="noopener" data-i18n="prerequisiteLink">Set up TorrPlay ↗</a>
+      <a class="prerequisite-link" href="https://github.com/torrplay/torst" target="_blank" rel="noopener" data-i18n="prerequisiteLink">Set up Torst ↗</a>
     </aside>
 
     <!-- Plugin Bundles -->
@@ -133,7 +133,7 @@ SPDX-License-Identifier: MIT
         <div class="code-card-header">
           <div class="code-card-file">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span>torrplay.min.js</span>
+            <span>torst.min.js</span>
           </div>
           <span class="code-badge badge-recommended" data-i18n="badgeRecommended">Production build</span>
         </div>
@@ -151,7 +151,7 @@ SPDX-License-Identifier: MIT
         <div class="code-card-header">
           <div class="code-card-file">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <span>torrplay.js</span>
+            <span>torst.js</span>
           </div>
           <span class="code-badge badge-dev" data-i18n="badgeDev">Development build</span>
         </div>
@@ -187,7 +187,7 @@ SPDX-License-Identifier: MIT
           </div>
           <div class="feature-info">
             <h3 class="feature-title" data-i18n="featPoolTitle">Multi-Instance Pool</h3>
-            <p class="feature-text" data-i18n="featPoolDesc">Pings all TorrPlay instances in parallel, routes to the lowest latency, and fails over if one drops.</p>
+            <p class="feature-text" data-i18n="featPoolDesc">Pings all Torst instances in parallel, routes to the lowest latency, and fails over if one drops.</p>
           </div>
         </div>
 
@@ -219,7 +219,7 @@ SPDX-License-Identifier: MIT
           </div>
           <div class="feature-info">
             <h3 class="feature-title" data-i18n="featDbTitle">Database Torrents</h3>
-            <p class="feature-text" data-i18n="featDbDesc">Browse database torrents with poster badges, select multi-file episodes, and sync with the Lampa sidebar.</p>
+            <p class="feature-text" data-i18n="featDbDesc">Browse saved torrents from the Lampa sidebar, choose individual files, and mark torrents as viewed.</p>
           </div>
         </div>
 
@@ -247,8 +247,8 @@ SPDX-License-Identifier: MIT
             </svg>
           </div>
           <div class="feature-info">
-            <h3 class="feature-title" data-i18n="featAuthTitle">Bearer & Basic Auth</h3>
-            <p class="feature-text" data-i18n="featAuthDesc">OAuth2 JWT for API control, with short-lived scoped tokens for video stream URLs.</p>
+            <h3 class="feature-title" data-i18n="featAuthTitle">Password Authentication</h3>
+            <p class="feature-text" data-i18n="featAuthDesc">Password sign-in for API access, with playback tokens for video stream URLs.</p>
           </div>
         </div>
 
@@ -304,11 +304,11 @@ SPDX-License-Identifier: MIT
           </li>
           <li class="step-item">
             <div class="step-number">3</div>
-            <div class="step-content" data-i18n-html="step3">Paste the copied <strong>Production URL</strong> (<code>torrplay.min.js</code>) and confirm.</div>
+            <div class="step-content" data-i18n-html="step3">Paste the copied <strong>Production URL</strong> (<code>torst.min.js</code>) and confirm.</div>
           </li>
           <li class="step-item">
             <div class="step-number">4</div>
-            <div class="step-content" data-i18n-html="step4">Restart Lampa. A dedicated <strong>TorrPlay</strong> entry will appear in <strong>Settings</strong> and the main sidebar.</div>
+            <div class="step-content" data-i18n-html="step4">Restart Lampa. A dedicated <strong>Torst</strong> entry will appear in <strong>Settings</strong> and the main sidebar.</div>
           </li>
         </ol>
       </div>
@@ -319,7 +319,7 @@ SPDX-License-Identifier: MIT
   <footer>
     <div class="footer-container">
       <div data-i18n-html="footer">
-        TorrPlay is open-source under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">MIT License</a>.
+        Torst is open-source under the <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">MIT License</a>.
       </div>
     </div>
   </footer>

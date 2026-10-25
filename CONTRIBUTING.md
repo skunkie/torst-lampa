@@ -6,13 +6,13 @@ SPDX-License-Identifier: MIT
 
 # Contributing
 
-Thanks for helping with the TorrPlay Lampa plugin. This page covers what a
+Thanks for helping with the Torst Lampa plugin. This page covers what a
 change needs before it can be merged. Taking part is governed by the [code of
 conduct](CODE_OF_CONDUCT.md).
 
 The plugin is a single, dependency-free script that runs inside Lampa on
-Android TV, Tizen, webOS and desktop browsers, and it talks to TorrPlay
-instances only through their `/api/` and `/api/v1/` endpoints. A change that
+Android TV, Tizen, webOS and desktop browsers, and it talks to Torst
+instances through `/api/v1/` resources and the `/readyz` readiness check. A change that
 adds a runtime dependency, relies on a legacy TorrServer route, or only works
 on a recent browser engine is unlikely to be accepted.
 
@@ -23,8 +23,8 @@ be agreed before you write it. The issue forms ask for what a report needs:
 the plugin version, the device and Lampa build, the settings involved, and
 what happened.
 
-A problem in the TorrPlay server itself belongs in the
-[TorrPlay repository](https://github.com/torrplay/torrplay/issues) instead.
+A problem in the Torst server itself belongs in the
+[Torst repository](https://github.com/torrplay/torst/issues) instead.
 
 Report a security problem privately, as the [security policy](SECURITY.md)
 describes, rather than in a public issue.
@@ -44,7 +44,7 @@ npm run build
 reuse lint
 ```
 
-`npm run build` writes `dist/torrplay.js`, `dist/torrplay.min.js` and the
+`npm run build` writes `dist/torst.js`, `dist/torst.min.js` and the
 landing page `dist/index.html`. To try a change on a device, serve `dist/`
 and add the script's URL as a plugin in Lampa.
 
@@ -106,7 +106,7 @@ edits.
 ```text
 feat(instances): add parallel latency benchmark for auto-selection
 
-- Ping all configured TorrPlay instances concurrently using /api/system/health.
+- Ping all configured Torst instances concurrently using /readyz.
 - Route playback and metadata requests to the lowest-latency instance.
 - Notify the user when failover engages because an instance stopped responding.
 ```

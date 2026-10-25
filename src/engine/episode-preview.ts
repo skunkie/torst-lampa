@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ParsedFileInfo } from '../types/torrplay';
+import { ParsedFileInfo } from '../types/torst';
 
 const BROKEN_IMAGE_PATH = './img/img_broken.svg';
 const SEASON_METADATA_TIMEOUT_MS = 1_500;

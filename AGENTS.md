@@ -8,7 +8,7 @@ SPDX-License-Identifier: MIT
 
 ## Repository Overview
 
-This repository contains the official [TorrPlay](https://github.com/torrplay/torrplay) plugin for the [Lampa](https://github.com/yumata/lampa) media client. The plugin is authored in TypeScript, adheres to strict linting and typechecking rules, and compiles into a standalone, bundle-free JavaScript file (`dist/torrplay.js` and `dist/torrplay.min.js`) suitable for execution across web browsers, Android TV, Tizen, and WebOS.
+This repository contains a [Torst](https://github.com/torrplay/torst) plugin for the [Lampa](https://github.com/yumata/lampa) media client. The plugin is authored in TypeScript, adheres to strict linting and typechecking rules, and compiles into a standalone, bundle-free JavaScript file (`dist/torst.js` and `dist/torst.min.js`) suitable for execution across web browsers, Android TV, Tizen, and WebOS.
 
 ## Repository Structure & Module Organization
 
@@ -17,20 +17,19 @@ The codebase is organized into domain-driven modules under `src/` and mirrored u
 ```text
 src/
 ├── api/
-│   ├── auth.ts              # AuthenticationManager: Basic auth, Bearer JWT login, and playback tokens
+│   ├── auth.ts              # AuthManager: Password sign-in and playback tokens
 │   ├── http-client.ts       # Unified HTTP transport with Lampa.Reguest adapter and fetch fallback
-│   └── torrplay.ts          # TorrPlayApi: Pure /api/ and /api/v1/ endpoints client
+│   └── torst.ts             # TorstApi: Torst resource client and wire adapters
 ├── engine/
 │   ├── database-search.ts   # Saved-torrent search through the instance's search filter, for global search and the filtered database view
 │   ├── engine-utils.ts      # Guarded modal close, viewed marking, and watch history recording
 │   ├── episode-preview.ts   # TMDB season episode lookup for file list stills, names, and air dates
-│   ├── external-progress.ts # Playback progress estimation after external players return
 │   ├── file-parser.ts       # Torrent file sorting, video detection, and season/episode/timeline resolution
 │   ├── media-context.ts     # Movie card context and poster URL resolution
 │   ├── playback-session.ts  # File list modal, single/multi-file playback, and player item construction
 │   ├── player-playlist.ts   # Restores the handed-over playlist when Lampa empties it on episode switches
 │   ├── saved-torrents.ts    # SavedTorrents: batched lookup cache of torrents stored in the database
-│   └── torrplay-engine.ts   # Playback routing, parser integration, file resolution, and Lampa.Player hand-off
+│   └── torst-engine.ts      # Playback routing, parser integration, file resolution, and Lampa.Player hand-off
 ├── instances/
 │   └── instance-manager.ts  # Multi-instance CRUD, latency benchmarking, auto selection, and failover
 ├── lang/
@@ -42,12 +41,12 @@ src/
 ├── types/
 │   ├── lampa.d.ts           # External Lampa ambient API interfaces (alphabetically sorted)
 │   ├── provider.ts          # Search provider domain models and response types (alphabetically sorted)
-│   └── torrplay.ts          # TorrPlay domain models and response types (alphabetically sorted)
+│   └── torst.ts             # Torst domain models and response types (alphabetically sorted)
 ├── ui/
 │   ├── about.ts             # AboutUi: Plugin version, build date, and commit
 │   ├── card-watched.ts      # Watched progress overlay on movie cards
 │   ├── catalog-choice.ts    # Movie card details button and parser context menu injection
-│   ├── database-search.ts   # DatabaseSearch: Lampa global search source for saved TorrPlay torrents
+│   ├── database-search.ts   # DatabaseSearch: Lampa global search source for saved Torst torrents
 │   ├── file-list-item.ts    # Native-template file list rows with lazy episode stills
 │   ├── instance-pool.ts     # InstancePoolUi: Instance pool manager and per-instance action menus
 │   ├── play-dialog.ts       # Pre-playback options modal (storage type and database persistence)
@@ -59,7 +58,7 @@ src/
 │   ├── settings.ts          # SettingsUi: Settings folder, parameters, and shared menu helpers
 │   ├── settings-keys.ts     # Storage keys shared with modules that SettingsUi itself depends on
 │   ├── sidebar.ts           # SidebarManager: Main menu button and native TorrServer visibility toggling
-│   └── torrplay-torrents.ts # TorrPlayTorrentsComponent: Database torrents browser and file manager
+│   └── torst-torrents.ts    # TorstTorrentsComponent: Database torrents browser and file manager
 ├── utils/
 │   ├── search-query.ts      # Lenient URI decoding of Lampa global search queries
 │   ├── storage-obfuscation.ts # Storage credential obfuscation codec with reversible cipher
@@ -71,69 +70,70 @@ src/
 
 ## Core Architectural Rules & Constraints
 
-1. **Pure API Surface (`/api/` and `/api/v1/` only)**:
-   - All communication with TorrPlay instances must exclusively use `/api/` (e.g., `/api/system/health`) and `/api/v1/` endpoints.
-   - Never call legacy TorrServer compatibility routes (e.g., `/torrents`, `/stream/{filename}`, `/play/...`, `/cache`, `/echo`, `/viewed`) or qBittorrent endpoints.
-   - Health checks and latency benchmarking must use the lightweight, unauthenticated `GET /api/system/health` route.
-   - This restriction scopes traffic to TorrPlay instances specifically. It does not limit integration with unrelated third-party services (e.g. Jackett, Prowlarr, or other industry-standard search/indexer APIs), which may use whatever endpoints and protocols those services define.
+1. **Torst API Surface**:
+   - Match the contract in `~/projects/torrplay-rs/api/openapi.yaml`. Use `/api/v1/` resources and unauthenticated `/readyz` for readiness and latency checks.
+   - Torrents and files have opaque IDs. Find a torrent by repeated `info_hash` filters; never place an info hash in a resource ID path.
+   - Follow `items` and `links.next` for cursor pagination. Torst lists persisted torrents by default; `retention=any` includes temporary ones.
+   - Use per-file `POST .../preloads`, then read or delete the returned preload resource. Stream through a file's `/content` resource.
+   - Configuration changes use `/configuration`, `application/merge-patch+json`, and the resource's current ETag in `If-Match`. Settings patches need the same precondition.
+   - Target the current Torst development contract. Do not add backward compatibility or migration paths for older API shapes or TorrPlay state.
+   - Never call legacy TorrPlay, TorrServer, or qBittorrent endpoints on a Torst instance.
 
 2. **Multi-Instance Pool with Latency Preference**:
-   - Support arbitrary numbers of TorrPlay instances, configured via Lampa settings and stored in `Lampa.Storage`.
+   - Support arbitrary numbers of Torst instances, configured via Lampa settings and stored in `Lampa.Storage`.
    - Each instance tracks connectivity status and round-trip ping time.
    - In "Auto" mode, instances are pinged in parallel, and traffic routes to the reachable instance with the lowest latency.
    - If an active instance becomes unresponsive or encounters network failures, automatic failover selects the next best reachable instance with notification to the user.
 
-3. **Storage Type & Database Persistence**:
-   - Only torrents saved to the database may use file storage. Unsaved torrents, including link-only releases resolved for temporary playback, must use memory storage.
-   - Configurable per playback or default via settings:
-     - Storage type: `memory` (RAM) or `file` (Disk).
-     - Save to Database: `true` or `false`.
-   - An optional "Ask before play" modal prompts the user for storage type and persistence before adding the torrent.
-   - `POST /api/v1/torrents` is the server's persisting create call and has no request field to opt out of persistence — calling it always saves the torrent to the database. Persistence is therefore controlled entirely by which endpoint the plugin calls, not by a request value: `save_to_db: true` uses `POST /api/v1/torrents`; `save_to_db: false` uses `GET /api/v1/torrents/{hash}` (optionally with a `magnet` query parameter to bootstrap-by-magnet), which loads the torrent for playback without ever persisting it. Do not issue automatic post-playback `DELETE` requests.
+3. **Storage and Persistence**:
+   - Torst's wire storage modes are `memory` and `disk`; the plugin maps its internal `file` choice to `disk`.
+   - Use `retention: persisted` to save and `retention: temporary` for temporary playback, in both JSON and multipart creation. Temporary torrents use memory storage and omit title, poster, and other library metadata. Torst handles their idle cleanup; never automatically delete after playback. A duplicate temporary torrent is promoted through an ETag-protected configuration patch when saving; temporary playback must never downgrade a persisted torrent.
+   - Create with `magnet_uri` JSON or upload `torrent_file` in multipart data. Download URL-only releases on the client before upload.
 
 4. **Preload Before Player Hand-off**:
-   - Before launching video playback in `Lampa.Player`, initiate preloading via `PUT /api/v1/torrents/{hash}/preload`.
+   - Before launching video playback in `Lampa.Player`, initiate preloading via `POST /api/v1/torrents/{torrent_id}/files/{file_id}/preloads`.
    - Display Lampa's native fullscreen media loading screen (`Lampa.Loading.start(..., { media })`), showing movie backdrop, buffer progress percentage, loaded bytes vs. target bytes, download speed (in Mbit/s), and peer stats.
    - Hand off to `Lampa.Player.play()` once the buffer reaches readiness or threshold (>= 95%).
-   - Cancel preloading via `DELETE /api/v1/torrents/{hash}/preload` if dismissed by the user.
-   - The preload modal abandons a preload on inactivity, not on a deadline: the clock resets on every poll that reports more bytes, and a torrent that has yet to deliver any is given a wider opening window (metadata resolution alone can occupy the instance for a good while) in which arriving peers also count as movement. The preload start request outlasts that metadata wait rather than abandoning a call the instance is still working on, and the opening window only starts counting once that request succeeds — the instance bounds the metadata wait itself and answers `504` once it lapses, so a failed start keeps the elapsed time rather than being granted a fresh window. A start or status read the instance rejects with a client error (any `4xx` other than `408` or `429`), or one whose bearer login is refused or lacks credentials, would fail the same way on every retry, so the modal stops at once with a notice instead of retrying until the inactivity window lapses; authentication failures point the user at the instance credentials.
-   - Unconditionally set `continue_play: true` (and `torrent: true`) on the player item and every entry of the playlist handed to `Lampa.Player.playlist()`, and hand the playlist over before `Lampa.Player.play()`, with the played item being one of its entries. Lampa skips its VAST preroll ad for an item marked `continue_play` only while that exact item object is in the player's current playlist (`Lampa.PlayerPlaylist`). Its separate torrent exemption only applies to URLs on the configured TorrServer address, which a TorrPlay stream URL normally isn't and can't be relied on to be, and it reads no `torrent` flag on the item, so `torrent: true` is only a descriptive marker. TorrPlay playback is always genuinely torrent playback, so there is no configurable "prevent ads" setting.
-   - Switching episodes inside Lampa's player tears the player down first, which empties its playlist, and Lampa restores it only after the next episode has passed the preroll check. `src/engine/player-playlist.ts` therefore listens for the player's `create` event, which Lampa sends before that check, and puts back the playlist TorrPlay handed over whenever the item being played is one of its entries and Lampa's playlist is momentarily empty.
+   - Cancel preloading via `DELETE /api/v1/torrents/{torrent_id}/files/{file_id}/preloads/{preload_id}` if dismissed by the user.
+   - The preload modal stops on inactivity rather than a fixed deadline. Byte movement resets its clock, and peer movement extends the opening window before any bytes arrive. Torst creates a per-file preload once metadata is ready and returns its resource ID immediately; poll that resource, renew it after TTL expiry while buffering continues, and use torrent statistics for speed and peer counts. Release owned preloads before starting another on the same instance; cancellation must name the preload it belongs to. A connection failure while creating a preload is ambiguous and must not automatically repeat the POST. Client errors other than `408` and `429`, and credential failures, stop at once with a notice.
+   - Unconditionally set `continue_play: true` (and `torrent: true`) on the player item and every entry of the playlist handed to `Lampa.Player.playlist()`, and hand the playlist over before `Lampa.Player.play()`, with the played item being one of its entries. Lampa skips its VAST preroll ad for an item marked `continue_play` only while that exact item object is in the player's current playlist (`Lampa.PlayerPlaylist`). Its separate torrent exemption only applies to URLs on the configured TorrServer address, which a Torst stream URL normally isn't and can't be relied on to be, and it reads no `torrent` flag on the item, so `torrent: true` is only a descriptive marker. Torst playback is always genuinely torrent playback, so there is no configurable "prevent ads" setting.
+   - Switching episodes inside Lampa's player tears the player down first, which empties its playlist, and Lampa restores it only after the next episode has passed the preroll check. `src/engine/player-playlist.ts` therefore listens for the player's `create` event, which Lampa sends before that check, and puts back the playlist Torst handed over whenever the item being played is one of its entries and Lampa's playlist is momentarily empty.
 
 5. **Authentication & Token Management**:
-   - Support `none`, `basic`, and `bearer` authentication modes per instance.
-   - For Bearer auth: acquire JWT access token via `POST /oauth/token` (`application/x-www-form-urlencoded`) and refresh before expiration or upon HTTP 401.
-   - For streaming routes: obtain a playback token via `POST /api/v1/tokens` (`{"scope": "playback"}`) for Basic and Bearer auth, appending `&token={token}` to the stream URL.
+   - Support no authentication or password sign-in. Torst has no username, Basic authentication, or OAuth endpoint.
+   - Create an access token through `POST /api/v1/access-tokens` with `name` and `password`; use its `secret` as the bearer credential. Request a one-day lifetime, share concurrent sign-ins, respect `expires_at`, and retry once after a 401 without invalidating a newer token.
+   - Issue streaming and poster tokens through `POST /api/v1/playback-tokens`, appending `?token=...` to media URLs.
+   - Keep tokens in memory and passwords obfuscated in storage.
 
 6. **Lampa Settings & Instance Configuration**:
-   - All TorrPlay instance nodes (URLs, authentication, and credentials) are configured exclusively through the Instance Pool, ensuring a single source of truth without redundant standalone instance inputs.
+   - All Torst instance nodes (URLs, authentication, and credentials) are configured exclusively through the Instance Pool, ensuring a single source of truth without redundant standalone instance inputs.
    - Action items (managing instance pool, latency tests) must use `type: 'button'` with `onChange` listeners (never `type: 'static'`, and without redundant click listeners in `onRender`).
    - Instance pool management and instance actions must be TV-control friendly, using `Lampa.Select` and `Lampa.Input` for full D-pad remote compatibility without modal stacking.
-   - The TorrPlay settings folder is registered with `before: 'tmdb'`, never `after: 'server'`/`after: 'parser'` — Lampa removes both the `server` and `parser` settings folders entirely when `torrents_use` is disabled (the exact condition TorrPlay users are in), and inserting relative to a component id that doesn't exist in the DOM silently no-ops, dropping TorrPlay's own settings folder too. Anchor only to a component that is never conditionally removed.
+   - The Torst settings folder is registered with `before: 'tmdb'`, never `after: 'server'`/`after: 'parser'` — Lampa removes both the `server` and `parser` settings folders entirely when `torrents_use` is disabled (the exact condition Torst users are in), and inserting relative to a component id that doesn't exist in the DOM silently no-ops, dropping Torst's own settings folder too. Anchor only to a component that is never conditionally removed.
 
-7. **Sidebar & Database Torrents (`torrplay_torrents`)**:
-   - Add a dedicated "TorrPlay" entry to Lampa's main sidebar menu, positioned as the second item (right after whichever item the menu list currently has first), since native items are always appended to the end and never displace it.
-   - Register custom component `torrplay_torrents` (`Lampa.Component.add`) to list torrents retrieved via `GET /api/v1/torrents`, supporting direct playback, multi-file selection, dynamic mark/unmark viewed toggle (`torrents_view`), storage switching (`PATCH /api/v1/torrents/{hash}`), and database deletion (`DELETE /api/v1/torrents/{hash}`).
-   - `GET /api/v1/torrents` returns the database rows **and** every torrent merely loaded in the torrent client, and only a database row carries `created_at`. A client-only entry has no row for `PATCH /api/v1/torrents/{hash}` to update, so the storage switch is offered only for entries that carry `created_at`.
-   - Opened from a global search row ("More"), `torrplay_torrents` is filtered to that query, through the same matching as `DatabaseSearch`, and pinned to the row's instance. A pinned view never updates `SavedTorrents` with another database's contents, and once its instance stops answering it drops the pin and falls back to regular instance selection.
-   - Do not hook or monkey-patch the legacy `Lampa.Torserver` API (`.my`, `.add`, `.remove`, `.ip`, etc.). TorrPlay's own sidebar entry and `torrplay_torrents` component are the sole, self-contained surface for browsing and managing TorrPlay's database — native TorrServer integration is intentionally left untouched.
-   - In "Always TorrPlay" mode (`torrplay_playback_mode: 'torrplay'`), hide native TorrServer entry points (sidebar item, settings folder, torrent-view button) via the `torrplay--hide-torrserver` body class instead of intercepting their handlers.
+7. **Sidebar & Database Torrents (`torst_torrents`)**:
+   - Add a dedicated "Torst" entry to Lampa's main sidebar menu, positioned as the second item (right after whichever item the menu list currently has first), since native items are always appended to the end and never displace it.
+   - Register custom component `torst_torrents` (`Lampa.Component.add`) to list torrents retrieved via `GET /api/v1/torrents`, supporting direct playback, multi-file selection, dynamic mark/unmark viewed toggle (`torrents_view`), storage switching (`PATCH /api/v1/torrents/{torrent_id}/configuration`), and database deletion (`DELETE /api/v1/torrents/{torrent_id}`).
+   - The library listing defaults to persisted torrents. Both temporary and persisted resources carry `created_at`; use `retention` to tell them apart. Storage changes use the `/configuration` resource.
+   - Opened from a global search row ("More"), `torst_torrents` is filtered to that query, through the same matching as `DatabaseSearch`, and pinned to the row's instance. A pinned view never updates `SavedTorrents` with another database's contents, and once its instance stops answering it drops the pin and falls back to regular instance selection.
+   - Do not hook or monkey-patch the legacy `Lampa.Torserver` API (`.my`, `.add`, `.remove`, `.ip`, etc.). Torst's own sidebar entry and `torst_torrents` component are the sole, self-contained surface for browsing and managing Torst's database — native TorrServer integration is intentionally left untouched.
+   - In "Always Torst" mode (`torst_playback_mode: 'torst'`), hide native TorrServer entry points (sidebar item, settings folder, torrent-view button) via the `torst--hide-torrserver` body class instead of intercepting their handlers.
 
 8. **Torrent Card Player Choice, Routing, & Context Menu Actions**:
    - Provide a clean context menu (`torrent` event on `onlong`) on torrent cards:
-     - "Play via TorrPlay" at the top for immediate streaming.
-     - "Save to TorrPlay" for persistent library database storage, replaced by an inactive "Already in TorrPlay" row once the torrent is known to be stored. Lampa builds this menu synchronously, so `SavedTorrents` (`src/engine/saved-torrents.ts`) resolves that state ahead of time: card `render` events queue the info hash, and a debounced batch resolves them through the `hashes` filter of `GET /api/v1/torrents`. An unresolved hash keeps the save action. The cache is per-database, so it is dropped whenever `InstanceManager` reroutes requests (selection mode, selected instance, pool membership, or an instance URL) — nothing else forces a re-lookup, since a hash that is already cached is never queued again.
+     - "Play via Torst" at the top for immediate streaming.
+     - "Save to Torst" for persistent library database storage, replaced by an inactive "Already in Torst" row once the torrent is known to be stored. Lampa builds this menu synchronously, so `SavedTorrents` (`src/engine/saved-torrents.ts`) resolves that state ahead of time: card `render` events queue the info hash, and a debounced batch resolves them through the `info_hash` filter of `GET /api/v1/torrents`. An unresolved hash keeps the save action. The cache is per-database, so it is dropped whenever `InstanceManager` reroutes requests (selection mode, selected instance, pool membership, or an instance URL) — nothing else forces a re-lookup, since a hash that is already cached is never queued again.
      - Dynamic viewed toggle: present only "Mark as viewed" if unviewed, or "Remove mark" if already viewed.
-     - Strip native TorrServer `tomy: true` in "Always TorrPlay" mode (`torrplay_playback_mode: 'torrplay'`).
-   - Intercept `Lampa.Torrent.start` to route playback according to configurable playback mode (`torrplay_playback_mode`: `ask`, `torrplay`, `context`) seamlessly through Lampa's native playback actions.
+     - Strip native TorrServer `tomy: true` in "Always Torst" mode (`torst_playback_mode: 'torst'`).
+   - Intercept `Lampa.Torrent.start` to route playback according to configurable playback mode (`torst_playback_mode`: `ask`, `torst`, `context`) seamlessly through Lampa's native playback actions.
 
 9. **Torrent Search Provider Pool (Jackett/Prowlarr)**:
-   - Support arbitrary numbers of Jackett and Prowlarr search providers, configured and persisted independently from the TorrPlay instance pool via `ProviderManager` (`src/providers/provider-manager.ts`), with a TV-friendly `Lampa.Select`-based pool manager (`src/ui/provider-settings.ts`, "Manage Search Providers").
+   - Support arbitrary numbers of Jackett and Prowlarr search providers, configured and persisted independently from the Torst instance pool via `ProviderManager` (`src/providers/provider-manager.ts`), with a TV-friendly `Lampa.Select`-based pool manager (`src/ui/provider-settings.ts`, "Manage Search Providers").
    - Sync each provider's URL/API key into Lampa's own stock `jackett_url`/`jackett_key` and `prowlarr_url`/`prowlarr_key` storage keys, so third-party extensions relying on those keys keep working.
    - `ProviderSearch.search()` (`src/providers/provider-search.ts`) queries all enabled providers concurrently, tolerates individual provider failures/timeouts without aborting the aggregate search, deduplicates results using the same fingerprint strategy as Lampa's own `resultKey` (prefer magnet URI, else hash/size/tracker/title), and ranks the merged results by seeder count descending.
-   - `ParserHook` (`src/providers/parser-hook.ts`) wraps `Lampa.Parser.get` to route torrent search through the provider pool only when TorrPlay is enabled **and** at least one provider is enabled; otherwise it delegates to the original native parser (or reports an error if none exists, since Lampa deletes its own native parser UI when `torrents_use = false`, leaving no native path to fall back to). Unlike `Lampa.Torserver`, this is the one native Lampa entry point TorrPlay intentionally overrides, because there is no non-hook alternative for restoring search under that condition.
-   - While `ParserHook` replaces the native parser and the `torrplay_provider_search` toggle is on, it registers its own `Lampa.Search` source for provider results, titled "Jackett / Prowlarr" so its tab and cached results stay apart from Lampa's own "Parser" source. The source searches with every query rather than only once its tab is opened, so the tab shows how many torrents were found, and it has no "More" view: each result is a row of its own (`src/ui/provider-result-row.ts`), drawn with Lampa's `torrent` row template and its quality, audio and subtitle tags, and sends the same `torrent` render and long-press events as Lampa's own torrent list so TorrPlay's context menu and saved-torrent lookup work there too. An unset toggle starts from the user's `parse_in_search` preference at the moment the takeover first begins, and the toggle lives in the "Manage Search Providers" menu rather than the settings folder, offered there only while a takeover is active and the global search integration was installed, since it has no effect otherwise. Lampa's own `parse_in_search` source stays off for the whole takeover, because it would reach the providers anyway through the hooked parser; the user's own `parse_in_search` preference is saved and restored once the takeover ends.
-   - `DatabaseSearch` (`src/ui/database-search.ts`) adds a separate, opt-in (`torrplay_database_search`) global search source for torrents saved in the TorrPlay database. It asks `GET /api/v1/torrents` for the saved torrents matching the query (`saved=true`, `search`, `fuzzy=true`) and keeps the instance's best-first order; matching happens only on the instance. It fails over only on network errors or `5xx` responses. It searches with every query and hands its row every match, so the tab shows how many saved torrents match; the row's "More" view appears once the matches span more than one page. Each row remembers the instance that produced it: playback and the "More" view go back to that instance, and rows from instances no longer in the pool are dropped. Its matches use the same card as `torrplay_torrents` (`src/ui/saved-torrent-card.ts`), with only the viewed mark on long press, since storage switching and deletion stay in the library view, and a multi-file torrent opens the same file list (`src/ui/saved-torrent-files.ts`). Global search opened from `torrplay_torrents` starts on this source's tab: it notes its tab from the `create` events Lampa's tab list sends between the search's `sources` and `open` events, selects it on `open`, and gives it focus so moving down from the keyboard lands there.
+   - `ParserHook` (`src/providers/parser-hook.ts`) wraps `Lampa.Parser.get` to route torrent search through the provider pool only when Torst is enabled **and** at least one provider is enabled; otherwise it delegates to the original native parser (or reports an error if none exists, since Lampa deletes its own native parser UI when `torrents_use = false`, leaving no native path to fall back to). Unlike `Lampa.Torserver`, this is the one native Lampa entry point Torst intentionally overrides, because there is no non-hook alternative for restoring search under that condition.
+   - While `ParserHook` replaces the native parser and the `torst_provider_search` toggle is on, it registers its own `Lampa.Search` source for provider results, titled "Jackett / Prowlarr" so its tab and cached results stay apart from Lampa's own "Parser" source. The source searches with every query rather than only once its tab is opened, so the tab shows how many torrents were found, and it has no "More" view: each result is a row of its own (`src/ui/provider-result-row.ts`), drawn with Lampa's `torrent` row template and its quality, audio and subtitle tags, and sends the same `torrent` render and long-press events as Lampa's own torrent list so Torst's context menu and saved-torrent lookup work there too. An unset toggle starts from the user's `parse_in_search` preference at the moment the takeover first begins, and the toggle lives in the "Manage Search Providers" menu rather than the settings folder, offered there only while a takeover is active and the global search integration was installed, since it has no effect otherwise. Lampa's own `parse_in_search` source stays off for the whole takeover, because it would reach the providers anyway through the hooked parser; the user's own `parse_in_search` preference is saved and restored once the takeover ends.
+   - `DatabaseSearch` (`src/ui/database-search.ts`) adds a separate, opt-in (`torst_database_search`) global search source for torrents saved in the Torst database. It asks `GET /api/v1/torrents` for the saved torrents matching the query (`search`, `fuzzy=true`) and keeps the instance's best-first order; matching happens only on the instance. It fails over only on network errors or `5xx` responses. It searches with every query and hands its row every match, so the tab shows how many saved torrents match; the row's "More" view appears once the matches span more than one page. Each row remembers the instance that produced it: playback and the "More" view go back to that instance, and rows from instances no longer in the pool are dropped. Its matches use the same card as `torst_torrents` (`src/ui/saved-torrent-card.ts`), with only the viewed mark on long press, since storage switching and deletion stay in the library view, and a multi-file torrent opens the same file list (`src/ui/saved-torrent-files.ts`). Global search opened from `torst_torrents` starts on this source's tab: it notes its tab from the `create` events Lampa's tab list sends between the search's `sources` and `open` events, selects it on `open`, and gives it focus so moving down from the keyboard lands there.
 
 10. **TypeScript & Bundling**:
     - Written cleanly in TypeScript under `src/`.
@@ -145,17 +145,17 @@ src/
 
 11. **Alphabetical Ordering of Interface & Struct Properties**:
     - All interface properties, type literal members, and struct property definitions should be sorted alphabetically by key name.
-    - Maintains uniform code organization and predictability across all TorrPlay repositories (matching `torrplay/client` and OpenAPI specifications).
+    - Keeps domain models and wire adapters consistent with the Torst OpenAPI specification.
     - Translation dictionaries are sorted alphabetically by key too: `TRANSLATIONS` in `src/lang/translations.ts` and each locale of the landing page's `i18n` dictionary in `landing/script.js`.
 
 ## Known Lampa Native API Quirks
 
-- `Lampa.Modal.close()` throws when no modal is currently open. Call it only through a guarded wrapper (see `TorrPlayEngine.closeModalSafely`), except at a call site where a modal opened by that same code path is guaranteed to exist.
+- `Lampa.Modal.close()` throws when no modal is currently open. Call it only through a guarded wrapper (see `closeModalSafely` in `src/engine/engine-utils.ts`), except at a call site where a modal opened by that same code path is guaranteed to exist.
 - `Lampa.Loading.start()` does not support being called a second time without an intervening `stop()` — doing so corrupts its internal state. Always stop an active loading screen before another one (e.g. the preload progress screen) starts.
 - A player item handed to `Lampa.Player.play()` must never be self-referential (e.g. its own `.playlist` array containing that same item). Lampa persists watch history via `JSON.stringify`, which cannot serialize circular structures.
-- `Lampa.Controller.enabled()?.name` is not a reliable signal for "has focus returned to my component" — in some environments it never reports a component's own controller name again after another overlay (e.g. Settings) has been focused, even once that overlay is closed. Do not gate recurring background work (e.g. polling) on this or on DOM-geometry heuristics for "is something else open" — components that need to protect against stealing focus during a genuine overlay should check controller state locally at the point of the focus-affecting call itself (see `TorrPlayTorrentsComponent.renderTorrents`/`renderEmptyState`), not use it to skip the work entirely.
-- On Android, `Lampa.Reguest.prototype.native` (the `AndroidJS.httpReq` bridge) ignores the intended HTTP verb entirely: per the app's own `AndroidJS.kt`/`Http.java`, it issues a `GET` when the request has no body and a `POST` when it does, regardless of what `type` was requested. A `PUT`/`PATCH`/`DELETE` therefore reaches the TorrPlay server as a plain `POST`/`GET` and 404s against the route that expects a different method. `requestHttp` (`src/api/http-client.ts`) works around this by sending those verbs through the native path as `POST` with an `X-HTTP-Method-Override` header (and, for a bodyless `DELETE`, a forced non-empty body so the bridge doesn't pick `GET` instead) — the TorrPlay server rewrites the method from that header before routing. The non-native (`.silent()`/ajax) transport is unaffected and keeps sending the real verb.
-- `Lampa.Reguest` hands its success callback only the response body, never the status or the response headers, and ajax counts a `304 Not Modified` as a success with an empty body. `requestHttp` therefore reports an empty answer to a request carrying `If-None-Match` as `304`, and `TorrPlayApi.getTorrents` builds the entity tag it sends, `W/"<facets.version>"`, from the cached listing's body rather than reading the `ETag` header, which the server derives from that same version. It keeps the instance's recent listings, one per instance and URL, serves an unchanged one from that cache, and hands every caller its own copy; `SavedTorrents` batches, which are never asked for again, stay out of it.
+- `Lampa.Controller.enabled()?.name` is not a reliable signal for "has focus returned to my component" — in some environments it never reports a component's own controller name again after another overlay (e.g. Settings) has been focused, even once that overlay is closed. Do not gate recurring background work (e.g. polling) on this or on DOM-geometry heuristics for "is something else open" — components that need to protect against stealing focus during a genuine overlay should check controller state locally at the point of the focus-affecting call itself (see `TorstTorrentsComponent.renderTorrents`/`renderEmptyState`), not use it to skip the work entirely.
+- Android's native HTTP bridge can send only GET and POST. Use the browser transport for PATCH, PUT, and DELETE; Torst does not support the old method-override header.
+- `Lampa.Reguest` hides response headers. Preserve native transport for listings and revalidate only when an ETag is available. Configuration reads that require an ETag must use a transport that exposes headers. Do not synthesize Torst listing or configuration ETags from response fields.
 
 ## Naming & Code Style Conventions
 
@@ -168,12 +168,12 @@ src/
   - Use `kebab-case` for source and test filenames.
 - Choose clear, descriptive names based on domain behavior. Avoid ambiguous abbreviations, single-letter identifiers outside small conventional scopes, Hungarian notation, and names that repeat obvious type information.
 - Name booleans with predicates such as `is`, `has`, `can`, `should`, or `needs`. Name event handlers with `handle...` or `on...`, and name constructors or factories with verbs such as `create...` or `build...`.
-- Treat acronyms as words in identifiers (`TorrPlayApi`, `instanceUrl`, `httpClient`) while preserving their conventional uppercase spelling in user-facing prose (`API`, `URL`, `HTTP`).
+- Treat acronyms as words in identifiers (`TorstApi`, `instanceUrl`, `httpClient`) while preserving their conventional uppercase spelling in user-facing prose (`API`, `URL`, `HTTP`).
 - Include units when a numeric value would otherwise be ambiguous, such as `timeoutMs`, `sizeBytes`, or `speedMbps`.
 - Order CSS declarations in stylesheets, embedded `<style>` blocks, and inline styles using RECESS (`stylelint-config-recess-order`). Place shorthands before their longhands; custom properties keep the order that reads best. The CSS ordering tests enforce the shared Stylelint configuration.
 - Preserve field names defined by external APIs and wire formats, including required `snake_case` JSON properties. Use idiomatic TypeScript names for internal application state and map explicitly at the boundary when necessary.
 - Do not copy vague, misspelled, or legacy names from Lampa internals into plugin-owned identifiers. Keep required Lampa names only at integration boundaries and wrap them with clearly named functions, types, or adapters where practical.
-- Reuse established TorrPlay and Lampa terminology instead of introducing synonyms for the same concept. Keep names consistent across implementation, tests, settings labels, notifications, and documentation.
+- Reuse established Torst and Lampa terminology instead of introducing synonyms for the same concept. Keep names consistent across implementation, tests, settings labels, notifications, and documentation.
 - Keep terminology consistent across the plugin UI, landing page, and README in both English and Russian, using `src/lang/translations.ts` as the reference for user-facing terms. When editing terms, review all related headings, descriptions, setup instructions, accessibility labels, and dynamic or fallback messages. Use natural grammatical forms in prose and preserve product names, protocols, code, and URLs. Verify terminology through editorial review rather than tests that hardcode prose or ban words. Test UI behavior against translation keys or dictionary-derived values; fixed strings supplied by mocks remain appropriate for testing fallback, interpolation, and external data handling.
 - Apply these conventions to all new code and improve nonconforming names in touched code when doing so is safe and does not create unrelated churn.
 
@@ -191,16 +191,16 @@ src/
 - **Mandatory Test Coverage**:
   - Every new feature, bugfix, refactor, or logic change **must be covered with tests** under the `tests/` directory.
   - Maintain comprehensive coverage for:
-    - **Authentication**: Bearer login, Basic auth, header resolution, and token refresh in `tests/auth.test.ts`.
+    - **Authentication**: Password sign-in, header resolution, and token refresh in `tests/auth.test.ts`.
     - **HTTP Transport**: `Lampa.Reguest` delegation, `fetch` fallback, status error mapping, `304 Not Modified` mapping for conditional requests, and network error handling and classification in `tests/http-client.test.ts`.
-    - **API Interactions**: Health checks, torrent additions, metadata fetching, preload control, database listing (`getTorrents`) and its revalidation, torrent deletion (`deleteTorrent`), and stream URL generation in `tests/torrplay-api.test.ts`.
+    - **API Interactions**: Health checks, torrent additions, metadata fetching, preload control, database listing (`getTorrents`) and its revalidation, torrent deletion (`deleteTorrent`), and stream URL generation in `tests/torst-api.test.ts`.
     - **Instance Management**: Instance CRUD, primary instance synchronization, concurrent latency benchmarking, latency-based auto selection, reuse of recent benchmark results, and automatic failover in `tests/instance-manager.test.ts`.
     - **Search Providers**: Provider CRUD, legacy Lampa key sync, and health checks in `tests/provider-manager.test.ts`; aggregated multi-provider search, dedupe, and ranking in `tests/provider-search.test.ts`; provider pool settings UI in `tests/provider-ui.test.ts`.
     - **Native Parser Integration**: Lampa torrent parser interception, result injection, and the provider global search source in `tests/parser-hook.test.ts`; its torrent rows and media tags in `tests/provider-result-row.test.ts`.
-    - **Engine & Playback**: Playback mode resolution, prompt dialogs, database persistence, and player routing in `tests/torrplay-engine.test.ts`; engine helpers in `tests/engine-utils.test.ts`; torrent file parsing in `tests/file-parser.test.ts`; episode switch playlist restoration in `tests/player-playlist.test.ts`; external player progress estimation in `tests/external-progress.test.ts`; episode previews in `tests/episode-preview.test.ts`; global search over saved torrents in `tests/database-search.test.ts`; batched saved-torrent lookups and their per-instance cache in `tests/saved-torrents.test.ts`.
+    - **Engine & Playback**: Playback mode resolution, prompt dialogs, database persistence, and player routing in `tests/torst-engine.test.ts`; engine helpers in `tests/engine-utils.test.ts`; torrent file parsing in `tests/file-parser.test.ts`; episode switch playlist restoration in `tests/player-playlist.test.ts`; episode previews in `tests/episode-preview.test.ts`; global search over saved torrents in `tests/database-search.test.ts`; batched saved-torrent lookups and their per-instance cache in `tests/saved-torrents.test.ts`.
     - **Preload & Loading UI**: Progress percentage calculation, buffer threshold hand-off, peer and speed stats, start and status-read retries and rejections, and cancellation lifecycle in `tests/preload.test.ts`.
     - **Playback Dialog**: Pre-playback options dialog, TV remote button activation, and controller restoration on Back in `tests/play-dialog.test.ts`.
-    - **UI & Settings**: Settings parameter registration, TV-friendly instance pool management, password masking, add/delete confirmation dialogs, URL validation, sidebar integration, TorrPlay torrents component lifecycle, and card rendering in `tests/ui.test.ts`; file list rows in `tests/file-list-item.test.ts`; card watched overlay in `tests/card-watched.test.ts`; the shared saved torrent card in `tests/saved-torrent-card.test.ts`; the shared saved torrent file list through the library view tests in `tests/ui.test.ts` and the global search tests in `tests/database-search.test.ts`.
+    - **UI & Settings**: Settings parameter registration, TV-friendly instance pool management, password masking, add/delete confirmation dialogs, URL validation, sidebar integration, Torst torrents component lifecycle, and card rendering in `tests/ui.test.ts`; file list rows in `tests/file-list-item.test.ts`; card watched overlay in `tests/card-watched.test.ts`; the shared saved torrent card in `tests/saved-torrent-card.test.ts`; the shared saved torrent file list through the library view tests in `tests/ui.test.ts` and the global search tests in `tests/database-search.test.ts`.
     - **CSS Ordering**: RECESS declaration order across the landing page, embedded `<style>` blocks, and inline styles in `tests/css-order.test.ts`.
     - **Localization**: Translation key completeness, matching placeholders across locales, alphabetical ordering, and fallback behavior in `tests/lang.test.ts`.
     - **Spelling**: American English checks, project vocabulary, English UI translations, and exclusions for non-English text, quotations, code and fixture data in `tests/spelling.test.ts`; syntax-aware prose extraction and preserved diagnostic positions in `tests/spelling-parser.test.ts`.
@@ -229,7 +229,7 @@ Example:
 ```text
 feat(instances): add parallel latency benchmark for auto-selection
 
-- Ping all configured TorrPlay instances concurrently using /api/system/health.
+- Ping all configured Torst instances concurrently using /readyz.
 - Record millisecond round-trip response times and sort instances by latency.
 - Automatically route playback and metadata requests to the lowest-latency node.
 - Add toast notification when failover engages due to node downtime.
@@ -259,4 +259,4 @@ Before committing any changes, all checks must pass cleanly without warnings or 
   ```bash
   npm run build
   ```
-  Ensure both `dist/torrplay.js`, `dist/torrplay.min.js`, and `dist/index.html` build without errors.
+  Ensure `dist/torst.js`, `dist/torst.min.js`, and `dist/index.html` build without errors.

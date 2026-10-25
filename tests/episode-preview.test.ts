@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from '../src/engine/episode-preview';
-import { ParsedFileInfo } from '../src/types/torrplay';
+import { ParsedFileInfo } from '../src/types/torst';
 
 describe('Episode Preview (TMDB still images for multi-file torrent lists)', () => {
   const originalLampa = (globalThis as any).Lampa;

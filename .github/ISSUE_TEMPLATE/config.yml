@@ -5,8 +5,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Documentation
-    url: https://github.com/torrplay/lampa-plugin#readme
+    url: https://github.com/torrplay/torst-lampa#readme
     about: Installation, settings, and how the plugin works.
-  - name: TorrPlay server issues
-    url: https://github.com/torrplay/torrplay/issues
-    about: Problems in the TorrPlay server itself rather than in the Lampa plugin.
+  - name: Torst server issues
+    url: https://github.com/torrplay/torst/issues
+    about: Problems in the Torst server itself rather than in the Lampa plugin.
