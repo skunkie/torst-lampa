@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { TorstApi } from '../src/api/torst';
+import { PlaybackProgress } from '../src/engine/playback-progress';
 import { Torrent, TorstInstance } from '../src/types/torst';
 import {
   buildSavedTorrentCard,
@@ -137,6 +138,30 @@ describe('Saved Torrent Cards', () => {
       mock.timers.tick(500);
 
       assert.equal(cards[0].overlays.length, 1);
+    });
+
+    it('replaces profile progress with local progress when the same card regains focus', async () => {
+      const instance: TorstInstance = { authType: 'none', id: 'origin', name: 'Origin', profileId: 'prf_one', url: 'http://origin.test' };
+      const resource = { ...torrent, files: torrent.files.map((file, index) => ({ ...file, fileId: `fil_${index}` })) };
+      mock.method(PlaybackProgress, 'hydrate', async () => {});
+      (globalThis as any).Lampa.Utils.hash = (value: string) => value;
+      const view = mock.method((globalThis as any).Lampa.Timeline, 'view', (hash: number | string) => ({ hash, percent: 40, time: 0, updated: 1 }));
+      const card = buildSavedTorrentCard(resource, false);
+      cards[0].classes.add('focus');
+      const scheduler = new WatchedOverlayScheduler();
+      scheduler.schedule(card, resource, instance);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(cards[0].overlays.length, 1);
+      assert.ok(view.mock.calls.every((call: { arguments: unknown[] }) => String(call.arguments[0]).includes('prf_one')));
+      const previousCalls = view.mock.callCount();
+      delete instance.profileId;
+      scheduler.schedule(card, resource, instance);
+      assert.equal(cards[0].overlays.length, 0);
+      mock.timers.tick(500);
+      assert.equal(cards[0].overlays.length, 1);
+      assert.ok(view.mock.calls.slice(previousCalls).every((call: { arguments: unknown[] }) => !String(call.arguments[0]).includes('prf_one')));
+      scheduler.cancel();
     });
 
     it('loads file metadata for a cold listing and restores local watched progress', async () => {

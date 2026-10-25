@@ -64,9 +64,11 @@ describe('Torst library toolbar', () => {
   let focused: any;
   let collectionRoot: any;
   let nativeEmptyStarts: number;
+  let notices: string[];
 
   beforeEach(() => {
     focused = null;
+    notices = [];
     nativeEmptyStarts = 0;
     (globalThis as any).$ = (value: any) => typeof value === 'object' ? value.wrapper || value : element(value);
     (globalThis as any).Navigator = { focused: (value: any) => { focused = value; }, getFocusedElement: () => focused };
@@ -83,6 +85,7 @@ describe('Torst library toolbar', () => {
         start() { nativeEmptyStarts++; }
       },
       Lang: createTestLanguage(),
+      Noty: { show: (message: string) => notices.push(message) },
       Scroll: class {
         body = element('scroll');
         append(child: any) { this.body.append(child); }
@@ -99,6 +102,7 @@ describe('Torst library toolbar', () => {
     };
     mock.method(TorstTorrentsComponent.prototype as any, 'load', async () => {});
     mock.method(InstanceManager, 'getBestInstance', async () => instance);
+    mock.method(InstanceManager, 'getInstances', () => []);
     component = new TorstTorrentsComponent();
     component.create();
   });
@@ -133,6 +137,15 @@ describe('Torst library toolbar', () => {
     assert.equal(nativeEmptyStarts, 0, 'the native empty controller must not replace the toolbar collection');
   });
 
+  it('remembers a toolbar button across a card refresh and menu return', () => {
+    const toolbar: any = (component.render() as any)[0].children[0].wrapper;
+    const button = toolbar.find('.torst-library-profile')[0];
+    toolbar.find('.selector').events['hover:focus']({ currentTarget: button });
+    (component as any).lastFocusedTorrentHash = 'one';
+    component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance, true);
+    assert.equal((component as any).lastFocusedElement, button);
+  });
+
   it('opens the selected instance profile picker and Up Next from the toolbar', async () => {
     const profile = mock.method(ProfilesUi, 'show', async () => {});
     const upNext = mock.method(UpNextUi, 'show', async () => {});
@@ -144,5 +157,31 @@ describe('Torst library toolbar', () => {
     toolbar.find('.torst-library-up-next').events['hover:enter']();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(upNext.mock.calls[0].arguments[0], instance);
+  });
+
+  it('uses the pinned search instance before its first library load completes', async () => {
+    const pinned = { ...instance, id: 'pinned' };
+    mock.method(InstanceManager, 'getInstances', () => [pinned]);
+    (component as any).searchInstanceId = pinned.id;
+    const profile = mock.method(ProfilesUi, 'show', async () => {});
+    await (component as any).openLibraryView(ProfilesUi);
+    assert.equal(profile.mock.calls[0].arguments[0], pinned);
+    assert.equal((InstanceManager.getBestInstance as any).mock.callCount(), 0);
+  });
+
+  it('reports an unavailable instance and ignores selection completed after navigation', async () => {
+    mock.method(InstanceManager, 'getBestInstance', async () => { throw new Error('offline'); });
+    await (component as any).openLibraryView(ProfilesUi);
+    assert.ok(notices[0].includes('offline'));
+    let activity = {};
+    (globalThis as any).Lampa.Activity = { active: () => activity };
+    let finish!: (value: TorstInstance) => void;
+    mock.method(InstanceManager, 'getBestInstance', () => new Promise<TorstInstance>(resolve => { finish = resolve; }));
+    const show = mock.method(ProfilesUi, 'show', async () => {});
+    const opening = (component as any).openLibraryView(ProfilesUi);
+    activity = {};
+    finish(instance);
+    await opening;
+    assert.equal(show.mock.callCount(), 0);
   });
 });

@@ -49,7 +49,7 @@ export class FakeCardElement {
       case '.card__icon--viewed':
         return { length: this.isViewed ? 1 : 0, remove: () => { this.isViewed = false; } };
       case '.card-watched':
-        return { length: this.overlays.length };
+        return { length: this.overlays.length, remove: () => { this.overlays.length = 0; } };
       case '.card__view':
         return { prepend: (overlay: unknown) => this.overlays.push(overlay) };
       default:

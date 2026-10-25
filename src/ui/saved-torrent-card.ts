@@ -147,8 +147,7 @@ export class WatchedOverlayScheduler {
 
   public schedule(card: LampaDomElement, torrent: Pick<Torrent, 'files' | 'hash'>, instance?: TorstInstance): void {
     this.cancel();
-    if (instance?.profileId) card.find('.card-watched').remove();
-    else if (card.find('.card-watched').length) return;
+    card.find('.card-watched').remove();
     const generation = this.generation;
 
     const canShow = () => {

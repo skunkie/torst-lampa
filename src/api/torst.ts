@@ -399,14 +399,14 @@ export class TorstApi {
     this.preloads.delete(this.cacheKey(instance, torrent.hash));
   }
 
-  private static async patchResource(instance: TorstInstance, path: string, patch: object): Promise<void> {
+  private static async patchResource<T = unknown>(instance: TorstInstance, path: string, patch: object): Promise<T> {
     const { etag } = await this.request(instance, path, { needsResponseHeaders: true });
     if (!etag) throw new TorstApiError('Torst did not expose the resource ETag', 0);
-    await this.request(instance, path, {
+    return (await this.request<T>(instance, path, {
       body: JSON.stringify(patch),
       headers: { 'Content-Type': 'application/merge-patch+json', 'If-Match': etag },
       method: 'PATCH',
-    });
+    })).data;
   }
 
   public static async updateTorrent(instance: TorstInstance, hash: string, update: TorrentUpdate): Promise<Torrent> {
@@ -435,8 +435,7 @@ export class TorstApi {
 
   public static async renameProfile(instance: TorstInstance, profileId: string, name: string): Promise<TorstProfile> {
     const path = `/api/v1/profiles/${encodeURIComponent(profileId)}`;
-    await this.patchResource(instance, path, { name });
-    return (await this.request<TorstProfile>(instance, path)).data;
+    return this.patchResource<TorstProfile>(instance, path, { name });
   }
 
   public static async getProfileAvatar(instance: TorstInstance, profileId: string): Promise<Blob> {

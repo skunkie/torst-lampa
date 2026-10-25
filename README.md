@@ -102,9 +102,9 @@ In Lampa, open **Settings** &rarr; **Torst**:
 
 The client follows the contract in [Torst's OpenAPI document](https://github.com/torrplay/torst/blob/main/api/openapi.yaml). Torrents and files use opaque IDs; info hashes are lookup filters. Listings and file lists follow cursor pagination. Storage and settings changes read the resource ETag and send it in `If-Match` with a JSON merge patch. Streams use `/api/v1/torrents/{torrent_id}/files/{file_id}/content`.
 
-Torst does not expose stream-reader positions, so external-player progress estimation is unavailable. Lampa's own playback progress remains available. Torst's download directory is configured on the instance; the plugin does not edit it.
+Torst stores file progress in seconds for each profile. The plugin saves positions reported by the player; it does not infer them from streamed bytes or elapsed time. Torst's download directory is configured on the instance; the plugin does not edit it.
 
-Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for settings and storage changes. Torrent file and poster downloads, plus authenticated profile-avatar requests also need to permit requests from the client. Android's native HTTP bridge cannot send PATCH, PUT, or DELETE, so these use the browser transport.
+Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for changes to settings, storage, and profile names. Torrent file downloads, poster downloads, and authenticated avatar requests also need to permit requests from the client. Android's native HTTP bridge cannot send PATCH, PUT, or DELETE, so these use the browser transport.
 
 ---
 

@@ -14,15 +14,19 @@ interface ProgressBinding {
   instanceUrl: string,
   pending?: ProgressUpdate,
   profileId: string,
+  revision: number,
   saving?: Promise<void>,
   torrentHash: string,
   viewed: boolean
 }
 
+interface PlaybackTimeline {
+  handler?: (percent: number, time: number, duration: number) => void,
+  hash: number | string
+}
+
 export class PlaybackProgress {
   private static bindings = new Map<string, ProgressBinding>();
-  private static isApplyingServerProgress = false;
-  private static listener: typeof Lampa.Listener | null = null;
   private static hasReportedFailure = false;
   private static generation = 0;
 
@@ -41,40 +45,56 @@ export class PlaybackProgress {
       time: saved?.position_seconds || 0,
       updated: saved ? Date.parse(saved.updated_at) || 0 : 0,
     });
-    this.isApplyingServerProgress = true;
-    try {
-      Lampa.Timeline.update?.({ ...timeline, received: true });
-    } finally {
-      this.isApplyingServerProgress = false;
-    }
+    Lampa.Timeline.update?.({ ...timeline, received: true });
   }
 
   public static async hydrate(instance: TorstInstance, torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie = torrent as unknown as LampaMovie): Promise<void> {
     const profileId = instance.profileId;
     if (!profileId) return;
     const instanceUrl = instance.url;
+    const generation = this.generation;
+    const revisions = new Map([...this.bindings].map(([hash, binding]) => [hash, binding.revision]));
+    await this.flush();
+    if (generation !== this.generation || instance.profileId !== profileId || instance.url !== instanceUrl) return;
     const progress = await TorstApi.getTorrentProgress(instance, profileId, torrent.hash);
-    if (instance.profileId !== profileId || instance.url !== instanceUrl) return;
+    if (generation !== this.generation || instance.profileId !== profileId || instance.url !== instanceUrl) return;
     const files = selectVideoFiles(torrent.files);
     for (const file of files) {
-      if (file.fileId) this.applyTimeline(this.timelineHash(instance, file.fileId, resolveFileInfo(file, movie, torrent.hash, files).hash), progress.find(saved => saved.file_id === file.fileId));
+      if (!file.fileId) continue;
+      const hash = this.timelineHash(instance, file.fileId, resolveFileInfo(file, movie, torrent.hash, files).hash);
+      if (this.bindings.get(String(hash))?.revision !== revisions.get(String(hash))) continue;
+      this.applyTimeline(hash, progress.find(saved => saved.file_id === file.fileId));
     }
   }
 
-  private static readonly handleTimeline = (event: { data?: { hash?: number | string, road?: { duration?: number, time?: number } }, reason?: string, target?: string }): void => {
-    if (this.isApplyingServerProgress || event.target !== 'timeline' || event.reason !== 'update') return;
-    const binding = this.bindings.get(String(event.data?.hash));
-    if (!binding || !this.isCurrent(binding)) return;
-    const duration = Number(event.data?.road?.duration);
-    const position = Number(event.data?.road?.time);
+  public static trackTimeline<T extends PlaybackTimeline>(timeline: T): T {
+    const hash = String(timeline.hash);
+    const binding = this.bindings.get(hash);
+    const handler = timeline.handler;
+    if (!binding || !handler) return timeline;
+    return {
+      ...timeline,
+      handler: (percent: number, time: number, duration: number) => {
+        handler(percent, time, duration);
+        if (this.bindings.get(hash) === binding) this.recordProgress(binding, time, duration);
+      },
+    };
+  }
+
+  private static recordProgress(binding: ProgressBinding, timeSeconds: number, durationSeconds: number): void {
+    if (!this.isCurrent(binding)) return;
+    const duration = Number(durationSeconds);
+    const position = Number(timeSeconds);
     if (!Number.isFinite(duration) || duration <= 0 || duration > 1000000 || !Number.isFinite(position) || position < 0) return;
+    binding.revision++;
+    binding.viewed ||= position / duration >= 0.9;
     binding.pending = {
       duration_seconds: duration,
       position_seconds: Math.min(position, duration),
-      viewed: binding.viewed || position / duration >= 0.9,
+      viewed: binding.viewed,
     };
     if (!binding.saving) this.startSaving(binding);
-  };
+  }
 
   private static startSaving(binding: ProgressBinding): void {
     binding.saving = this.save(binding).finally(() => {
@@ -94,7 +114,7 @@ export class PlaybackProgress {
       binding.pending = undefined;
       try {
         const saved = await TorstApi.saveFileProgress(binding.instance, binding.profileId, binding.torrentHash, binding.fileId, progress);
-        binding.viewed = saved.viewed;
+        binding.viewed ||= saved.viewed;
       } catch {
         if (!this.hasReportedFailure) {
           this.hasReportedFailure = true;
@@ -112,11 +132,6 @@ export class PlaybackProgress {
     this.hasReportedFailure = false;
     const profileId = instance.profileId;
     if (!profileId) return;
-    if (this.listener !== Lampa.Listener) {
-      this.listener?.remove?.('state:changed', this.handleTimeline);
-      this.listener = Lampa.Listener;
-      this.listener?.follow('state:changed', this.handleTimeline);
-    }
     const instanceUrl = instance.url;
     for (const item of playlist) {
       if (item.torstFileId) this.applyTimeline(this.timelineHash(instance, item.torstFileId, resolveFileInfo(item, movie, torrentHash, playlist).hash));
@@ -135,12 +150,15 @@ export class PlaybackProgress {
           instance,
           instanceUrl,
           profileId,
+          revision: 0,
           torrentHash,
           viewed: saved?.viewed || false,
         });
       }
     } catch {
-      Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+      if (generation === this.generation && instance.profileId === profileId && instance.url === instanceUrl) {
+        Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+      }
     }
   }
 
@@ -154,10 +172,7 @@ export class PlaybackProgress {
 
   public static resetForTesting(): void {
     this.generation++;
-    this.listener?.remove?.('state:changed', this.handleTimeline);
-    this.listener = null;
     this.bindings.clear();
-    this.isApplyingServerProgress = false;
     this.hasReportedFailure = false;
   }
 }

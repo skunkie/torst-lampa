@@ -173,4 +173,47 @@ describe('Up Next view', () => {
     assert.equal(menu, undefined);
     assert.equal(backs, 0);
   });
+
+  it('does not play metadata loaded for a URL or activity that has changed', async () => {
+    let activity = {};
+    (globalThis as any).Lampa.Activity = { active: () => activity };
+    let finish!: (value: Torrent) => void;
+    mock.method(TorstApi, 'getTorrent', () => new Promise<Torrent>(resolve => { finish = resolve; }));
+    for (const change of [() => { instance.url = 'http://other.test'; }, () => { activity = {}; }]) {
+      await open();
+      menu.onSelect(menu.items[0]);
+      action('play');
+      const actions = menu;
+      change();
+      finish(torrent);
+      await flush();
+      assert.equal(menu, actions);
+    }
+    assert.equal((TorstEngine.startTorrentPlayback as any).mock.callCount(), 0);
+  });
+
+  it('keeps a newer view open when a previous dismissal finishes', async () => {
+    let finish!: () => void;
+    mock.method(TorstApi, 'dismissUpNext', () => new Promise<void>(resolve => { finish = resolve; }));
+    await open();
+    menu.onSelect(menu.items[0]);
+    action('dismiss');
+    await open();
+    const current = menu;
+    finish();
+    await flush();
+    assert.equal(menu, current);
+  });
+
+  it('does not launch a file after its instance is removed during metadata loading', async () => {
+    let finish!: (value: Torrent) => void;
+    mock.method(TorstApi, 'getTorrent', () => new Promise<Torrent>(resolve => { finish = resolve; }));
+    await open();
+    menu.onSelect(menu.items[0]);
+    action('play');
+    mock.method(InstanceManager, 'getInstances', () => []);
+    finish(torrent);
+    await flush();
+    assert.equal((TorstEngine.startTorrentPlayback as any).mock.callCount(), 0);
+  });
 });

@@ -1301,9 +1301,10 @@ describe('TorstEngine', () => {
     };
     // Simulate the user having some unrelated movie open elsewhere in the app —
     // this must never bleed into a torrent played directly from the database browser.
-    (globalThis as any).Lampa.Activity.active = () => ({
+    const unrelatedActivity = {
       movie: { id: 999, img: 'https://example.com/unrelated-movie-poster.jpg', title: 'Unrelated Movie' },
-    });
+    };
+    (globalThis as any).Lampa.Activity.active = () => unrelatedActivity;
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
       const url = String(input);

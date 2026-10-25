@@ -7,6 +7,7 @@ import { TorstApi } from '../api/torst';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import { TorstInstance } from '../types/torst';
+import { toTemplateText } from '../utils/template-text';
 import { generateUuid } from '../utils/uuid';
 import { ProfilesUi } from './profiles';
 import {
@@ -212,7 +213,7 @@ export class InstancePoolUi {
     const menuItems: LampaSelectItem[] = [
       {
         action: 'profile',
-        subtitle: instance.profileName || translate('torst_profile_local', 'Local Lampa Progress'),
+        subtitle: toTemplateText(instance.profileName || translate('torst_profile_local', 'Local Lampa Progress')),
         title: translate('torst_profiles_title', 'Torst Profiles'),
       },
       {

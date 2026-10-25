@@ -126,4 +126,10 @@ describe('playback focus', () => {
     mock.timers.tick(0);
     assert.equal(restores, 1);
   });
+
+  it('does not restore a stale activity through the built-in exit callback', () => {
+    activity = {};
+    exit();
+    assert.equal(restores, 0);
+  });
 });

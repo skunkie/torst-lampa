@@ -164,10 +164,14 @@ export class TorstTorrentsComponent {
       <div class="button selector torst-library-up-next"></div>
     </div>`);
     this.toolbar.find('.torst-library-profile').text(translate('torst_profiles_title', 'Torst Profiles')).on('hover:enter', () => {
-      void this.openProfileView();
+      void this.openLibraryView(ProfilesUi);
     });
     this.toolbar.find('.torst-library-up-next').text(translate('torst_up_next_title', 'Up Next')).on('hover:enter', () => {
-      void this.openUpNextView();
+      void this.openLibraryView(UpNextUi);
+    });
+    this.toolbar.find('.selector').on('hover:focus', (event: LampaDomEvent) => {
+      this.lastFocusedElement = event.currentTarget || event.target || null;
+      this.watchedOverlay.cancel();
     });
     this.rootElement.append(this.toolbar);
     this.scrollView.append(this.contentGrid);
@@ -176,22 +180,23 @@ export class TorstTorrentsComponent {
     return this.render();
   }
 
-  private async openProfileView(): Promise<void> {
-    const instance = this.activeInstance || await InstanceManager.getBestInstance();
-    if (this.isDestroyed) return;
-    await ProfilesUi.show(instance, () => {
-      if (!this.isDestroyed) {
-        this.updateProfileLabel(instance);
-        Lampa.Controller.toggle('content');
-      }
-    });
-  }
-
-  private async openUpNextView(): Promise<void> {
-    const instance = this.activeInstance || await InstanceManager.getBestInstance();
-    if (!this.isDestroyed) await UpNextUi.show(instance, () => {
-      if (!this.isDestroyed) Lampa.Controller.toggle('content');
-    });
+  private async openLibraryView(view: { show: (instance: TorstInstance, onBack: () => void) => Promise<void> }): Promise<void> {
+    const activity = Lampa.Activity?.active?.();
+    const isCurrent = () => !this.isDestroyed && (activity === undefined || Lampa.Activity?.active?.() === activity);
+    try {
+      const instances = InstanceManager.getInstances();
+      const instance = instances.find(candidate => candidate.id === (this.searchInstanceId || this.activeInstance?.id))
+        || await InstanceManager.getBestInstance();
+      if (!isCurrent()) return;
+      await view.show(instance, () => {
+        if (isCurrent()) {
+          this.updateProfileLabel(instance);
+          Lampa.Controller.toggle('content');
+        }
+      });
+    } catch (error) {
+      if (isCurrent()) Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', { msg: error instanceof Error ? error.message : String(error) }));
+    }
   }
 
   private controllerRoot(): LampaDomElement {
@@ -667,7 +672,7 @@ export class TorstTorrentsComponent {
 
       if (this.lastFocusedTorrentHash && torrent.hash === this.lastFocusedTorrentHash) {
         elementToFocus = card[0];
-        this.lastFocusedElement = card[0];
+        if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = card[0];
       }
 
       this.renderedCards.set(torrent.hash, card);
@@ -675,6 +680,7 @@ export class TorstTorrentsComponent {
     });
 
     const rebuiltFocusCard = elementToFocus;
+    if (this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) elementToFocus = this.lastFocusedElement || false;
 
     if (!elementToFocus && this.lastFocusedElement) {
       elementToFocus = this.lastFocusedElement;
@@ -693,7 +699,7 @@ export class TorstTorrentsComponent {
       this.restoreNavigatorFocus(focusedToolbar || rebuiltFocusCard);
       // The card under the cursor moved, so follow it rather than leave the cursor out of view.
       const focusIndex = torrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
-      if (rebuiltFocusCard && focusIndex !== previousFocusIndex) {
+      if (!focusedToolbar && rebuiltFocusCard && focusIndex !== previousFocusIndex) {
         this.scrollView.update($(rebuiltFocusCard), true);
       }
     }

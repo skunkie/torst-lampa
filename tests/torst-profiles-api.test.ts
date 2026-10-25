@@ -42,7 +42,7 @@ describe('Torst profiles and progress API', () => {
     assert.equal((await TorstApi.createProfile(instance, 'Sam')).id, 'prf_sam');
   });
 
-  it('renames against the profile ETag and reads back the normalized name', async () => {
+  it('renames against the profile ETag and uses the normalized PATCH response', async () => {
     const methods: string[] = [];
     globalThis.fetch = async (input, options) => {
       assert.equal(new URL(String(input)).pathname, '/api/v1/profiles/prf_one');
@@ -51,12 +51,13 @@ describe('Torst profiles and progress API', () => {
         assert.equal((options.headers as Record<string, string>)['If-Match'], '"profile-v1"');
         assert.equal((options.headers as Record<string, string>)['Content-Type'], 'application/merge-patch+json');
         assert.deepEqual(JSON.parse(String(options.body)), { name: 'Sam' });
-        return json({ id: 'prf_one', name: 'Sam' });
+        return json({ id: 'prf_one', name: 'Normalized Name' });
       }
-      return json({ id: 'prf_one', name: methods.length === 1 ? 'Alex' : 'Sam' }, 200, { ETag: '"profile-v1"' });
+      assert.equal(methods.length, 1, 'a successful rename must not require another read');
+      return json({ id: 'prf_one', name: 'Alex' }, 200, { ETag: '"profile-v1"' });
     };
-    assert.equal((await TorstApi.renameProfile(instance, 'prf_one', 'Sam')).name, 'Sam');
-    assert.deepEqual(methods, ['GET', 'PATCH', 'GET']);
+    assert.equal((await TorstApi.renameProfile(instance, 'prf_one', 'Sam')).name, 'Normalized Name');
+    assert.deepEqual(methods, ['GET', 'PATCH']);
   });
 
   it('preserves a last-profile deletion rejection', async () => {

@@ -6,6 +6,7 @@ import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from
 import { resolveFileIndex, resolveFileInfo } from '../engine/file-parser';
 import { resolveMovieContext, resolvePosterUrl } from '../engine/media-context';
 import { PlaybackProgress } from '../engine/playback-progress';
+import { translate } from '../lang/translations';
 import { Torrent, TorrentFile, TorstInstance } from '../types/torst';
 import { buildFileListItemElement } from './file-list-item';
 
@@ -26,6 +27,9 @@ interface SavedTorrentFileListParams {
  */
 export async function showSavedTorrentFiles(params: SavedTorrentFileListParams): Promise<void> {
   const { instance, isStale, onBack, onSelect, torrent, videoFiles } = params;
+  const activity = Lampa.Activity?.active?.();
+  const instanceUrl = instance?.url;
+  const profileId = instance?.profileId;
   const torrentFiles = torrent.files || [];
   const movieContext = resolveMovieContext({
     original_name: torrent.name,
@@ -38,8 +42,11 @@ export async function showSavedTorrentFiles(params: SavedTorrentFileListParams):
   const timelineMovie = torrent as unknown as LampaMovie;
 
   const seasonsData = await fetchSeasonEpisodes(movieContext, collectSeasonNumbers(fileInfos));
-  if (instance?.profileId) await PlaybackProgress.hydrate(instance, torrent);
-  if (isStale?.()) return;
+  if (instance?.profileId) await PlaybackProgress.hydrate(instance, torrent).catch(() => {
+    Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+  });
+  if (isStale?.() || instance?.url !== instanceUrl || instance?.profileId !== profileId
+    || (activity !== undefined && Lampa.Activity?.active?.() !== activity)) return;
 
   const fallbackImage = resolvePosterUrl(torrent, movieContext);
   const fileListElement = $('<div class="torrent-files"></div>');

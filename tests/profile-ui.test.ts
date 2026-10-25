@@ -38,6 +38,7 @@ describe('Torst profiles UI', () => {
       Utils: { clearHtmlTags: (text: string) => text.replace(/<[^>]*>/g, '') },
     };
     mock.method(InstanceManager, 'updateInstance', () => {});
+    mock.method(InstanceManager, 'getInstances', () => [instance]);
     mock.method(TorstApi, 'getProfiles', async () => profiles);
     mock.method(TorstApi, 'createProfile', async (_instance: TorstInstance, name: string) => {
       const profile = { id: 'prf_sam', name };
@@ -108,6 +109,25 @@ describe('Torst profiles UI', () => {
     await flush();
     assert.equal((TorstApi.deleteProfile as any).mock.callCount(), 1);
     assert.equal(instance.profileId, undefined);
+  });
+
+  it('does not write an unchanged name when leaving the rename input', async () => {
+    await open();
+    select('profile');
+    select('rename');
+    inputCallback('Alex');
+    await flush();
+    assert.equal((TorstApi.renameProfile as any).mock.callCount(), 0);
+    assert.ok(menu.items.some((item: any) => item.action === 'use'));
+  });
+
+  it('refreshes the selected profile name after it was renamed on another client', async () => {
+    profiles[0].name = 'Alex Updated';
+    await open();
+    assert.equal(instance.profileId, 'prf_alex');
+    assert.equal(instance.profileName, 'Alex Updated');
+    assert.equal((InstanceManager.updateInstance as any).mock.callCount(), 1);
+    assert.equal(menu.items[1].title, 'Alex Updated');
   });
 
   it('keeps the selection after a rejected deletion and reports read failures', async () => {
@@ -188,7 +208,34 @@ describe('Torst profiles UI', () => {
     const currentMenu = menu;
     resolve({ id: 'prf_sam', name: 'Sam' });
     await flush();
-    assert.equal(instance.profileId, 'prf_sam');
+    assert.equal(instance.profileId, 'prf_alex');
     assert.equal(menu, currentMenu);
+  });
+
+  it('does not reopen or change the selected profile after navigating away during creation', async () => {
+    let activity = {};
+    (globalThis as any).Lampa.Activity = { active: () => activity };
+    let resolve!: (profile: TorstProfile) => void;
+    mock.method(TorstApi, 'createProfile', () => new Promise<TorstProfile>(done => { resolve = done; }));
+    await open();
+    select('create');
+    inputCallback('Sam');
+    const previousMenu = menu;
+    activity = {};
+    resolve({ id: 'prf_sam', name: 'Sam' });
+    await flush();
+    assert.equal(instance.profileId, 'prf_alex');
+    assert.equal(menu, previousMenu);
+    assert.equal((InstanceManager.updateInstance as any).mock.callCount(), 0);
+  });
+
+  it('discards a profile list whose instance was removed while it loaded', async () => {
+    let finish!: (value: TorstProfile[]) => void;
+    mock.method(TorstApi, 'getProfiles', () => new Promise<TorstProfile[]>(resolve => { finish = resolve; }));
+    const opening = open();
+    mock.method(InstanceManager, 'getInstances', () => []);
+    finish(profiles);
+    await opening;
+    assert.equal(menu, undefined);
   });
 });

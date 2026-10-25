@@ -42,14 +42,20 @@ export class ProfilesUi {
     }
   }
 
-  private static async perform(action: () => Promise<void>, returnTo: () => void): Promise<void> {
+  private static async perform(instance: TorstInstance, action: (isCurrent: () => boolean) => Promise<void>, returnTo: () => void): Promise<void> {
     const generation = this.generation;
+    const instanceUrl = instance.url;
+    const activity = Lampa.Activity?.active?.();
+    const isCurrent = () => generation === this.generation && instance.url === instanceUrl
+      && InstanceManager.getInstances().some(candidate => candidate.id === instance.id && candidate.url === instanceUrl)
+      && (activity === undefined || Lampa.Activity?.active?.() === activity);
     try {
-      await action();
+      await action(isCurrent);
     } catch (error) {
+      if (!isCurrent()) return;
       Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', { msg: error instanceof Error ? error.message : String(error) }));
     }
-    if (generation === this.generation) returnTo();
+    if (isCurrent()) returnTo();
   }
 
   public static async show(instance: TorstInstance, onBack: () => void): Promise<void> {
@@ -58,6 +64,7 @@ export class ProfilesUi {
     const instanceUrl = instance.url;
     const activity = Lampa.Activity?.active?.();
     const isCurrent = () => generation === this.generation && instance.url === instanceUrl
+      && InstanceManager.getInstances().some(candidate => candidate.id === instance.id && candidate.url === instanceUrl)
       && (activity === undefined || Lampa.Activity?.active?.() === activity);
     let profiles: TorstProfile[];
     const urls: string[] = [];
@@ -75,6 +82,11 @@ export class ProfilesUi {
     if (!isCurrent()) {
       urls.forEach(url => URL.revokeObjectURL(url));
       return;
+    }
+    const selectedProfile = profiles.find(profile => profile.id === instance.profileId);
+    if (selectedProfile && selectedProfile.name !== instance.profileName) {
+      instance.profileName = selectedProfile.name;
+      InstanceManager.updateInstance(instance);
     }
     this.avatarUrls = urls;
     const returnTo = () => { void this.show(instance, onBack); };
@@ -96,8 +108,9 @@ export class ProfilesUi {
         } else if (item.action === 'create') {
           Lampa.Input.edit({ free: true, nosave: true, title: translate('torst_profile_name', 'Profile Name'), value: '' }, name => {
             if (!name.trim()) return returnTo();
-            void this.perform(async () => {
+            void this.perform(instance, async isCurrent => {
               const profile = await TorstApi.createProfile(instance, name.trim());
+              if (!isCurrent()) return;
               instance.profileId = profile.id;
               instance.profileName = profile.name;
               InstanceManager.updateInstance(instance);
@@ -128,9 +141,10 @@ export class ProfilesUi {
           onSelected();
         } else if (item.action === 'rename') {
           Lampa.Input.edit({ free: true, nosave: true, title: translate('torst_profile_name', 'Profile Name'), value: profile.name }, name => {
-            if (!name.trim()) return returnTo();
-            void this.perform(async () => {
+            if (!name.trim() || name.trim() === profile.name) return returnTo();
+            void this.perform(instance, async isCurrent => {
               const renamed = await TorstApi.renameProfile(instance, profile.id, name.trim());
+              if (!isCurrent()) return;
               profile.name = renamed.name;
               if (instance.profileId === profile.id) {
                 instance.profileName = profile.name;
@@ -147,8 +161,9 @@ export class ProfilesUi {
             onBack: returnTo,
             onSelect: (choice: LampaSelectItem) => {
               if (choice.action !== 'confirm') return returnTo();
-              void this.perform(async () => {
+              void this.perform(instance, async isCurrent => {
                 await TorstApi.deleteProfile(instance, profile.id);
+                if (!isCurrent()) return;
                 if (instance.profileId === profile.id) {
                   delete instance.profileId;
                   delete instance.profileName;

@@ -35,7 +35,7 @@ export class PlaybackFocus {
     Lampa.Player.callback(() => {
       if (session && this.session !== session) return;
       this.clear();
-      restoreFocus();
+      if (!session || session.activity === undefined || Lampa.Activity?.active?.() === session.activity) restoreFocus();
     });
   }
 

@@ -19,7 +19,12 @@ describe('server playback progress', () => {
   let timelines: Map<number | string, any>;
   let listeners: Map<string, (data: any) => void>;
   let notices: string[];
-  const report = (road: object, hash: number | string = PlaybackProgress.timelineHash(instance, 'fil_one', 42)) => listeners.get('state:changed')?.({ data: { hash, road }, reason: 'update', target: 'timeline' });
+  const report = (road: { duration?: number, time?: number }, hash: number | string = PlaybackProgress.timelineHash(instance, 'fil_one', 42)) => {
+    PlaybackProgress.trackTimeline({
+      handler: (_percent: number, time: number, duration: number) => { timelines.set(hash, { duration, hash, time }); },
+      hash,
+    }).handler(0, road.time as number, road.duration as number);
+  };
 
   beforeEach(() => {
     instance = { authType: 'none', id: 'one', name: 'One', profileId: 'prf_one', url: 'http://torst.test' };
@@ -35,7 +40,7 @@ describe('server playback progress', () => {
       Timeline: {
         update: (value: any) => {
           timelines.set(value.hash, { ...value });
-          report(value, value.hash);
+          listeners.get('state:changed')?.({ data: { hash: value.hash, road: value }, reason: 'update', target: 'timeline' });
         },
         view: (hash: number | string) => {
           if (!timelines.has(hash)) timelines.set(hash, { duration: 0, hash, percent: 0, time: 0 });
@@ -144,6 +149,43 @@ describe('server playback progress', () => {
     assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
   });
 
+  it('preserves a completion report while an earlier write is still in flight', async () => {
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    let finish!: (value: FileProgress) => void;
+    let count = 0;
+    const write = mock.method(TorstApi, 'saveFileProgress', async (_instance: TorstInstance, _profile: string, _hash: string, _file: string, value: ProgressUpdate) => {
+      if (++count === 1) return new Promise<FileProgress>(resolve => { finish = resolve; });
+      return { ...saved, ...value };
+    });
+    report({ duration: 400, time: 110 });
+    report({ duration: 400, time: 360 });
+    report({ duration: 400, time: 20 });
+    finish(saved);
+    await PlaybackProgress.flush();
+    assert.equal(write.mock.calls[1].arguments[4].viewed, true);
+  });
+
+  it('waits for pending writes before hydrating and ignores reads older than a new report', async () => {
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    let finishWrite!: (value: FileProgress) => void;
+    mock.method(TorstApi, 'saveFileProgress', () => new Promise<FileProgress>(resolve => { finishWrite = resolve; }));
+    report({ duration: 400, time: 110 });
+    let finishRead!: (value: FileProgress[]) => void;
+    const read = mock.method(TorstApi, 'getTorrentProgress', () => new Promise<FileProgress[]>(resolve => { finishRead = resolve; }));
+    const hydrating = PlaybackProgress.hydrate(instance, { files: [{ fileId: 'fil_one', length: 1, name: 'Sintel.mkv', path: 'Sintel.mkv' }], hash: 'torrent' });
+    assert.equal(read.mock.callCount(), 0);
+    finishWrite({ ...saved, position_seconds: 110 });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(read.mock.callCount(), 1);
+    const key = PlaybackProgress.timelineHash(instance, 'fil_one', 42);
+    report({ duration: 400, time: 200 }, key);
+    finishRead([saved]);
+    await hydrating;
+    assert.equal(timelines.get(key).time, 200);
+    finishWrite(saved);
+    await PlaybackProgress.flush();
+  });
+
   it('keeps playback usable on progress errors and reports a write failure once', async () => {
     await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
     mock.method(TorstApi, 'saveFileProgress', async () => { throw new Error('offline'); });
@@ -158,5 +200,34 @@ describe('server playback progress', () => {
     await PlaybackProgress.flush();
     assert.equal(notices.length, 2);
     assert.equal(timelines.get(42).time, 150);
+  });
+
+  it('preserves a report received just after a card refresh starts', async () => {
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    let finish!: (value: FileProgress) => void;
+    mock.method(TorstApi, 'saveFileProgress', () => new Promise<FileProgress>(resolve => { finish = resolve; }));
+    const hydrating = PlaybackProgress.hydrate(instance, { files: [{ fileId: 'fil_one', length: 1, name: 'Sintel.mkv', path: 'Sintel.mkv' }], hash: 'torrent' });
+    report({ duration: 400, time: 200 });
+    await hydrating;
+    const hash = PlaybackProgress.timelineHash(instance, 'fil_one', 42);
+    assert.equal(timelines.get(hash).time, 200);
+    finish(saved);
+    await PlaybackProgress.flush();
+  });
+
+  it('ignores background timeline updates and invalidates callbacks from a replaced playback', async () => {
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    const hash = PlaybackProgress.timelineHash(instance, 'fil_one', 42);
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash, percent: 50, time: 200 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+    const oldTimeline = PlaybackProgress.trackTimeline({ handler: (_percent: number, _time: number, _duration: number) => {}, hash });
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    oldTimeline.handler(50, 200, 400);
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+    report({ duration: 400, time: 200 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
   });
 });

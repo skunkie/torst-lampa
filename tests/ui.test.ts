@@ -232,10 +232,12 @@ describe('UI & Settings Integration', () => {
     const instanceItem = lastSelectOptions.items.find((i: any) => i.action === 'instance');
     assert.ok(instanceItem);
 
+    instanceItem.data.profileName = 'Alex <img src=x {size} $&';
     // Open instance actions
     lastSelectOptions.onSelect(instanceItem);
     assert.ok(lastSelectOptions);
     assert.equal(lastSelectOptions.title, instanceItem.data.name);
+    assert.equal(lastSelectOptions.items.find((item: any) => item.action === 'profile').subtitle, 'Alex &lt;img src=x &#123;size} $$&amp;');
 
     const actionNames = lastSelectOptions.items.map((i: any) => i.action);
     assert.ok(!actionNames.includes('select'));
@@ -2509,7 +2511,7 @@ describe('UI & Settings Integration', () => {
         classes,
         empty: () => card,
         find: (selector: string) => {
-          if (selector === '.card-watched') return { length: card.hasOverlay ? 1 : 0 };
+          if (selector === '.card-watched') return { length: card.hasOverlay ? 1 : 0, remove: () => { card.hasOverlay = false; } };
           if (selector === '.card__view') return { prepend: (overlay: any) => { prepended.push(overlay); card.hasOverlay = true; } };
           return card;
         },
@@ -2572,7 +2574,7 @@ describe('UI & Settings Integration', () => {
       mock.timers.reset();
     });
 
-    it('prepends the overlay once the card has stayed focused for the delay', () => {
+    it('shows the overlay after the focus delay and refreshes it on refocus', () => {
       const { card } = renderCard();
       focusCard(card);
 
@@ -2583,7 +2585,8 @@ describe('UI & Settings Integration', () => {
 
       focusCard(card);
       mock.timers.tick(500);
-      assert.equal(prepended.length, 1, 'an existing overlay must not be added again');
+      assert.equal(prepended.length, 2, 'refocusing replaces the previous overlay with current progress');
+      assert.equal(card.hasOverlay, true);
     });
 
     it('loads cold card files from the grid instance before drawing watched progress', async () => {

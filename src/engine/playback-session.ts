@@ -15,6 +15,8 @@ import { PlaybackFocus } from './playback-focus';
 import { PlaybackProgress } from './playback-progress';
 import { rememberPlayerPlaylist } from './player-playlist';
 
+let playbackGeneration = 0;
+
 export async function playSingleVideoFile(
   instance: TorstInstance,
   torrent: Torrent,
@@ -76,6 +78,9 @@ export async function displayFileList(
   sourceTorrentItem?: LampaTorrentItem,
   sourceController?: string
 ): Promise<void> {
+  const activity = Lampa.Activity?.active?.();
+  const instanceUrl = instance.url;
+  const profileId = instance.profileId;
   const torrentFiles: TorrentFile[] = torrent.files || [];
   const sortedVideoFiles = selectVideoFiles(torrentFiles);
 
@@ -136,6 +141,11 @@ export async function displayFileList(
   // front so multi-episode entries can render with a still image, episode
   // name, and air date instead of the plain title-only row.
   const seasonsData = await fetchSeasonEpisodes(mediaMetadata, collectSeasonNumbers(fileInfos));
+  if (instance.profileId) await PlaybackProgress.hydrate(instance, torrent, mediaMetadata).catch(() => {
+    Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+  });
+  if (instance.url !== instanceUrl || instance.profileId !== profileId
+    || (activity !== undefined && Lampa.Activity?.active?.() !== activity)) return;
 
   const fileListElement = $('<div class="torrent-files"></div>');
   // Callers that opened this list from a menu pass the controller that was active before it
@@ -221,6 +231,12 @@ export async function playTorrentFile(
   returnController = 'content',
   sourceTorrentItem?: LampaTorrentItem
 ): Promise<boolean> {
+  const generation = ++playbackGeneration;
+  const activity = Lampa.Activity?.active?.();
+  const instanceUrl = instance.url;
+  const profileId = instance.profileId;
+  const isCurrent = () => generation === playbackGeneration && instance.url === instanceUrl && instance.profileId === profileId
+    && (activity === undefined || Lampa.Activity?.active?.() === activity);
   const resolvedMovie = resolveMovieContext(movie);
   const poster = resolvePosterUrl(undefined, resolvedMovie) || playlistItem.img || '';
   const title =
@@ -235,6 +251,7 @@ export async function playTorrentFile(
 
   const fileInfo = resolveFileInfo(playlistItem, historyCard, torrentHash, playlist);
   if (instance.profileId) await PlaybackProgress.prepare(instance, torrentHash, playlist, historyCard);
+  if (!isCurrent()) return false;
   const timelineHash = PlaybackProgress.timelineHash(instance, playlistItem.torstFileId, fileInfo.hash);
   const preloadTimeline = Lampa.Timeline ? Lampa.Timeline.view(timelineHash) : undefined;
   const playbackPositionSeconds = resolvePlaybackPositionSeconds(preloadTimeline);
@@ -260,16 +277,17 @@ export async function playTorrentFile(
     loadingMedia,
     playbackFraction
   );
-  if (!isPreloadReady) return false;
+  if (!isPreloadReady || !isCurrent()) return false;
 
   // Resolve final stream URL with playback token attached
   const streamUrl = await TorstApi.getStreamUrl(instance, torrentHash, {
     index: fileIndex,
     path: playlistItem.path,
   });
+  if (!isCurrent()) return false;
 
   const playerTimeline = Lampa.Timeline
-    ? Lampa.Timeline.view(timelineHash)
+    ? PlaybackProgress.trackTimeline(Lampa.Timeline.view(timelineHash))
     : undefined;
 
   // A 'modal' returnController means the caller deliberately left its file
@@ -286,7 +304,7 @@ export async function playTorrentFile(
       : candidateIndex;
     const candidateInfo = resolveFileInfo(candidateItem, historyCard, torrentHash, playlist);
     const candidateTimeline = Lampa.Timeline
-      ? Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, candidateItem.torstFileId, candidateInfo.hash))
+      ? PlaybackProgress.trackTimeline(Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, candidateItem.torstFileId, candidateInfo.hash)))
       : undefined;
     const isCurrentFile = targetIndex === fileIndex;
 
