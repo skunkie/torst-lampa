@@ -38,7 +38,6 @@ export interface TorrentFile {
 }
 
 export interface Torrent {
-  created_at?: string,
   file_count?: number,
   files: TorrentFile[],
   hash: string,
@@ -52,21 +51,8 @@ export interface Torrent {
   total_size: number
 }
 
-export interface TorrentCategoryCount {
-  count: number,
-  name: string
-}
-
-export interface TorrentFacets {
-  categories: TorrentCategoryCount[],
-  total: number,
-  version: string
-}
-
 export interface TorrentsResponse {
-  facets: TorrentFacets,
-  torrents: Torrent[],
-  total?: number
+  torrents: Torrent[]
 }
 
 export interface TorrentAdd {
@@ -98,12 +84,12 @@ export interface PreloadResponse {
   total_peers?: number
 }
 
-export interface TokenResponse {
+export interface AccessTokenResponse {
   expires_at: string | null,
   secret: string
 }
 
-export interface ScopedToken {
+export interface PlaybackTokenResponse {
   expires_at: string,
   token: string
 }

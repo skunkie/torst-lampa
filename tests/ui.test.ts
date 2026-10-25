@@ -1058,7 +1058,7 @@ describe('UI & Settings Integration', () => {
       const pending = new Promise<any>((resolve, reject) => {
         finish = () => stage === 'failure'
           ? reject(new Error('Connection refused'))
-          : resolve(stage === 'selection' ? instance : { facets: { categories: [], total: 0, version: 'v1' }, torrents: [] });
+          : resolve(stage === 'selection' ? instance : { torrents: [] });
       });
       mock.method(InstanceManager, 'getBestInstance', async () => stage === 'selection' ? pending : instance);
       const list = mock.method(TorstApi, 'getTorrents', async () => pending);
@@ -1628,7 +1628,7 @@ describe('UI & Settings Integration', () => {
       url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
-      created_at: '2026-01-15T10:30:00Z', files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
+      files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: 'abc123456789',
       name: 'Example Animation',
       retention: 'persisted' as const,
@@ -1716,7 +1716,7 @@ describe('UI & Settings Integration', () => {
       url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
-      created_at: '2026-01-15T10:30:00Z', files: [],
+      files: [],
       hash: 'def987654321',
       name: 'Example Short',
       retention: 'persisted' as const,
@@ -1771,7 +1771,7 @@ describe('UI & Settings Integration', () => {
     };
     const component = new TorstTorrentsComponent();
     const instance = InstanceManager.getInstances()[0];
-    const torrent: any = { created_at: '2026-10-24', files: [], hash: 'test', name: 'Sintel', retention: 'persisted' as const, storage: 'memory', total_size: 0 };
+    const torrent: any = { files: [], hash: 'test', name: 'Sintel', retention: 'persisted' as const, storage: 'memory', total_size: 0 };
     await component.openContextMenu(torrent, instance, {} as any);
     assert.ok(lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'));
   });
@@ -1784,9 +1784,9 @@ describe('UI & Settings Integration', () => {
     };
     const instance = InstanceManager.getInstances()[0];
     const torrents: any[] = [
-      { created_at: '2026-10-11', files: [], hash: 'a'.repeat(40), name: 'Matching Show', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
+      { files: [], hash: 'a'.repeat(40), name: 'Matching Show', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
       { files: [], hash: 'b'.repeat(40), name: 'Matching Show', retention: 'temporary' as const, storage: 'memory', total_size: 10 },
-      { created_at: '2026-10-11', files: [], hash: 'c'.repeat(40), name: 'Other', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
+      { files: [], hash: 'c'.repeat(40), name: 'Other', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
     ];
     mock.method(InstanceManager, 'getBestInstance', async () => instance);
     const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { search?: string }) => ({
@@ -1849,7 +1849,7 @@ describe('UI & Settings Integration', () => {
     };
     const [primary] = InstanceManager.getInstances();
     const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
-    const listing = [{ created_at: '2026-10-11', files: [], hash: 'd'.repeat(40), name: 'Show', retention: 'persisted' as const, storage: 'memory', total_size: 1 }];
+    const listing = [{ files: [], hash: 'd'.repeat(40), name: 'Show', retention: 'persisted' as const, storage: 'memory', total_size: 1 }];
     mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
     mock.method(InstanceManager, 'getPrimaryInstance', () => primary);
     mock.method(InstanceManager, 'getBestInstance', async () => primary);
@@ -2301,9 +2301,8 @@ describe('UI & Settings Integration', () => {
     assert.equal(toggledController, 'content', 'onBack must toggle back to content controller');
   });
 
-  it('does not open a delayed file list after the component stops', async () => {
+  it('does not open a pending file list after the component stops', async () => {
     let modalOpenCount = 0;
-    let resolveSeasons: ((data: Record<string, LampaApiSeasonData>) => void) | undefined;
 
     (globalThis as any).$ = () => ({ append: () => {} });
     (globalThis as any).Lampa.Controller = { enabled: () => ({ name: 'content' }) };
@@ -2315,33 +2314,22 @@ describe('UI & Settings Integration', () => {
       public render() { return {}; }
     };
 
-    const originalFetchSeasonEpisodes = TorstEngine.fetchSeasonEpisodes;
-    (TorstEngine as any).fetchSeasonEpisodes = () => new Promise(resolve => {
-      resolveSeasons = resolve;
+    const component = new TorstTorrentsComponent();
+    const opening = component.openTorrent({
+      files: [
+        { length: 1, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
+        { length: 1, name: 'Show.S01E02.mkv', path: 'Show.S01E02.mkv' },
+      ],
+      hash: 'delayed-list',
+      name: 'Show',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 2,
     });
 
-    try {
-      const component = new TorstTorrentsComponent();
-      const opening = component.openTorrent({
-        files: [
-          { length: 1, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
-          { length: 1, name: 'Show.S01E02.mkv', path: 'Show.S01E02.mkv' },
-        ],
-        hash: 'delayed-list',
-        name: 'Show',
-        retention: 'temporary' as const, storage: 'memory',
-        total_size: 2,
-      });
+    component.stop();
+    await opening;
 
-      component.stop();
-      assert.ok(resolveSeasons);
-      resolveSeasons({});
-      await opening;
-
-      assert.equal(modalOpenCount, 0);
-    } finally {
-      TorstEngine.fetchSeasonEpisodes = originalFetchSeasonEpisodes;
-    }
+    assert.equal(modalOpenCount, 0);
   });
 
   it('reports asynchronous file-list failures from torrent-card activation', async () => {
@@ -3050,7 +3038,7 @@ describe('UI & Settings Integration', () => {
       requestedUrls.push(String(input));
       return new Response(JSON.stringify({ facets: { categories: [], total: 2, version: 'v1' },
         items: ([
-          { created_at: '2026-01-15T10:30:00Z', files: [], hash: storedHash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+          { files: [], hash: storedHash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
         ]).map(createTorstTorrent),
         links: {},
       }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
@@ -3110,7 +3098,7 @@ describe('UI & Settings Integration', () => {
       if (shouldFail && url.includes('/api/v1/torrents')) return new Response('boom', { status: 500 });
       return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },
         items: ([
-          { created_at: '2026-01-15T10:30:00Z', files: [], hash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+          { files: [], hash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
         ]).map(createTorstTorrent),
         links: {},
       }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
@@ -4017,7 +4005,6 @@ describe('UI & Settings Integration', () => {
 
     const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
     const torrent = (hash: string, isSaved: boolean, { sizeBytes = 0 } = {}) => ({
-      created_at: '2026-01-01T00:00:00Z',
       files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv' }],
       hash,
       name: hash,

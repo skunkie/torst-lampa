@@ -8,7 +8,7 @@ SPDX-License-Identifier: MIT
 
 ## Repository Overview
 
-This repository contains a [Torst](https://github.com/torrplay/torst) plugin for the [Lampa](https://github.com/yumata/lampa) media client. The plugin is authored in TypeScript, adheres to strict linting and typechecking rules, and compiles into a standalone, bundle-free JavaScript file (`dist/torst.js` and `dist/torst.min.js`) suitable for execution across web browsers, Android TV, Tizen, and WebOS.
+This repository contains a [Torst](https://github.com/torrplay/torst) plugin for the [Lampa](https://github.com/yumata/lampa) media client. The plugin is authored in TypeScript, adheres to strict linting and typechecking rules, and compiles into a standalone JavaScript bundle (`dist/torst.js` and `dist/torst.min.js`) suitable for execution across web browsers, Android TV, Tizen, and WebOS.
 
 ## Repository Structure & Module Organization
 
@@ -194,7 +194,7 @@ src/
     - **Authentication**: Password sign-in, header resolution, and token refresh in `tests/auth.test.ts`.
     - **HTTP Transport**: `Lampa.Reguest` delegation, `fetch` fallback, status error mapping, `304 Not Modified` mapping for conditional requests, and network error handling and classification in `tests/http-client.test.ts`.
     - **API Interactions**: Health checks, torrent additions, metadata fetching, preload control, database listing (`getTorrents`) and its revalidation, torrent deletion (`deleteTorrent`), and stream URL generation in `tests/torst-api.test.ts`.
-    - **Instance Management**: Instance CRUD, primary instance synchronization, concurrent latency benchmarking, latency-based auto selection, reuse of recent benchmark results, and automatic failover in `tests/instance-manager.test.ts`.
+    - **Instance Management**: Instance CRUD, concurrent latency benchmarking, latency-based auto selection, reuse of recent benchmark results, and automatic failover in `tests/instance-manager.test.ts`.
     - **Search Providers**: Provider CRUD, legacy Lampa key sync, and health checks in `tests/provider-manager.test.ts`; aggregated multi-provider search, dedupe, and ranking in `tests/provider-search.test.ts`; provider pool settings UI in `tests/provider-ui.test.ts`.
     - **Native Parser Integration**: Lampa torrent parser interception, result injection, and the provider global search source in `tests/parser-hook.test.ts`; its torrent rows and media tags in `tests/provider-result-row.test.ts`.
     - **Engine & Playback**: Playback mode resolution, prompt dialogs, database persistence, and player routing in `tests/torst-engine.test.ts`; engine helpers in `tests/engine-utils.test.ts`; torrent file parsing in `tests/file-parser.test.ts`; episode switch playlist restoration in `tests/player-playlist.test.ts`; episode previews in `tests/episode-preview.test.ts`; global search over saved torrents in `tests/database-search.test.ts`; batched saved-torrent lookups and their per-instance cache in `tests/saved-torrents.test.ts`.

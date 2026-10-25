@@ -97,7 +97,6 @@ describe('ProviderSearch', () => {
     ProviderManager.addProvider({
       apiKey: 'jkey', id: 'j1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
     });
-    storageMap.set('parse_timeout', 7);
     let configuredTimeoutMs = 0;
     class MockReguest {
       public native(
@@ -112,9 +111,11 @@ describe('ProviderSearch', () => {
     }
     (globalThis as any).Lampa.Reguest = MockReguest;
 
-    await ProviderSearch.search({ query: 'timeout' });
-
-    assert.equal(configuredTimeoutMs, 7000);
+    for (const [setting, expectedTimeoutMs] of [[7, 7000], [0, 15000], [-1, 15000], ['invalid', 15000]]) {
+      storageMap.set('parse_timeout', setting);
+      await ProviderSearch.search({ query: 'timeout' });
+      assert.equal(configuredTimeoutMs, expectedTimeoutMs);
+    }
   });
 
   it('maps Prowlarr native JSON results and filters out non-torrent protocols', async () => {

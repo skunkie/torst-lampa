@@ -127,8 +127,6 @@ describe('Torst API contract', () => {
     };
     const listing = await TorstApi.getTorrents(INSTANCE, { fuzzy: true, hashes: [HASH, 'a'.repeat(40)], search: 'Sintel' });
     assert.deepEqual(listing.torrents.map(torrent => torrent.id), ['trr_test', 'trr_second']);
-    assert.equal(listing.total, 2);
-    assert.equal(listing.facets.version, 'lv-test');
   });
 
   it('stops repeated pagination links', async () => {
@@ -282,7 +280,6 @@ describe('Torst API contract', () => {
     };
     const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, poster: 'https://images.test/sintel.jpg', retention: 'temporary', storage: 'file', title: 'Sintel' });
     assert.equal(torrent.retention, 'temporary');
-    assert.equal(torrent.created_at, RESOURCE.created_at);
     assert.equal(requests.length, 1);
   });
 
@@ -488,14 +485,16 @@ describe('Torst API contract', () => {
     assert.deepEqual(operations, ['GET', 'PATCH', 'POST']);
   });
 
-  it('does not expose cached listing facets to mutations by callers', async () => {
+  it('isolates cached torrent data from caller mutations', async () => {
     globalThis.fetch = async (_input, options) => (options?.headers as Record<string, string>)['If-None-Match']
       ? new Response(null, { status: 304 })
       : json({ facets: { categories: [{ count: 1, name: 'Animation' }], total: 1, version: 'test' }, items: [RESOURCE], links: {} }, 200, { ETag: '"listing"' });
     const first = await TorstApi.getTorrents(INSTANCE);
-    first.facets.categories[0].name = 'Changed';
+    first.torrents[0].name = 'Changed';
+    first.torrents[0].files.push({ length: 1, name: 'Injected.mkv', path: 'Injected.mkv' });
     const second = await TorstApi.getTorrents(INSTANCE);
-    assert.equal(second.facets.categories[0].name, 'Animation');
+    assert.equal(second.torrents[0].name, RESOURCE.name);
+    assert.deepEqual(second.torrents[0].files, []);
   });
 
   for (const link of ['/api/v1/../../private', '/api/v1/%2e%2e/%2e%2e/private']) {

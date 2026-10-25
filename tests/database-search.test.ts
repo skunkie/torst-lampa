@@ -18,7 +18,7 @@ import { createTestLanguage, getTestTranslation } from './support/translations';
 
 const instance: TorstInstance = { authType: 'none', id: 'first', name: 'First', url: 'http://first.local' };
 const saved: Torrent = {
-  created_at: '2026-10-11T00:00:00Z', files: [{ length: 100, name: 'episode.mkv', path: 'episode.mkv' }],
+  files: [{ length: 100, name: 'episode.mkv', path: 'episode.mkv' }],
   hash: 'a'.repeat(40),
   name: 'Test.Show.1080p',
   poster: 'https://images.local/poster.jpg',
@@ -422,7 +422,6 @@ describe('DatabaseSearch', () => {
     (globalThis as any).Lampa.Modal = { close: () => {}, open: (options: unknown) => { modal.options = options; } };
     (globalThis as any).Lampa.Utils.bytesToSize = (bytes: number) => `${bytes} B`;
     (globalThis as any).Lampa.Controller.collectionFocus = () => {};
-    mock.method(TorstEngine, 'fetchSeasonEpisodes', async () => ({}));
     return modal;
   }
 

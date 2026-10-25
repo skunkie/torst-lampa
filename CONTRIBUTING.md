@@ -10,11 +10,11 @@ Thanks for helping with the Torst Lampa plugin. This page covers what a
 change needs before it can be merged. Taking part is governed by the [code of
 conduct](CODE_OF_CONDUCT.md).
 
-The plugin is a single, dependency-free script that runs inside Lampa on
-Android TV, Tizen, webOS and desktop browsers, and it talks to Torst
-instances through `/api/v1/` resources and the `/readyz` readiness check. A change that
-adds a runtime dependency, relies on a legacy TorrServer route, or only works
-on a recent browser engine is unlikely to be accepted.
+The plugin is a standalone JavaScript bundle that runs inside Lampa on
+Android TV, Tizen, webOS and desktop browsers. It talks to Torst through
+`/api/v1/` resources and the `/readyz` readiness check. Changes must work
+without external runtime dependencies or legacy TorrServer routes and stay
+within the supported browser runtime floor.
 
 ## Before you start
 
@@ -76,9 +76,9 @@ For an intentional quotation with different spelling, use a narrowly scoped
 - **Translate every string.** A user-facing string goes in
   `src/lang/translations.ts` with both English and Russian text, keys in
   alphabetical order.
-- **Use invented sample data.** Titles in tests and documentation are made
-  up, such as "Test Movie 2026", never the names of real films, series or
-  releases, and no real magnet links, info hashes or tracker URLs.
+- **Use safe sample data.** Use invented titles such as "Test Movie 2026"
+  or Blender open movies such as Sintel and Big Buck Bunny. Avoid commercial
+  film and series titles, real magnet links, info hashes, and tracker URLs.
 - **Follow the surrounding code.** Standard TypeScript naming applies, files
   are `kebab-case`, interface members and object literal keys are sorted
   alphabetically (case-sensitively, enforced by the linter), and boolean
@@ -118,8 +118,8 @@ and pass the checks above on its own.
 ## Pull requests
 
 - Describe what the change does and why, and link the issue it closes.
-- Run the checks above first. CI runs the npm checks only after a merge to
-  `main`, so a pull request is not checked for you.
+- Run the checks above before opening a pull request. CI runs type checks,
+  lint, coverage, and the build on pull requests targeting `main`.
 - Keep review comments and replies about the work, and push follow-up commits
   rather than rewriting history while a review is in progress. When history is
   rewritten before merging, keep each commit's author and committer dates

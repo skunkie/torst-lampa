@@ -48,7 +48,7 @@ Torst is unreleased and in active development. The plugin targets its current AP
 - **Authentication**:
   - Use no authentication when Torst has no password, or select **Bearer** and enter the Torst password. There is no username or Basic authentication.
   - The plugin signs in through `POST /api/v1/access-tokens` with a one-day token lifetime and issues playback tokens through `POST /api/v1/playback-tokens` for content and poster URLs.
-- **Universal TV & Device Compatibility**: Bundled into a standalone, dependency-free JavaScript file compatible with Android TV, Tizen, WebOS, and desktop browsers.
+- **Universal TV & Device Compatibility**: Distributed as a standalone JavaScript bundle for Android TV, Tizen, WebOS, and desktop browsers, with no external runtime dependencies.
 
 ---
 
@@ -92,7 +92,7 @@ In Lampa, open **Settings** &rarr; **Torst**:
 - **Ephemeral In-Memory Tokens**: Access tokens and streaming playback tokens are strictly held in runtime memory and are **never** serialized to disk or persistent storage.
 - **Shared Device Guidance**: On shared televisions or multi-user profiles where local storage is accessible to other installed plugins or scripts, protect the device and its profile: the stored Torst password grants control over the instance.
 
-## Torst API compatibility
+## Torst API and deployment
 
 The client follows the contract in [Torst's OpenAPI document](https://github.com/torrplay/torst/blob/main/api/openapi.yaml). Torrents and files use opaque IDs; info hashes are lookup filters. Listings and file lists follow cursor pagination. Storage and settings changes read the resource ETag and send it in `If-Match` with a JSON merge patch. Streams use `/api/v1/torrents/{torrent_id}/files/{file_id}/content`.
 

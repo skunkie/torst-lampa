@@ -24,8 +24,7 @@ interface ProviderSearchQuery {
   movie?: ProviderSearchMovie,
   other?: boolean,
   query: string,
-  signal?: AbortSignal,
-  timeoutSeconds?: number
+  signal?: AbortSignal
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,8 +52,8 @@ function readSearchInfo(value: unknown): ProviderSearchInfo | undefined {
   };
 }
 
-// Passed through verbatim: only Lampa's own renderer interprets these streams, and it
-// tolerates unknown keys, so narrowing the shape here would drop media info instead.
+// Keep each stream record intact so Lampa and the provider rows can use all
+// metadata supplied by the indexer, including tags outside this interface.
 function readFfprobeStreams(value: unknown): LampaFfprobeStream[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const streams = value.filter(isRecord) as LampaFfprobeStream[];
@@ -219,10 +218,8 @@ export class ProviderSearch {
     const providers = ProviderManager.getEnabledProviders();
     if (providers.length === 0) return [];
 
-    const configuredTimeoutSeconds = Number(nativeParserSetting('parse_timeout', 15));
-    const timeoutSeconds = searchQuery.timeoutSeconds
-      ?? (Number.isFinite(configuredTimeoutSeconds) && configuredTimeoutSeconds > 0 ? configuredTimeoutSeconds : 15);
-    const timeoutMs = timeoutSeconds * 1000;
+    const timeoutSeconds = Number(nativeParserSetting('parse_timeout', 15));
+    const timeoutMs = (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0 ? timeoutSeconds : 15) * 1000;
     const providerOutcomes = await Promise.allSettled(
       providers.map(provider => this.searchProvider(provider, searchQuery, timeoutMs))
     );

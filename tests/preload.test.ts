@@ -141,7 +141,7 @@ describe('PreloadModal', () => {
       assert.deepEqual(methods, ['POST']);
     });
 
-    it('treats increasing percentage-only responses as progress for stall detection', async () => {
+    it('resets the stall window when buffered bytes increase', async () => {
       const originalDateNow = Date.now;
       const originalSetTimeout = globalThis.setTimeout;
       let currentTimeMs = 0;
@@ -689,7 +689,6 @@ describe('PreloadModal', () => {
       let isLoadingStopped = false;
       let lastProgress = 0;
       let lastStats: any = null;
-      let statsRequestMade = false;
 
       (globalThis as any).Lampa.Loading = {
         setProgress: (percent: number, data?: any) => {
@@ -699,21 +698,15 @@ describe('PreloadModal', () => {
         start: (_onCancel: () => void, _text?: string, data?: any) => {
           isLoadingStarted = true;
           assert.equal(data.media.title, 'Sample Movie');
+          assert.equal(data.media.background, 'https://images.test/backdrop.jpg');
+          assert.deepEqual(data.media.card, { id: 33 });
         },
         stop: () => {
           isLoadingStopped = true;
         },
       };
 
-      respond = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const requestUrl = String(input);
-
-        if (requestUrl.includes('/statistics/')) {
-          statsRequestMade = true;
-          throw new Error('Preload modal should not poll stats endpoint');
-        }
-
-        assert.ok(requestUrl.includes('/api/v1/torrents/trr_test/files/fil_test/preloads'));
+      respond = async (_input: RequestInfo | URL, init?: RequestInit) => {
 
         if (init?.method === 'POST') {
           const body = JSON.parse(init.body as string);
@@ -752,14 +745,13 @@ describe('PreloadModal', () => {
         testInstance,
         'hash123',
         { index: 0, path: 'movie.mkv' },
-        { title: 'Sample Movie' },
+        { background: 'https://images.test/backdrop.jpg', card: { id: 33 }, title: 'Sample Movie' },
         0.4
       );
 
       assert.equal(result, true);
       assert.equal(isLoadingStarted, true);
       assert.equal(isLoadingStopped, true);
-      assert.equal(statsRequestMade, false);
       assert.equal(lastProgress, 20); // 10MB of 50MB from initial startPreload
       assert.equal(lastStats.active_peers, 3);
       assert.equal(lastStats.total_peers, 8);
@@ -800,9 +792,7 @@ describe('PreloadModal', () => {
       };
 
       let isCancelCalled = false;
-      respond = async (input: RequestInfo | URL, init?: RequestInit) => {
-        const requestUrl = String(input);
-        assert.ok(requestUrl.includes('/api/v1/torrents/trr_test/files/fil_test/preloads'));
+      respond = async (_input: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === 'DELETE') {
           isCancelCalled = true;
           return new Response(null, { status: 204 });

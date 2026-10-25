@@ -260,11 +260,7 @@ interface LampaSettingsComponent {
 
 interface LampaSettingsApi {
   addComponent(component: LampaSettingsComponent): void,
-  addParam(param: LampaSettingsParam): void,
-  allComponents(): Record<string, LampaSettingsComponent>,
-  allParams(): Record<string, LampaSettingsParam[]>,
-  getParam(component: string): LampaSettingsParam[],
-  removeComponent(name: string): void
+  addParam(param: LampaSettingsParam): void
 }
 
 interface LampaListener {
@@ -282,16 +278,11 @@ interface LampaModalOptions {
 
 interface LampaModal {
   close(): void,
-  open(options: LampaModalOptions): void,
-  scroll(): { render(js?: boolean): any },
-  title(title: string): void,
-  update(html: any): void
+  open(options: LampaModalOptions): void
 }
 
 interface LampaController {
   add(name: string, controller: any): void,
-  back(): void,
-  collectionAppend(item: any): void,
   collectionFocus(focus: any, element: any): void,
   collectionSet(element: any): void,
   enabled(): { name: string },
@@ -302,7 +293,6 @@ interface LampaController {
 interface LampaPlayer {
   callback(callback: () => void): void,
   listener?: LampaListener,
-  opened(): boolean,
   play(item: any): void,
   playlist(list: any[]): void
 }
@@ -313,12 +303,10 @@ interface LampaNoty {
 
 interface LampaUtils {
   bytesToSize(bytes: number, speed?: boolean): string,
-  cardImgBackground(cardData: any): string,
   clearHtmlTags(text: string): string,
   createInstance(cls: any, ...args: any[]): any,
   hash(str: string): string,
   parseTime(value: string): { full: string },
-  pathToNormalTitle(str: string, keepExt?: boolean): string,
   secondsToTimeHuman(seconds: number): string
 }
 
@@ -341,7 +329,6 @@ interface LampaTemplate {
 interface LampaTorrent {
   back(callback?: () => void): void,
   open(hash: string, movie?: any): void,
-  opened(callback: () => void): void,
   start(element: any, movie?: any): void
 }
 
@@ -378,17 +365,10 @@ interface LampaLoading {
   stop(): void
 }
 
-interface LampaPlatform {
-  any(): boolean,
-  is(platform: string): boolean,
-  tv(): boolean
-}
-
 interface LampaActivity {
   active?(): any,
   all?(): any[],
   backward(): void,
-  mixState(state?: string): void,
   push(params: {
     [key: string]: any,
     component: string,
@@ -398,32 +378,15 @@ interface LampaActivity {
     search?: string,
     title?: string,
     url?: string
-  }): void,
-  replace(params: any): void
-}
-
-interface LampaMenu {
-  addButton(svgIcon: string, title: string, action: () => void): any,
-  addElement(element: any, action?: () => void): any,
-  close(): void,
-  open(): void,
-  opened(): boolean,
-  toggle(): void
+  }): void
 }
 
 interface LampaNamespace {
   Activity: LampaActivity,
-  Android?: any,
   Api?: LampaApi,
-  Arrays: {
-    decodeJson(json: any, fallback: any): any,
-    extend(target: any, source: any): any,
-    remove(array: any[], item: any): void
-  },
   Background: {
     change(url: string): void
   },
-  Card: any,
   Component: {
     add(name: string, component: any): void,
     create(name: string, object: any): any,
@@ -448,27 +411,20 @@ interface LampaNamespace {
   },
   Listener: LampaListener,
   Loading: LampaLoading,
-  Maker?: {
-    get(name: string, data?: unknown, createModule?: (modules: { only(...names: string[]): number }) => number): new (data: unknown) => unknown
-  },
   Manifest: {
-    app_digital?: number,
     plugins?: any
   },
-  Menu: LampaMenu,
   Modal: LampaModal,
   Navigator: {
     canmove?: (direction: 'up' | 'down' | 'left' | 'right') => boolean,
     focused(element: any): void,
     move(direction: 'up' | 'down' | 'left' | 'right'): void
   },
-  Notice?: any,
   Noty: LampaNoty,
   Parser?: {
     clear?(): void,
     get(params: LampaParserParams, onComplete: (data: LampaParserData) => void, onError?: (error?: unknown) => void): void
   },
-  Platform: LampaPlatform,
   Player: LampaPlayer,
   PlayerPlaylist?: {
     get(): unknown[],
@@ -485,7 +441,6 @@ interface LampaNamespace {
     close(): void,
     show(options: LampaSelectOptions): void
   },
-  Settings: any,
   SettingsApi: LampaSettingsApi,
   Storage: LampaStorage,
   Template: LampaTemplate,

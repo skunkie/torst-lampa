@@ -220,13 +220,13 @@ export async function requestHttp(
     });
 
     const realPostData = (options.body as string) || (method === 'POST' ? '{}' : false);
-    const isNativeBridgeUnsupportedMethod = method !== 'GET' && method !== 'POST' && method !== 'HEAD';
+    const canUseNativeBridge = method === 'GET' || method === 'POST';
 
-    if (typeof lampaRequest.native === 'function' && !isNativeBridgeUnsupportedMethod) {
+    if (typeof lampaRequest.native === 'function' && canUseNativeBridge) {
       try {
         return await dispatch(lampaRequest.native.bind(lampaRequest), buildAjaxParams(), realPostData);
       } catch (err) {
-        const isReadOnlyMethod = method === 'GET' || method === 'HEAD';
+        const isReadOnlyMethod = method === 'GET';
         // A caller that aborted mid-flight wants the request gone, not re-issued on the
         // fallback transport: re-dispatching would ignore the already-aborted signal and
         // deliver a response for a request nobody is waiting for any more.

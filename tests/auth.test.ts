@@ -89,6 +89,24 @@ describe('Torst authentication', () => {
     assert.equal(instance.playbackToken, undefined);
   });
 
+  it('replaces an expired playback token and reuses its replacement', async () => {
+    const instance = createInstance();
+    instance.accessToken = 'access';
+    instance.accessTokenExpiresAtMs = Infinity;
+    instance.playbackToken = 'expired';
+    instance.playbackTokenExpiresAtMs = Date.now() - 1;
+    let calls = 0;
+    globalThis.fetch = async input => {
+      calls++;
+      assert.equal(String(input), `${instance.url}/api/v1/playback-tokens`);
+      return new Response(JSON.stringify({ expires_at: new Date(Date.now() + 3600000).toISOString(), token: 'replacement' }));
+    };
+
+    assert.equal(await AuthManager.getPlaybackToken(instance), 'replacement');
+    assert.equal(await AuthManager.getPlaybackToken(instance), 'replacement');
+    assert.equal(calls, 1);
+  });
+
   it('retries a refused playback token once after signing in again', async () => {
     const instance = createInstance();
     instance.accessToken = 'expired';

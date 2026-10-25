@@ -52,10 +52,10 @@ export class PreloadModal {
     instance: TorstInstance,
     torrentHash: string,
     fileIdentifier: { index?: number, path?: string },
-    mediaMetadata?: LampaMovie | string,
+    mediaMetadata?: LampaMovie,
     playbackFraction?: number
   ): Promise<boolean> {
-    const loadingMedia = typeof mediaMetadata === 'object' && mediaMetadata !== null
+    const loadingMedia = mediaMetadata
       ? {
         background: mediaMetadata.background || mediaMetadata.img || '',
         card: mediaMetadata.card || mediaMetadata.movie,
@@ -65,7 +65,7 @@ export class PreloadModal {
         title: mediaMetadata.title || mediaMetadata.first_title || 'Torst',
       }
       : {
-        title: typeof mediaMetadata === 'string' ? mediaMetadata : 'Torst',
+        title: 'Torst',
       };
 
     return new Promise<boolean>(resolve => {

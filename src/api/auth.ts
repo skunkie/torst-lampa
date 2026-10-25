@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ScopedToken, TokenResponse, TorstInstance } from '../types/torst';
+import { AccessTokenResponse, PlaybackTokenResponse, TorstInstance } from '../types/torst';
 import { requestHttp } from './http-client';
 
 interface PendingTokenRequest {
@@ -91,7 +91,7 @@ export class AuthManager {
     if (!response.ok) {
       throw new AuthenticationError(`Bearer auth failed (${response.status}): ${response.statusText || 'Unauthorized'}`, response.status);
     }
-    const token = await response.json() as TokenResponse;
+    const token = await response.json() as AccessTokenResponse;
     this.ensureAuthenticationUnchanged(instance, original, generation);
     if (!token || typeof token.secret !== 'string' || !token.secret) throw new AuthenticationError('Torst returned an invalid access token');
     const expiresAtMs = token.expires_at === null ? Infinity : Date.parse(token.expires_at);
@@ -116,9 +116,9 @@ export class AuthManager {
     return headers;
   }
 
-  public static async getPlaybackToken(instance: TorstInstance, shouldForceRefresh = false): Promise<string> {
+  public static async getPlaybackToken(instance: TorstInstance): Promise<string> {
     if (instance.authType === 'none') return '';
-    if (!shouldForceRefresh && instance.playbackToken && instance.playbackTokenExpiresAtMs && Date.now() < instance.playbackTokenExpiresAtMs) {
+    if (instance.playbackToken && instance.playbackTokenExpiresAtMs && Date.now() < instance.playbackTokenExpiresAtMs) {
       return instance.playbackToken;
     }
     return this.shareRequest(instance, this.playbackRequests, () => this.requestPlaybackToken(instance));
@@ -142,7 +142,7 @@ export class AuthManager {
     if (!response.ok) {
       throw new AuthenticationError(`Failed to obtain playback token (${response.status}): ${response.statusText || 'Unauthorized'}`, response.status);
     }
-    const token = await response.json() as ScopedToken;
+    const token = await response.json() as PlaybackTokenResponse;
     this.ensureAuthenticationUnchanged(instance, original, generation);
     if (!token || typeof token.token !== 'string' || !token.token) throw new AuthenticationError('Torst returned an invalid playback token');
     const expiresAtMs = Date.parse(token.expires_at);

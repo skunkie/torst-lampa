@@ -129,7 +129,7 @@ export class ProviderManager {
   /**
    * Health check and latency measurement for a single provider.
    */
-  public static async checkHealth(provider: TorrentProvider, timeoutMs = 8000): Promise<ProviderHealthResult> {
+  public static async checkHealth(provider: TorrentProvider): Promise<ProviderHealthResult> {
     const startedAtMs = performance.now();
     const { apiKey, type, url } = provider;
     const isCurrentConnection = () => provider.apiKey === apiKey && provider.type === type && provider.url === url;
@@ -137,7 +137,7 @@ export class ProviderManager {
       const response = await requestHttp(buildHealthCheckUrl(provider), {
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
         method: 'GET',
-        timeoutMs,
+        timeoutMs: 8000,
       });
       const latencyMs = Math.round(performance.now() - startedAtMs);
       if (!isCurrentConnection()) return { isOk: false };
@@ -149,13 +149,13 @@ export class ProviderManager {
       }
       provider.status = 'offline';
       provider.latencyMs = Infinity;
-      return { isOk: false, statusMessage: response.statusText };
-    } catch (error) {
+      return { isOk: false };
+    } catch {
       if (isCurrentConnection()) {
         provider.status = 'offline';
         provider.latencyMs = Infinity;
       }
-      return { isOk: false, statusMessage: error instanceof Error ? error.message : String(error) };
+      return { isOk: false };
     }
   }
 

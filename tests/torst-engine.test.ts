@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { AuthenticationError } from '../src/api/auth';
 import { NetworkError } from '../src/api/http-client';
 import { TorstApi, TorstApiError } from '../src/api/torst';
-import { sortTorrentFiles } from '../src/engine/file-parser';
+import { resolveFileInfo, sortTorrentFiles } from '../src/engine/file-parser';
+import { resolveMovieContext, resolvePosterUrl } from '../src/engine/media-context';
 import { displayFileList, playTorrentFile } from '../src/engine/playback-session';
 import { initPlayerPlaylist, resetPlayerPlaylistForTesting } from '../src/engine/player-playlist';
 import { TorstEngine } from '../src/engine/torst-engine';
@@ -115,7 +116,7 @@ describe('TorstEngine', () => {
       img: (path: string, size: string) => `https://proxy.lampa.app/${size}${path}`,
     };
 
-    const resolved = TorstEngine.resolvePosterUrl(undefined, {
+    const resolved = resolvePosterUrl(undefined, {
       poster_path: '/custom_path.jpg',
     });
 
@@ -125,20 +126,20 @@ describe('TorstEngine', () => {
 
   it('handles absolute URLs, data URIs, and filters broken images in resolvePosterUrl', () => {
     assert.equal(
-      TorstEngine.resolvePosterUrl({ poster: 'https://example.com/poster.jpg' }),
+      resolvePosterUrl({ poster: 'https://example.com/poster.jpg' }),
       'https://example.com/poster.jpg'
     );
     assert.equal(
-      TorstEngine.resolvePosterUrl({ poster: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' }),
+      resolvePosterUrl({ poster: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' }),
       'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
     );
     assert.equal(
-      TorstEngine.resolvePosterUrl({ poster: '//image.tmdb.org/t/p/w500/abc.jpg' }),
+      resolvePosterUrl({ poster: '//image.tmdb.org/t/p/w500/abc.jpg' }),
       'https://image.tmdb.org/t/p/w500/abc.jpg'
     );
     // Skips broken image and uses movie poster_path
     assert.equal(
-      TorstEngine.resolvePosterUrl(
+      resolvePosterUrl(
         { poster: './img/img_broken.svg' },
         { poster_path: '/fallback.jpg' }
       ),
@@ -781,19 +782,19 @@ describe('TorstEngine', () => {
   it('unwraps nested movie and card contexts and resolves from activity stack', () => {
     // Direct with id
     assert.deepEqual(
-      TorstEngine.resolveMovieContext({ id: 101, title: 'Direct' }),
+      resolveMovieContext({ id: 101, title: 'Direct' }),
       { id: 101, title: 'Direct' }
     );
 
     // Nested in .movie
     assert.deepEqual(
-      TorstEngine.resolveMovieContext({ movie: { id: 102, title: 'Nested Movie' } }),
+      resolveMovieContext({ movie: { id: 102, title: 'Nested Movie' } }),
       { id: 102, title: 'Nested Movie' }
     );
 
     // Nested in .card
     assert.deepEqual(
-      TorstEngine.resolveMovieContext({ card: { id: 103, title: 'Nested Card' } }),
+      resolveMovieContext({ card: { id: 103, title: 'Nested Card' } }),
       { id: 103, title: 'Nested Card' }
     );
 
@@ -802,7 +803,7 @@ describe('TorstEngine', () => {
       movie: { id: 201, title: 'Active Activity Movie' },
     });
     assert.deepEqual(
-      TorstEngine.resolveMovieContext({ from_search: true }),
+      resolveMovieContext({ from_search: true }),
       { id: 201, title: 'Active Activity Movie' }
     );
 
@@ -813,14 +814,14 @@ describe('TorstEngine', () => {
       { component: 'search' },
     ];
     assert.deepEqual(
-      TorstEngine.resolveMovieContext(),
+      resolveMovieContext(),
       { id: 301, title: 'Stack Movie' }
     );
 
     // Fallback to title/name object if no id anywhere
     (globalThis as any).Lampa.Activity.all = () => [];
     assert.deepEqual(
-      TorstEngine.resolveMovieContext({ title: 'Fallback Title' }),
+      resolveMovieContext({ title: 'Fallback Title' }),
       { title: 'Fallback Title' }
     );
   });
@@ -1155,7 +1156,7 @@ describe('TorstEngine', () => {
 
   it('resolves standard Lampa timeline hash, season, and episode for movies and TV shows', () => {
     // Single movie: hash must match movie.original_title
-    const movieInfo = TorstEngine.resolveFileInfo(
+    const movieInfo = resolveFileInfo(
       { path: 'Example.Film.2026.1080p.mkv' },
       { original_title: 'Example Film', title: 'Пример фильма' },
       'torrent123'
@@ -1169,7 +1170,7 @@ describe('TorstEngine', () => {
     );
 
     // TV show with S02E07 pattern
-    const showInfo = TorstEngine.resolveFileInfo(
+    const showInfo = resolveFileInfo(
       { path: 'Season 02/Example.Series.S02E07.mkv' },
       { number_of_seasons: 8, original_title: 'Example Series' },
       'torrent123'
@@ -1183,7 +1184,7 @@ describe('TorstEngine', () => {
     );
 
     // TV show with Russian text "1 сезон 12 серия"
-    const ruShowInfo = TorstEngine.resolveFileInfo(
+    const ruShowInfo = resolveFileInfo(
       { path: '1 сезон 12 серия.mkv' },
       { original_name: 'Сериал' },
       'torrent123'
@@ -1197,7 +1198,7 @@ describe('TorstEngine', () => {
     );
 
     // TV show in season folder with numeric episode "Season 3/09.mkv"
-    const folderShowInfo = TorstEngine.resolveFileInfo(
+    const folderShowInfo = resolveFileInfo(
       { path: 'Season 3/09.mkv' },
       { number_of_seasons: 5, original_title: 'Show' },
       'torrent123'
@@ -1210,7 +1211,7 @@ describe('TorstEngine', () => {
     );
 
     // Season > 10 format uses colon separator (e.g. 11:4)
-    const lateSeasonInfo = TorstEngine.resolveFileInfo(
+    const lateSeasonInfo = resolveFileInfo(
       { path: 'S11E04.mkv' },
       { number_of_seasons: 15, original_title: 'Show' },
       'torrent123'
@@ -1223,7 +1224,7 @@ describe('TorstEngine', () => {
     );
 
     // Standalone video without movie metadata falls back to torrent hash and path
-    const standaloneInfo = TorstEngine.resolveFileInfo(
+    const standaloneInfo = resolveFileInfo(
       { path: 'video.mp4' },
       undefined,
       'standalonehash'
@@ -1244,7 +1245,7 @@ describe('TorstEngine', () => {
           serial: true,
         }),
       };
-      const nativeParsed = TorstEngine.resolveFileInfo(
+      const nativeParsed = resolveFileInfo(
         { path: 'dummy.mkv' },
         { original_title: 'Any' },
         'anyhash'
@@ -1271,7 +1272,7 @@ describe('TorstEngine', () => {
       };
 
       try {
-        const fallbackParsed = TorstEngine.resolveFileInfo(
+        const fallbackParsed = resolveFileInfo(
           { path: 'Season 01/Show.S01E03.mkv' },
           { number_of_seasons: 1, original_title: 'Fallback Show' },
           'anyhash'
@@ -1725,7 +1726,7 @@ describe('Torst playback orchestration', () => {
   const hash = 'a'.repeat(40);
   const instance: TorstInstance = { authType: 'none', id: 'main', name: 'Main', url: 'http://main.test:8080' };
   const torrent: Torrent = {
-    created_at: '2026-10-24', files: [{ fileId: 'fil_test', length: 1024, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
+    files: [{ fileId: 'fil_test', length: 1024, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
     hash,
     id: 'trr_test',
     name: 'Sintel',
@@ -1918,7 +1919,7 @@ describe('Torst playback orchestration', () => {
     });
   }
 
-  it('retries transient metadata failures and waits past the old thirty-second limit', async () => {
+  it('retries transient errors while metadata takes more than thirty seconds', async () => {
     mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
     let calls = 0;
     mock.method(TorstApi, 'getTorrent', async () => {
@@ -1936,6 +1937,27 @@ describe('Torst playback orchestration', () => {
       await playback;
       assert.equal(calls, 32);
       assert.ok(played);
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
+  it('stops waiting when torrent metadata never becomes available', async () => {
+    mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
+    const read = mock.method(TorstApi, 'getTorrent', async () => ({ ...torrent, files: [] }));
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      const playback = TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
+      const rejection = assert.rejects(playback, /Timed out waiting for torrent metadata/);
+      await new Promise(resolve => setImmediate(resolve));
+      for (let index = 0; index < 120; index++) {
+        mock.timers.tick(1000);
+        await new Promise(resolve => setImmediate(resolve));
+      }
+      await rejection;
+      assert.equal(read.mock.callCount(), 120);
+      assert.equal(played, undefined);
+      assert.equal(isLoading, false);
     } finally {
       mock.timers.reset();
     }

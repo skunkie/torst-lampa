@@ -6,7 +6,7 @@ import type { Torrent } from '../../src/types/torst';
 
 export function createTorstTorrent(torrent: Omit<Partial<Torrent>, 'storage'> & { storage?: string }) {
   return {
-    created_at: torrent.created_at || '2026-10-24T12:00:00Z',
+    created_at: '2026-10-24T12:00:00Z',
     file_count: torrent.files?.length || 0,
     id: torrent.id || `trr_${torrent.hash}`,
     info_hashes: [{ algorithm: 'sha1', value: torrent.hash }],

@@ -17,8 +17,7 @@ export interface TorrentProvider {
 
 export interface ProviderHealthResult {
   isOk: boolean,
-  latencyMs?: number,
-  statusMessage?: string
+  latencyMs?: number
 }
 
 export interface ProviderSearchResult {

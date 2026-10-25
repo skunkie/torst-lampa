@@ -203,7 +203,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8080/api/v1/preload');
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents/trr_test/files/fil_test/preloads/prl_test', { method: 'DELETE' });
     assert.equal(response.ok, true);
     assert.equal(response.status, 204);
     assert.equal(response.statusText, 'No Content');
@@ -295,7 +295,7 @@ describe('HTTP Client (requestHttp)', () => {
       Reguest: MockReguest,
     };
 
-    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents/unknown');
+    const response = await requestHttp('http://127.0.0.1:8080/api/v1/torrents/trr_missing');
     assert.equal(response.ok, false);
     assert.equal(response.status, 404);
     assert.equal(response.statusText, 'Not Found');
@@ -393,23 +393,32 @@ describe('HTTP Client (requestHttp)', () => {
     assert.deepEqual(body, { status: 'ok' });
   });
 
-  it('sends mutations through ajax with their real verbs when the native bridge is available', async () => {
+  it('bypasses the native bridge for HEAD, PUT, PATCH, and DELETE', async () => {
     const calls: Array<{ body: unknown, params: any }> = [];
+    let nativeCallCount = 0;
     (globalThis as any).Lampa = {
       Reguest: class {
         public timeout() {}
-        public native() { throw new Error('The bridge cannot send these verbs'); }
+        public native(_url: string, success: (body: string) => void) {
+          nativeCallCount++;
+          success('{}');
+        }
         public silent(_url: string, success: any, _failure: any, body: unknown, params: any) {
           calls.push({ body, params });
           success('{}');
         }
       },
     };
-    await requestHttp('http://localhost:8080/api/v1/settings', { body: '{"background_downloads":false}', method: 'PATCH' });
-    await requestHttp('http://localhost:8080/api/v1/torrents/trr_test', { method: 'DELETE' });
-    assert.deepEqual(calls.map(call => call.params.type), ['PATCH', 'DELETE']);
-    assert.deepEqual(calls.map(call => call.params.headers), [{}, {}]);
-    assert.equal(calls[1].body, false);
+    for (const method of ['HEAD', 'PUT', 'PATCH', 'DELETE']) {
+      const body = method === 'PUT' || method === 'PATCH' ? '{"background_downloads":false}' : undefined;
+      const response = await requestHttp('http://localhost:8080/api/v1/settings', { body, method });
+      assert.equal(response.ok, true);
+    }
+    assert.equal(nativeCallCount, 0);
+    assert.deepEqual(calls.map(call => call.params.type), ['HEAD', 'PUT', 'PATCH', 'DELETE']);
+    assert.deepEqual(calls.map(call => call.params.headers), [{}, {}, {}, {}]);
+    assert.equal(calls[0].body, false);
+    assert.equal(calls[3].body, false);
   });
 
   it('uses a header-capable transport when the caller needs an ETag', async () => {
@@ -417,43 +426,6 @@ describe('HTTP Client (requestHttp)', () => {
     globalThis.fetch = async () => new Response('{}', { headers: { ETag: '"cfg-test"' } });
     const response = await requestHttp('http://localhost:8080/api/v1/settings', { needsResponseHeaders: true });
     assert.equal(response.headers?.get('ETag'), '"cfg-test"');
-  });
-
-  it('sends the real PUT/DELETE verb (no override) through the ajax fallback transport', async () => {
-    let capturedSilentCall: any = null;
-
-    // The fallback only runs when native() throws/hangs outright (e.g. no bridge
-    // present), not when it resolves with an error status like the 404 a
-    // mis-routed POST would get — that resolved response is returned as-is.
-    class MockReguestNativeThrows {
-      public timeout(_timeoutMs: number) {}
-      public native() {
-        throw new Error('native bridge unavailable');
-      }
-      public silent(
-        url: string,
-        onSuccess: (responseBody: any) => void,
-        _onFailure: (error: any) => void,
-        requestBody: any,
-        requestOptions: any
-      ) {
-        capturedSilentCall = { requestBody, requestOptions, url };
-        onSuccess(JSON.stringify({ status: 'ready' }));
-      }
-    }
-
-    (globalThis as any).Lampa = {
-      Reguest: MockReguestNativeThrows,
-    };
-
-    const response = await requestHttp('http://127.0.0.1:8080/api/v1/settings', {
-      body: JSON.stringify({ background_downloads: false }),
-      method: 'PUT',
-    });
-
-    assert.equal(capturedSilentCall.requestOptions.type, 'PUT');
-    assert.equal(capturedSilentCall.requestOptions.headers['X-HTTP-Method-Override'], undefined);
-    assert.equal(response.ok, true);
   });
 
   it('does not repeat a mutating native request through silent after an asynchronous failure', async () => {
@@ -478,7 +450,7 @@ describe('HTTP Client (requestHttp)', () => {
     };
 
     await assert.rejects(
-      requestHttp('http://127.0.0.1:8080/api/v1/torrents/abcdef', {
+      requestHttp('http://127.0.0.1:8080/api/v1/torrents', {
         method: 'POST',
       }),
       /Network error/

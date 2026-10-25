@@ -37,14 +37,11 @@ export class PreloadStartUnconfirmedError extends Error {
 }
 
 interface ResourcePage<T> {
-  facets?: TorrentsResponse['facets'],
   items: T[],
-  links: { next?: string },
-  total?: number
+  links: { next?: string }
 }
 
 interface TorstTorrent {
-  created_at: string,
   failure?: { detail: string } | null,
   file_count: number | null,
   id: string,
@@ -197,11 +194,10 @@ export class TorstApi {
     return { data: text ? await response.json() as T : undefined as T, etag: response.headers?.get('ETag') || undefined };
   }
 
-  private static async collectPages<T>(instance: TorstInstance, path: string, shouldRevalidate = false): Promise<ResourcePage<T>> {
+  private static async collectPages<T>(instance: TorstInstance, path: string, shouldRevalidate = false): Promise<T[]> {
     const items: T[] = [];
     const seen = new Set<string>();
     let page: ResourcePage<T>;
-    let first: ResourcePage<T> | undefined;
     do {
       if (seen.has(path)) throw new TorstApiError('Torst repeated a pagination link', 0);
       seen.add(path);
@@ -217,18 +213,16 @@ export class TorstApi {
         this.pages.set(key, { data, etag });
         if (this.pages.size > 32) this.pages.delete(this.pages.keys().next().value as string);
       }
-      first = first || page;
       items.push(...page.items);
       path = page.links.next || '';
     } while (path);
-    return { ...first, items, links: {} };
+    return items;
   }
 
   private static rememberTorrent(instance: TorstInstance, resource: TorstTorrent): Torrent {
     const hash = resource.info_hashes.find(info => info.algorithm === 'sha1')?.value || resource.id;
     const previous = this.torrents.get(this.cacheKey(instance, hash));
     const torrent: Torrent = {
-      created_at: resource.created_at,
       file_count: resource.file_count || 0,
       files: previous?.id === resource.id && resource.file_count !== null ? previous.files : [],
       hash,
@@ -316,17 +310,15 @@ export class TorstApi {
     if (options?.fuzzy) query.set('fuzzy', 'true');
     if (options?.search) query.set('search', options.search);
     for (const hash of options?.hashes || []) query.append('info_hash', hash);
-    const page = await this.collectPages<TorstTorrent>(instance, `/api/v1/torrents?${query}`, options?.shouldRevalidate !== false);
-    const torrents = page.items.map(resource => this.rememberTorrent(instance, resource));
+    const resources = await this.collectPages<TorstTorrent>(instance, `/api/v1/torrents?${query}`, options?.shouldRevalidate !== false);
+    const torrents = resources.map(resource => this.rememberTorrent(instance, resource));
     const token = torrents.some(torrent => torrent.poster) ? await AuthManager.getPlaybackToken(instance) : '';
     return {
-      facets: page.facets ? JSON.parse(JSON.stringify(page.facets)) as TorrentsResponse['facets'] : { categories: [], total: torrents.length, version: '' },
       torrents: torrents.map(torrent => ({
         ...torrent,
         files: torrent.files.map(file => ({ ...file })),
         poster: torrent.poster && token ? `${torrent.poster}?token=${encodeURIComponent(token)}` : torrent.poster,
       })),
-      total: page.total ?? torrents.length,
     };
   }
 
@@ -360,8 +352,8 @@ export class TorstApi {
     if (data.observed_state === 'failed') throw new TorstApiError(data.failure?.detail || 'Torrent failed', 422);
     const torrent = this.rememberTorrent(instance, data);
     if (data.file_count !== null) {
-      const page = await this.collectPages<TorstFile>(instance, `${path}/files?page_size=200`);
-      torrent.files = page.items.map(file => ({
+      const files = await this.collectPages<TorstFile>(instance, `${path}/files?page_size=200`);
+      torrent.files = files.map(file => ({
         fileId: file.id,
         length: file.size_bytes,
         name: file.path[file.path.length - 1],

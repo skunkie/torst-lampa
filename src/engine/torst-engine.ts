@@ -8,7 +8,6 @@ import { extractHashFromMagnet, normalizeInfoHash, TorstApi, TorstApiError } fro
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import {
-  ParsedFileInfo,
   Torrent,
   TorrentFile,
   TorstInstance,
@@ -19,7 +18,6 @@ import {
   TORST_ENABLED_STORAGE_KEY,
 } from '../ui/settings';
 import { closeModalSafely } from './engine-utils';
-import { collectSeasonNumbers, EpisodePreview, fetchSeasonEpisodes, resolveEpisodePreview } from './episode-preview';
 import {
   resolveFileIndex,
   resolveFileInfo,
@@ -29,28 +27,11 @@ import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { displayFileList, playSingleVideoFile, playTorrentFile } from './playback-session';
 import { isPersistedTorrent, SavedTorrents } from './saved-torrents';
 
+const METADATA_MAXIMUM_ATTEMPTS = 120;
+
 export class TorstEngine {
   private static originalTorrentOpen: ((hash: string, movie?: LampaMovie) => void) | null = null;
   private static originalTorrentStart: ((torrentItem: LampaTorrentItem, movie?: LampaMovie) => void) | null = null;
-
-  public static collectSeasonNumbers(fileInfos: ParsedFileInfo[]): number[] {
-    return collectSeasonNumbers(fileInfos);
-  }
-
-  public static fetchSeasonEpisodes(
-    movie: LampaMovie | undefined,
-    seasonNumbers: number[]
-  ): Promise<Record<string, LampaApiSeasonData>> {
-    return fetchSeasonEpisodes(movie, seasonNumbers);
-  }
-
-  public static resolveEpisodePreview(
-    fileInfo: ParsedFileInfo,
-    seasonsData: Record<string, LampaApiSeasonData>,
-    fallbackImage?: string
-  ): EpisodePreview | undefined {
-    return resolveEpisodePreview(fileInfo, seasonsData, fallbackImage);
-  }
 
   public static isEnabled(): boolean {
     if (typeof Lampa === 'undefined' || !Lampa.Storage) return true;
@@ -228,34 +209,6 @@ export class TorstEngine {
         }
       }
     });
-  }
-
-  /**
-   * Extracts movie data from explicit context or currently active Lampa activity.
-   */
-  public static resolveMovieContext(movieContext?: unknown): LampaMovie | undefined {
-    return resolveMovieContext(movieContext);
-  }
-
-  /**
-   * Resolves an absolute, downloadable poster URL for Torst database and preload screens.
-   */
-  public static resolvePosterUrl(torrentItem?: { img?: string, poster?: string }, movieContext?: unknown): string {
-    return resolvePosterUrl(torrentItem, movieContext);
-  }
-
-  /**
-   * Resolves file metadata (season, episode, serial flag) and standard Lampa timeline hash.
-   * Matches Lampa's native EpisodeParser and `Torserver.parse` behavior to align timecodes
-   * with Lampa's movie and TV show cards, watch history, and in-player playlist resumes.
-   */
-  public static resolveFileInfo(
-    file: { name?: string, path?: string },
-    movie?: LampaMovie,
-    torrentHash?: string,
-    playlist?: LampaPlaylistItem[]
-  ): ParsedFileInfo {
-    return resolveFileInfo(file, movie, torrentHash, playlist);
   }
 
   /**
@@ -592,10 +545,9 @@ export class TorstEngine {
   private static async waitForFiles(
     instance: TorstInstance,
     torrentHash: string,
-    isAborted: () => boolean = () => false,
-    maximumAttempts = 120
+    isAborted: () => boolean = () => false
   ): Promise<Torrent> {
-    for (let attemptIndex = 0; attemptIndex < maximumAttempts; attemptIndex++) {
+    for (let attemptIndex = 0; attemptIndex < METADATA_MAXIMUM_ATTEMPTS; attemptIndex++) {
       if (isAborted()) throw new Error('Playback canceled');
       try {
         const torrentMetadata = await TorstApi.getTorrent(instance, torrentHash);

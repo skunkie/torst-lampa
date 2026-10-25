@@ -64,7 +64,7 @@ describe('Saved torrent database scope', () => {
       }));
       const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { hashes?: string[] }) => ({
         torrents: (options?.hashes || []).map(hash => ({
-          created_at: '2026-10-12', files: [],
+          files: [],
           hash,
           name: 'Saved',
           retention: 'persisted' as const,
@@ -101,8 +101,7 @@ describe('Saved torrent database scope', () => {
         finishLookup = () => {
           if (shouldReject) reject(new Error('Old database is unavailable'));
           else resolve({
-            facets: { categories: [], total: 1, version: 'v1' },
-            torrents: [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
+            torrents: [{ files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
           });
         };
       }));
@@ -131,7 +130,7 @@ describe('Saved torrent database scope', () => {
     }));
     const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { hashes?: string[] }) => ({
       torrents: (options?.hashes || []).map(hash => ({
-        created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory' as const, total_size: 0,
+        files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory' as const, total_size: 0,
       })),
     }));
 
@@ -164,8 +163,7 @@ describe('Saved torrent database scope', () => {
           finishLookup = () => {
             if (shouldReject) reject(new Error('Lookup failed'));
             else resolve({
-              facets: { categories: [], total: 1, version: 'v1' },
-              torrents: isSaved ? [] : [{ created_at: '2026-10-12', files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
+              torrents: isSaved ? [] : [{ files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
             });
           };
         }));

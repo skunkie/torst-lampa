@@ -19,7 +19,7 @@ import { FakeCardElement, installFakeJquery } from './support/fake-card-element'
 import { createTestLanguage, getTestTranslation } from './support/translations';
 
 const torrent: Torrent = {
-  created_at: '2026-10-11T00:00:00Z', files: [
+  files: [
     { length: 100, name: 'Show.S01E01.mkv', path: 'Show/Show.S01E01.mkv' },
     { length: 100, name: 'Show.S01E02.mkv', path: 'Show/Show.S01E02.mkv' },
   ],

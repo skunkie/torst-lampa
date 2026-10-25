@@ -205,6 +205,19 @@ describe('ProviderManager', () => {
     assert.equal(providers.find(p => p.id === 'offline-1')?.status, 'offline');
   });
 
+  it('marks a provider offline when its endpoint rejects a health check', async () => {
+    for (const status of [403, 503]) {
+      const provider: TorrentProvider = {
+        apiKey: 'key', id: 'rejected', isEnabled: true, latencyMs: 12, name: 'Rejected', status: 'online', type: 'jackett', url: 'http://rejected.local',
+      };
+      globalThis.fetch = async () => new Response('', { status });
+
+      assert.deepEqual(await ProviderManager.checkHealth(provider), { isOk: false });
+      assert.equal(provider.status, 'offline');
+      assert.equal(provider.latencyMs, Infinity);
+    }
+  });
+
   it('surfaces a notice and drops the API key when a stored credential cannot be deobfuscated', () => {
     storageMap.set('torst_providers', JSON.stringify([
       {
