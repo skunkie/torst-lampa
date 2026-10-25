@@ -21,9 +21,15 @@ export const TORST_SETTINGS_COMPONENT_ID = 'torst_settings';
 
 export const TORST_ICON = `
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M 6 16.5 C 3.8 16.2 2 14.3 2 12 C 2 9.5 3.9 7.4 6.4 7.1 C 7 4.2 9.5 2 12.5 2 C 16.1 2 19.1 4.7 19.6 8.2 C 21.5 8.7 23 10.4 23 12.5 C 23 14.7 21.3 16.4 19.2 16.6" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 6.8 6.5 C 8 5.2 9.6 4.5 11.5 4.5" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
-  <path fill-rule="evenodd" clip-rule="evenodd" d="M 10.38 9.24 L 13.62 9.24 L 13.21 10.85 A 4.8 4.8 0 0 1 15.60 12.23 L 16.79 11.08 L 18.41 13.88 L 16.80 14.33 A 4.8 4.8 0 0 1 16.80 17.07 L 18.41 17.52 L 16.79 20.32 L 15.60 19.17 A 4.8 4.8 0 0 1 13.21 20.55 L 13.62 22.16 L 10.38 22.16 L 10.79 20.55 A 4.8 4.8 0 0 1 8.40 19.17 L 7.21 20.32 L 5.59 17.52 L 7.20 17.07 A 4.8 4.8 0 0 1 7.20 14.33 L 5.59 13.88 L 7.21 11.08 L 8.40 12.23 A 4.8 4.8 0 0 1 10.79 10.85 Z M 10.6 13.3 C 10.6 12.6 11.3 12.2 11.9 12.5 L 14.8 14.8 C 15.4 15.2 15.4 16.0 14.8 16.4 L 11.9 18.7 C 11.3 19.0 10.6 18.6 10.6 17.9 Z" fill="white"/>
+  <rect x="2.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="9.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="16.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="2.25" y="9.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
+  <rect x="9.25" y="9.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="16.25" y="9.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
+  <rect x="2.25" y="16.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
+  <rect x="9.25" y="16.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="16.25" y="16.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
 </svg>
 `;
 

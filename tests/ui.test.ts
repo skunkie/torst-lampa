@@ -129,10 +129,6 @@ describe('UI & Settings Integration', () => {
     assert.equal(settingsComponent.name, 'Torst');
     assert.equal(settingsComponent.before, 'tmdb');
     assert.ok(settingsComponent.icon.includes('viewBox="0 0 24 24"'));
-    assert.ok(settingsComponent.icon.includes('stroke="white"'));
-    assert.ok(settingsComponent.icon.includes('fill="white"'));
-    assert.ok(settingsComponent.icon.includes('fill-rule="evenodd"'));
-    assert.ok(!settingsComponent.icon.includes('#00e676'));
     assert.equal(settingsComponent.icon, TORST_ICON);
 
     const parameterNames = registeredParams.map(parameter => parameter.param.name);
@@ -166,6 +162,28 @@ describe('UI & Settings Integration', () => {
       assert.equal(typeof buttonParameter.onChange, 'function');
       assert.equal(buttonParameter.onRender, undefined);
     }
+  });
+
+  it('draws the Torst piece grid with fixed white paint for Lampa settings focus inversion', () => {
+    const pieces = [...TORST_ICON.matchAll(/<rect\b[^>]*\/>/g)].map(([piece]) => (
+      Object.fromEntries([...piece.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]))
+    ));
+
+    assert.equal(pieces.length, 9);
+    for (const [index, piece] of pieces.entries()) {
+      const row = Math.floor(index / 3);
+      const column = index % 3;
+      assert.equal(piece.x, String(2.25 + column * 7));
+      assert.equal(piece.y, String(2.25 + row * 7));
+      if (row === 0 || column === 1) {
+        assert.equal(piece.fill, 'white');
+        assert.equal(piece.stroke, undefined);
+      } else {
+        assert.equal(piece.fill, undefined);
+        assert.equal(piece.stroke, 'white');
+      }
+    }
+    assert.ok(TORST_ICON.includes('fill="none"'));
   });
 
   it('shows plugin version and build info via the About Plugin button', () => {
@@ -779,7 +797,12 @@ describe('UI & Settings Integration', () => {
       { dataAction: 'search', label: 'Search' },
       { dataAction: 'mytorrents', label: 'Torrents' },
     ];
-    (globalThis as any).$ = makeMenuJqMock(menuItems);
+    const menuJquery = makeMenuJqMock(menuItems);
+    let sidebarHtml = '';
+    (globalThis as any).$ = (selectorOrHtml: string) => {
+      if (selectorOrHtml.trim().startsWith('<')) sidebarHtml = selectorOrHtml;
+      return menuJquery(selectorOrHtml);
+    };
 
     let appListener: any = null;
     (globalThis as any).Lampa.Listener = {
@@ -795,6 +818,7 @@ describe('UI & Settings Integration', () => {
     appListener({ type: 'ready' });
 
     assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torst', 'search', 'mytorrents']);
+    assert.ok(sidebarHtml.includes(`<div class="menu__ico">${TORST_ICON}</div>`));
 
     // Lampa's own menu editor (interaction/menu/menu.js + editor.js) persists a custom
     // item order under 'menu_sort' and re-appends anything not already in it to the
