@@ -50,6 +50,7 @@ export class TorstTorrentsComponent {
   private fileListRequestId = 0;
   private isDestroyed = false;
   private isLoading = false;
+  private isPaused = false;
   private isPinnedToSearchInstance = false;
   private lastFocusedElement: HTMLElement | null = null;
   private lastFocusedTorrentHash: string | null = null;
@@ -204,6 +205,7 @@ export class TorstTorrentsComponent {
   }
 
   private canFocusLibrary(): boolean {
+    if (this.isDestroyed || this.isPaused) return false;
     const controllerName = typeof Lampa !== 'undefined' ? Lampa.Controller?.enabled?.()?.name : undefined;
     return !controllerName || controllerName === 'content';
   }
@@ -352,6 +354,7 @@ export class TorstTorrentsComponent {
 
   public start(): void {
     if (this.isDestroyed) return;
+    this.isPaused = false;
     this.clearContextMenuState();
     if (!this.needsReload && !this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
       this.emptyState.start();
@@ -386,6 +389,7 @@ export class TorstTorrentsComponent {
         }
       },
       toggle: () => {
+        this.isPaused = false;
         // Recompute scroll layout here, not during silent background refreshes, since this
         // callback fires exactly when this component genuinely regains focus.
         this.scrollView.update(this.contentGrid, true);
@@ -417,6 +421,7 @@ export class TorstTorrentsComponent {
   }
 
   public pause(): void {
+    this.isPaused = true;
     this.fileListRequestId++;
     this.clearContextMenuState();
     this.stopPolling();
@@ -424,6 +429,7 @@ export class TorstTorrentsComponent {
   }
 
   public stop(): void {
+    this.isPaused = true;
     this.fileListRequestId++;
     this.clearContextMenuState();
     this.stopPolling();
@@ -440,7 +446,7 @@ export class TorstTorrentsComponent {
   }
 
   private startPolling(): void {
-    if (this.isDestroyed) return;
+    if (this.isDestroyed || this.isPaused) return;
     this.stopPolling();
     this.pollIntervalId = setInterval(() => {
       this.load(true);

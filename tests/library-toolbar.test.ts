@@ -208,6 +208,21 @@ describe('Torst library toolbar', () => {
     });
   }
 
+  for (const transition of ['pause', 'stop'] as const) {
+    it(`does not restart library polling after ${transition} while a reload is pending`, async () => {
+      let finish!: () => void;
+      const pending = new Promise<void>(resolve => { finish = resolve; });
+      mock.method(component, 'load', () => pending);
+      const interval = mock.method(globalThis, 'setInterval');
+      component.pause();
+      component.start();
+      component[transition]();
+      finish();
+      await pending;
+      assert.equal(interval.mock.callCount(), 0);
+    });
+  }
+
   for (const outcome of ['populated', 'empty', 'failure']) {
     it(`preserves Up Next focus when a pending reload completes with a ${outcome} result`, async () => {
       const controllers = new Map<string, any>();
@@ -259,6 +274,42 @@ describe('Torst library toolbar', () => {
       onBack();
       assert.equal(activeController, 'content');
       assert.equal(collectionRoot, component.render());
+    });
+  }
+
+  for (const outcome of ['populated', 'empty', 'failure']) {
+    it(`leaves another page's content navigation intact when a paused library reload finishes with a ${outcome} result`, async () => {
+      mock.method(InstanceManager, 'getInstances', () => [instance]);
+      mock.method(InstanceManager, 'getPrimaryInstance', () => instance);
+      mock.method(SavedTorrents, 'syncFromListing', () => {});
+      mock.method(TorstApi, 'getSettings', async () => ({}));
+      let finish!: () => void;
+      const pending = new Promise<any>((resolve, reject) => {
+        finish = () => outcome === 'failure'
+          ? reject(new Error('Unavailable'))
+          : resolve({ torrents: outcome === 'empty' ? [] : [{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }] });
+      });
+      mock.method(TorstApi, 'getTorrents', () => pending);
+      mock.method(component, 'load', loadLibrary.bind(component));
+      const toggleActivity = mock.fn();
+      component.componentActivity = { loader: () => {}, toggle: toggleActivity } as any;
+      const loading = component.load();
+      await new Promise(resolve => setImmediate(resolve));
+      component.pause();
+      const otherPage = element('Other page');
+      activeController = 'content';
+      collectionRoot = otherPage;
+      focused = otherPage[0];
+
+      finish();
+      await loading;
+
+      assert.equal(collectionRoot, otherPage);
+      assert.equal(focused, otherPage[0]);
+      assert.equal(activeController, 'content');
+      assert.equal(toggleActivity.mock.callCount(), 0);
+      if (outcome === 'populated') assert.equal((component as any).renderedTorrents.length, 1);
+      else assert.ok((component as any).emptyState);
     });
   }
 

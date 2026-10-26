@@ -3775,65 +3775,67 @@ describe('UI & Settings Integration', () => {
     assert.equal(renderEmptyStateCallCount, 0, 'a silent background failure must not replace the current view with an error screen');
   });
 
-  it('does not move scroll position or focus while another controller is active', () => {
-    const createMockElement = (_tag: any) => {
-      const el: any = {
-        addClass: () => el,
-        append: () => el,
-        attr: () => el,
-        empty: () => el,
-        find: () => el,
-        on: () => el,
-        remove: () => el,
-        removeClass: () => el,
-        text: () => el,
+  for (const controllerName of ['head', 'items_line', 'modal', 'search', 'settings_component', 'torst_provider_result']) {
+    it(`does not move scroll position or focus while ${controllerName} is active`, () => {
+      const createMockElement = (_tag: any) => {
+        const el: any = {
+          addClass: () => el,
+          append: () => el,
+          attr: () => el,
+          empty: () => el,
+          find: () => el,
+          on: () => el,
+          remove: () => el,
+          removeClass: () => el,
+          text: () => el,
+        };
+        return el;
       };
-      return el;
-    };
-    (globalThis as any).$ = (tag: any) => (typeof tag === 'object' ? tag : createMockElement(tag));
+      (globalThis as any).$ = (tag: any) => (typeof tag === 'object' ? tag : createMockElement(tag));
 
-    let updateCalls = 0;
-    let collectionSetCalls = 0;
-    let collectionFocusCalls = 0;
-    class MockScroll {
-      public append(_e: any) {}
-      public clear() {}
-      public destroy() {}
-      public minus() {}
-      public render(_js?: boolean) { return createMockElement('div'); }
-      public reset() {}
-      public update() { updateCalls++; }
-    }
-    (globalThis as any).Lampa.Scroll = MockScroll;
-    (globalThis as any).Lampa.Controller = {
-      collectionFocus: () => { collectionFocusCalls++; },
-      collectionSet: () => { collectionSetCalls++; },
-      enabled: () => ({ name: 'settings' }),
-    };
-    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+      let updateCalls = 0;
+      let collectionSetCalls = 0;
+      let collectionFocusCalls = 0;
+      class MockScroll {
+        public append(_e: any) {}
+        public clear() {}
+        public destroy() {}
+        public minus() {}
+        public render(_js?: boolean) { return createMockElement('div'); }
+        public reset() {}
+        public update() { updateCalls++; }
+      }
+      (globalThis as any).Lampa.Scroll = MockScroll;
+      (globalThis as any).Lampa.Controller = {
+        collectionFocus: () => { collectionFocusCalls++; },
+        collectionSet: () => { collectionSetCalls++; },
+        enabled: () => ({ name: controllerName }),
+      };
+      (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
 
-    const component = new TorstTorrentsComponent();
-    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
-    const torrents: any[] = [
-      { files: [], hash: 'h1', name: 'Torrent One', retention: 'temporary' as const, storage: 'memory', total_size: 0 },
-    ];
+      const component = new TorstTorrentsComponent();
+      const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+      const torrents: any[] = [
+        { files: [], hash: 'h1', name: 'Torrent One', retention: 'temporary' as const, storage: 'memory', total_size: 0 },
+      ];
 
-    component.renderTorrents(torrents, instance, true);
-    assert.equal(updateCalls, 0, 'a silent refresh must not recompute scroll layout');
-    assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch controller focus');
-    assert.equal(collectionFocusCalls, 0, 'a silent refresh must not touch controller focus');
+      component.renderTorrents(torrents, instance, true);
+      assert.equal(updateCalls, 0, 'a silent refresh must not recompute scroll layout');
+      assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch controller focus');
+      assert.equal(collectionFocusCalls, 0, 'a silent refresh must not touch controller focus');
 
-    component.renderTorrents(torrents, instance, false);
-    assert.equal(updateCalls, 0);
-    assert.equal(collectionSetCalls, 0);
-    assert.equal(collectionFocusCalls, 0);
+      component.renderTorrents(torrents, instance, false);
+      assert.equal(updateCalls, 0);
+      assert.equal(collectionSetCalls, 0);
+      assert.equal(collectionFocusCalls, 0);
 
-    (globalThis as any).Lampa.Controller.enabled = () => ({ name: 'content' });
-    component.renderTorrents(torrents, instance, false);
-    assert.equal(updateCalls, 1, 'a non-silent render must still recompute scroll layout');
-    assert.equal(collectionSetCalls, 1);
-    assert.equal(collectionFocusCalls, 1);
-  });
+      (globalThis as any).Lampa.Controller.enabled = () => ({ name: 'content' });
+      component.renderTorrents(torrents, instance, false);
+      assert.equal(updateCalls, 1, 'a non-silent render must still recompute scroll layout');
+      assert.equal(collectionSetCalls, 1);
+      assert.equal(collectionFocusCalls, 1);
+    });
+  }
 
   it('updates the storage badge when a background refresh sees a storage change', () => {
     const buildDom = (tag: any) => {
