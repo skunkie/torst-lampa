@@ -5,6 +5,8 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
+import { TorstApi } from '../src/api/torst';
+import { SavedTorrents } from '../src/engine/saved-torrents';
 import { InstanceManager } from '../src/instances/instance-manager';
 import { TorstInstance } from '../src/types/torst';
 import { TorstTorrentsComponent } from '../src/ui/torst-torrents';
@@ -55,6 +57,7 @@ function element(markup = ''): any {
 }
 
 describe('Torst library toolbar', () => {
+  const loadLibrary = TorstTorrentsComponent.prototype.load;
   const originalLampa = (globalThis as any).Lampa;
   const originalJquery = (globalThis as any).$;
   const originalNavigator = (globalThis as any).Navigator;
@@ -75,9 +78,10 @@ describe('Torst library toolbar', () => {
     (globalThis as any).Navigator = { focused: (value: any) => { focused = value; }, getFocusedElement: () => focused };
     (globalThis as any).Lampa = {
       Controller: {
+        add: () => {},
         collectionFocus: () => {},
         collectionSet: (root: any) => { collectionRoot = root; focused = null; },
-        enabled: () => ({ name: 'content' }),
+        enabled: () => ({ name: activeController }),
         toggle: (name: string) => { activeController = name; },
       },
       Empty: class {
@@ -167,6 +171,96 @@ describe('Torst library toolbar', () => {
     onBack();
     assert.equal(activeController, 'content');
   });
+
+  for (const transition of ['pause', 'stop'] as const) {
+    it(`restores directional handlers before the library reload completes after ${transition}`, async () => {
+      const controllers = new Map<string, any>();
+      const genericController = { up: () => { activeController = 'head'; } };
+      controllers.set('content', genericController);
+      mock.method(Lampa.Controller, 'add', (name: string, controller: any) => { controllers.set(name, controller); });
+      mock.method(Lampa.Controller, 'toggle', (name: string) => {
+        activeController = name;
+        controllers.get(name)?.toggle?.();
+      });
+      const directions: string[] = [];
+      (globalThis as any).Navigator.canmove = () => true;
+      (globalThis as any).Navigator.move = (direction: string) => { directions.push(direction); };
+      let finish!: () => void;
+      const loading = new Promise<void>(resolve => { finish = resolve; });
+      mock.method(component, 'load', () => loading);
+      const polling = mock.method(component as any, 'startPolling', () => {});
+
+      component[transition]();
+      component.start();
+      try {
+        const controller = controllers.get('content');
+        assert.notEqual(controller, genericController);
+        for (const direction of ['up', 'down', 'left', 'right']) controller[direction]();
+        assert.deepEqual(directions, ['up', 'down', 'left', 'right']);
+        assert.equal(activeController, 'content');
+        assert.equal(collectionRoot, component.render());
+        assert.equal(polling.mock.callCount(), 0);
+      } finally {
+        finish();
+        await loading;
+      }
+      assert.equal(polling.mock.callCount(), 1);
+    });
+  }
+
+  for (const outcome of ['populated', 'empty', 'failure']) {
+    it(`preserves Up Next focus when a pending reload completes with a ${outcome} result`, async () => {
+      const controllers = new Map<string, any>();
+      mock.method(Lampa.Controller, 'add', (name: string, controller: any) => { controllers.set(name, controller); });
+      mock.method(Lampa.Controller, 'toggle', (name: string) => {
+        activeController = name;
+        controllers.get(name)?.toggle?.();
+      });
+      mock.method(InstanceManager, 'getInstances', () => [instance]);
+      mock.method(InstanceManager, 'getPrimaryInstance', () => instance);
+      mock.method(SavedTorrents, 'syncFromListing', () => {});
+      mock.method(TorstApi, 'getSettings', async () => ({}));
+      let finish!: () => void;
+      const pending = new Promise<any>((resolve, reject) => {
+        finish = () => outcome === 'failure'
+          ? reject(new Error('Unavailable'))
+          : resolve({ torrents: outcome === 'empty' ? [] : [{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }] });
+      });
+      mock.method(TorstApi, 'getTorrents', () => pending);
+      const load = mock.method(component, 'load', loadLibrary.bind(component));
+      const toggleActivity = mock.fn();
+      const loader = mock.fn();
+      component.componentActivity = { loader, toggle: toggleActivity } as any;
+      let onBack!: () => void;
+      mock.method(UpNextUi, 'show', async (_instance: TorstInstance, close: () => void) => {
+        activeController = 'select';
+        onBack = close;
+      });
+      component.pause();
+      component.start();
+      await new Promise(resolve => setImmediate(resolve));
+      const toolbar = (component.render() as any)[0].children[0].wrapper;
+      toolbar.find('.torst-library-up-next').events['hover:enter']();
+      await new Promise(resolve => setImmediate(resolve));
+      const overlay = element('Up Next');
+      collectionRoot = overlay;
+      focused = overlay[0];
+
+      finish();
+      await load.mock.calls[0].result;
+
+      assert.equal(activeController, 'select');
+      assert.equal(collectionRoot, overlay);
+      assert.equal(focused, overlay[0]);
+      assert.equal(toggleActivity.mock.callCount(), 0);
+      assert.equal(loader.mock.calls[loader.mock.calls.length - 1].arguments[0], false);
+      if (outcome === 'populated') assert.equal((component as any).renderedTorrents.length, 1);
+      else assert.ok((component as any).emptyState);
+      onBack();
+      assert.equal(activeController, 'content');
+      assert.equal(collectionRoot, component.render());
+    });
+  }
 
   it('uses the pinned search instance before its first library load completes', async () => {
     const pinned = { ...instance, id: 'pinned' };

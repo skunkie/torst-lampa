@@ -203,6 +203,11 @@ export class TorstTorrentsComponent {
     return this.toolbar ? this.rootElement : this.scrollView.render(true);
   }
 
+  private canFocusLibrary(): boolean {
+    const controllerName = typeof Lampa !== 'undefined' ? Lampa.Controller?.enabled?.()?.name : undefined;
+    return !controllerName || controllerName === 'content';
+  }
+
   private focusedToolbarElement(): HTMLElement | null {
     const focused = getNavigator()?.getFocusedElement?.();
     const toolbar = this.toolbar?.[0];
@@ -321,7 +326,7 @@ export class TorstTorrentsComponent {
     this.isLoading = false;
     if (!silent && this.componentActivity) {
       this.componentActivity.loader(false);
-      this.componentActivity.toggle();
+      if (this.canFocusLibrary()) this.componentActivity.toggle();
     }
   }
 
@@ -348,14 +353,7 @@ export class TorstTorrentsComponent {
   public start(): void {
     if (this.isDestroyed) return;
     this.clearContextMenuState();
-    if (this.needsReload) {
-      this.needsReload = false;
-      this.lastFocusedElement = null;
-      this.load().finally(() => this.startPolling());
-      return;
-    }
-
-    if (!this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
+    if (!this.needsReload && !this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
       this.emptyState.start();
       this.startPolling();
       return;
@@ -407,6 +405,13 @@ export class TorstTorrentsComponent {
         }
       },
     });
+    if (this.needsReload) {
+      this.needsReload = false;
+      this.lastFocusedElement = null;
+      Lampa.Controller.toggle('content');
+      this.load().finally(() => this.startPolling());
+      return;
+    }
     Lampa.Controller.toggle('content');
     this.startPolling();
   }
@@ -563,20 +568,20 @@ export class TorstTorrentsComponent {
     // See the matching note in renderTorrents — a silent background refresh must never touch
     // scroll layout or focus; the content controller's own toggle callback handles that when
     // this component genuinely regains control.
-    if (!silent) {
+    if (!silent && this.canFocusLibrary()) {
       if (!this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
         this.emptyState.start();
       } else if (typeof Lampa !== 'undefined' && Lampa.Controller) {
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(false, this.controllerRoot());
       }
-    } else if (ownedNavigatorFocus) {
+    } else if (ownedNavigatorFocus && this.canFocusLibrary()) {
       this.restoreNavigatorFocus(focusedToolbar || false);
     }
     if (typeof Lampa !== 'undefined' && Lampa.Layer && typeof Lampa.Layer.update === 'function') {
       Lampa.Layer.update();
     }
-    if (!silent && this.componentActivity) {
+    if (!silent && this.componentActivity && this.canFocusLibrary()) {
       this.componentActivity.toggle();
     }
   }
@@ -684,13 +689,13 @@ export class TorstTorrentsComponent {
     // Rebuilding the scroll view's layout moves the on-screen scroll position, so a silent
     // background refresh must never touch it. The content controller's own toggle callback
     // recomputes layout and restores focus once this component genuinely regains control.
-    if (!silent) {
+    if (!silent && this.canFocusLibrary()) {
       this.scrollView.update(this.contentGrid, true);
       if (typeof Lampa !== 'undefined' && Lampa.Controller) {
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(elementToFocus || false, this.controllerRoot());
       }
-    } else if (ownedNavigatorFocus) {
+    } else if (ownedNavigatorFocus && this.canFocusLibrary()) {
       this.restoreNavigatorFocus(focusedToolbar || rebuiltFocusCard);
       // The card under the cursor moved, so follow it rather than leave the cursor out of view.
       const focusIndex = torrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
@@ -698,7 +703,7 @@ export class TorstTorrentsComponent {
         this.scrollView.update($(rebuiltFocusCard), true);
       }
     }
-    if (!silent && this.componentActivity) {
+    if (!silent && this.componentActivity && this.canFocusLibrary()) {
       this.componentActivity.toggle();
     }
   }

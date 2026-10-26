@@ -1110,6 +1110,9 @@ describe('UI & Settings Integration', () => {
       const originalJquery = (globalThis as any).$;
       (globalThis as any).$ = () => ({ remove: () => {} });
       (globalThis as any).Lampa.Scroll = class { public destroy() {} };
+      const registerController = mock.fn();
+      const toggleController = mock.fn();
+      (globalThis as any).Lampa.Controller = { add: registerController, toggle: toggleController };
       const instance = InstanceManager.getInstances()[0];
       let finish = () => {};
       const pending = new Promise<any>((resolve, reject) => {
@@ -1145,6 +1148,8 @@ describe('UI & Settings Integration', () => {
         assert.equal(sync.mock.callCount(), 0);
         assert.equal(toggle.mock.callCount(), 0);
         assert.equal(interval.mock.callCount(), 0);
+        assert.equal(registerController.mock.callCount(), 1);
+        assert.equal(toggleController.mock.callCount(), 1);
         if (stage === 'selection') assert.equal(list.mock.callCount(), 0);
       } finally {
         component.destroy();
@@ -3770,7 +3775,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(renderEmptyStateCallCount, 0, 'a silent background failure must not replace the current view with an error screen');
   });
 
-  it('does not move scroll position or focus during a silent background refresh', () => {
+  it('does not move scroll position or focus while another controller is active', () => {
     const createMockElement = (_tag: any) => {
       const el: any = {
         addClass: () => el,
@@ -3818,6 +3823,12 @@ describe('UI & Settings Integration', () => {
     assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch controller focus');
     assert.equal(collectionFocusCalls, 0, 'a silent refresh must not touch controller focus');
 
+    component.renderTorrents(torrents, instance, false);
+    assert.equal(updateCalls, 0);
+    assert.equal(collectionSetCalls, 0);
+    assert.equal(collectionFocusCalls, 0);
+
+    (globalThis as any).Lampa.Controller.enabled = () => ({ name: 'content' });
     component.renderTorrents(torrents, instance, false);
     assert.equal(updateCalls, 1, 'a non-silent render must still recompute scroll layout');
     assert.equal(collectionSetCalls, 1);
