@@ -10,7 +10,7 @@ import { TorstInstance } from '../src/types/torst';
 import { ProfilesUi } from '../src/ui/profiles';
 import { TorstTorrentsComponent } from '../src/ui/torst-torrents';
 import { UpNextUi } from '../src/ui/up-next';
-import { createTestLanguage } from './support/translations';
+import { createTestLanguage, getTestTranslation } from './support/translations';
 
 function element(markup = ''): any {
   const classes = new Set<string>();
@@ -49,7 +49,7 @@ function element(markup = ''): any {
     on: (name: string, callback: () => void) => { events[name] = callback; return wrapper; },
     remove: () => wrapper,
     removeClass: () => wrapper,
-    text: (_value: string) => wrapper,
+    text: (value: string) => { wrapper.textValue = value; return wrapper; },
   };
   node.wrapper = wrapper;
   return wrapper;
@@ -168,6 +168,23 @@ describe('Torst library toolbar', () => {
     assert.equal(profile.mock.calls[0].arguments[0], pinned);
     assert.equal((InstanceManager.getBestInstance as any).mock.callCount(), 0);
   });
+
+  for (const change of ['replaced', 'removed']) {
+    it(`does not restore a stale profile label after the instance was ${change}`, async () => {
+      let onBack!: () => void;
+      mock.method(ProfilesUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
+      const updateLabel = mock.method(component as any, 'updateProfileLabel');
+      await (component as any).openLibraryView(ProfilesUi);
+      const label = (component.render() as any)[0].children[0].wrapper.find('.torst-library-profile');
+      label.text('Old Profile');
+      const current = { ...instance, profileId: 'prf_sam', profileName: 'Sam' };
+      mock.method(InstanceManager, 'getInstances', () => change === 'replaced' ? [current] : []);
+      onBack();
+      assert.equal(updateLabel.mock.callCount(), 1);
+      assert.equal(updateLabel.mock.calls[0].arguments[0], change === 'replaced' ? current : undefined);
+      assert.equal(label.textValue, change === 'replaced' ? 'Sam' : getTestTranslation('torst_profiles_title'));
+    });
+  }
 
   it('reports an unavailable instance and ignores selection completed after navigation', async () => {
     mock.method(InstanceManager, 'getBestInstance', async () => { throw new Error('offline'); });

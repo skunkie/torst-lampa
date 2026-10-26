@@ -10,11 +10,19 @@ import { toTemplateText } from '../utils/template-text';
 
 const DEFAULT_AVATAR = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="32" fill="#444"/><circle cx="32" cy="23" r="11" fill="#ddd"/><path d="M12 56a20 20 0 0 1 40 0" fill="#ddd"/></svg>');
 
+interface ProfileActionsContext {
+  deletionRevision: number,
+  isInstanceCurrent: () => boolean,
+  onBack: () => void,
+  onExit: () => void
+}
+
 export class ProfilesUi {
   private static avatarUrls: string[] = [];
+  private static deletionRevisions = new WeakMap<TorstInstance, number>();
   private static generation = 0;
 
-  private static clearAvatars(): void {
+  private static invalidateMenuContext(): void {
     this.generation++;
     this.avatarUrls.forEach(url => URL.revokeObjectURL(url));
     this.avatarUrls = [];
@@ -42,13 +50,30 @@ export class ProfilesUi {
     }
   }
 
-  private static async perform(instance: TorstInstance, action: (isCurrent: () => boolean) => Promise<void>, returnTo: () => void): Promise<void> {
-    const generation = this.generation;
+  private static createInstanceGuard(instance: TorstInstance): () => boolean {
     const instanceUrl = instance.url;
+    return () => instance.url === instanceUrl && InstanceManager.getInstances().includes(instance);
+  }
+
+  private static getDeletionRevision(instance: TorstInstance): number {
+    return this.deletionRevisions.get(instance) || 0;
+  }
+
+  private static createContextGuard(instance: TorstInstance): () => boolean {
+    const generation = this.generation;
+    const isInstanceCurrent = this.createInstanceGuard(instance);
     const activity = Lampa.Activity?.active?.();
-    const isCurrent = () => generation === this.generation && instance.url === instanceUrl
-      && InstanceManager.getInstances().some(candidate => candidate.id === instance.id && candidate.url === instanceUrl)
-      && (activity === undefined || Lampa.Activity?.active?.() === activity);
+    const controller = Lampa.Controller?.enabled?.();
+    return () => {
+      const currentController = Lampa.Controller?.enabled?.();
+      return generation === this.generation && isInstanceCurrent()
+        && (activity === undefined || Lampa.Activity?.active?.() === activity)
+        && (controller === undefined || (controller.name === currentController?.name && controller.controller === currentController?.controller));
+    };
+  }
+
+  private static async perform(instance: TorstInstance, action: (isCurrent: () => boolean) => Promise<void>, returnTo: () => void): Promise<void> {
+    const isCurrent = this.createContextGuard(instance);
     try {
       await action(isCurrent);
     } catch (error) {
@@ -59,19 +84,17 @@ export class ProfilesUi {
   }
 
   public static async show(instance: TorstInstance, onBack: () => void): Promise<void> {
-    this.clearAvatars();
-    const generation = this.generation;
-    const instanceUrl = instance.url;
-    const activity = Lampa.Activity?.active?.();
-    const isCurrent = () => generation === this.generation && instance.url === instanceUrl
-      && InstanceManager.getInstances().some(candidate => candidate.id === instance.id && candidate.url === instanceUrl)
-      && (activity === undefined || Lampa.Activity?.active?.() === activity);
+    this.invalidateMenuContext();
+    const isCurrent = this.createContextGuard(instance);
+    const isInstanceCurrent = this.createInstanceGuard(instance);
+    const deletionRevision = this.getDeletionRevision(instance);
     let profiles: TorstProfile[];
     const urls: string[] = [];
     let thumbnails: string[];
     try {
       profiles = await TorstApi.getProfiles(instance);
       if (!isCurrent()) return;
+      if (deletionRevision !== this.getDeletionRevision(instance)) return this.show(instance, onBack);
       thumbnails = await Promise.all(profiles.map(profile => this.avatar(instance, profile, urls)));
     } catch (error) {
       if (!isCurrent()) return;
@@ -79,8 +102,9 @@ export class ProfilesUi {
       onBack();
       return;
     }
-    if (!isCurrent()) {
+    if (!isCurrent() || deletionRevision !== this.getDeletionRevision(instance)) {
       urls.forEach(url => URL.revokeObjectURL(url));
+      if (isCurrent()) return this.show(instance, onBack);
       return;
     }
     const selectedProfile = profiles.find(profile => profile.id === instance.profileId);
@@ -97,9 +121,10 @@ export class ProfilesUi {
     ];
     Lampa.Select.show({
       items,
-      onBack: () => { this.clearAvatars(); onBack(); },
+      onBack: () => { this.invalidateMenuContext(); onBack(); },
       onSelect: (item: LampaSelectItem<TorstProfile>) => {
-        this.clearAvatars();
+        this.invalidateMenuContext();
+        if (!isInstanceCurrent()) return onBack();
         if (item.action === 'none') {
           delete instance.profileId;
           delete instance.profileName;
@@ -107,6 +132,7 @@ export class ProfilesUi {
           onBack();
         } else if (item.action === 'create') {
           Lampa.Input.edit({ free: true, nosave: true, title: translate('torst_profile_name', 'Profile Name'), value: '' }, name => {
+            if (!isInstanceCurrent()) return onBack();
             if (!name.trim()) return returnTo();
             void this.perform(instance, async isCurrent => {
               const profile = await TorstApi.createProfile(instance, name.trim());
@@ -117,15 +143,18 @@ export class ProfilesUi {
             }, returnTo);
           });
         } else if (item.data) {
-          this.actions(instance, item.data, onBack, returnTo);
+          this.actions(instance, item.data, { deletionRevision, isInstanceCurrent, onBack: returnTo, onExit: onBack });
         }
       },
       title: translate('torst_profiles_title', 'Torst Profiles'),
     });
   }
 
-  private static actions(instance: TorstInstance, profile: TorstProfile, onSelected: () => void, onBack: () => void): void {
-    const returnTo = () => this.actions(instance, profile, onSelected, onBack);
+  private static actions(instance: TorstInstance, profile: TorstProfile, context: ProfileActionsContext): void {
+    const { deletionRevision, isInstanceCurrent, onBack, onExit } = context;
+    if (!isInstanceCurrent()) return onExit();
+    if (deletionRevision !== this.getDeletionRevision(instance)) return onBack();
+    const returnTo = () => this.actions(instance, profile, context);
     Lampa.Select.show({
       items: [
         { action: 'use', title: translate('torst_profile_use', 'Use This Profile') },
@@ -134,13 +163,17 @@ export class ProfilesUi {
       ],
       onBack,
       onSelect: (item: LampaSelectItem) => {
+        if (!isInstanceCurrent()) return onExit();
+        if (deletionRevision !== this.getDeletionRevision(instance)) return onBack();
         if (item.action === 'use') {
           instance.profileId = profile.id;
           instance.profileName = profile.name;
           InstanceManager.updateInstance(instance);
-          onSelected();
+          onExit();
         } else if (item.action === 'rename') {
           Lampa.Input.edit({ free: true, nosave: true, title: translate('torst_profile_name', 'Profile Name'), value: profile.name }, name => {
+            if (!isInstanceCurrent()) return onExit();
+            if (deletionRevision !== this.getDeletionRevision(instance)) return onBack();
             if (!name.trim() || name.trim() === profile.name) return returnTo();
             void this.perform(instance, async isCurrent => {
               const renamed = await TorstApi.renameProfile(instance, profile.id, name.trim());
@@ -160,14 +193,20 @@ export class ProfilesUi {
             ],
             onBack: returnTo,
             onSelect: (choice: LampaSelectItem) => {
+              if (!isInstanceCurrent()) return onExit();
+              if (deletionRevision !== this.getDeletionRevision(instance)) return onBack();
               if (choice.action !== 'confirm') return returnTo();
-              void this.perform(instance, async isCurrent => {
+              const instanceId = instance.id;
+              const instanceUrl = instance.url;
+              void this.perform(instance, async () => {
                 await TorstApi.deleteProfile(instance, profile.id);
-                if (!isCurrent()) return;
-                if (instance.profileId === profile.id) {
-                  delete instance.profileId;
-                  delete instance.profileName;
-                  InstanceManager.updateInstance(instance);
+                const currentInstance = InstanceManager.getInstances().find(candidate => candidate.id === instanceId && candidate.url === instanceUrl);
+                if (instance.url === instanceUrl) this.deletionRevisions.set(instance, this.getDeletionRevision(instance) + 1);
+                if (currentInstance && currentInstance !== instance) this.deletionRevisions.set(currentInstance, this.getDeletionRevision(currentInstance) + 1);
+                if (currentInstance?.profileId === profile.id) {
+                  delete currentInstance.profileId;
+                  delete currentInstance.profileName;
+                  InstanceManager.updateInstance(currentInstance);
                 }
               }, onBack);
             },

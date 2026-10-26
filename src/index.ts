@@ -11,6 +11,7 @@ import { ParserHook } from './providers/parser-hook';
 import { ProviderManager } from './providers/provider-manager';
 import { CatalogChoice } from './ui/catalog-choice';
 import { DatabaseSearch } from './ui/database-search';
+import { ProfileHeaderUi } from './ui/profile-header';
 import { SettingsUi } from './ui/settings';
 import { SidebarManager } from './ui/sidebar';
 import { PLUGIN_BUILD_COMMIT, PLUGIN_BUILD_DATE, PLUGIN_VERSION } from './version';
@@ -32,6 +33,7 @@ function initPlugin(): void {
     initPlayerPlaylist();
     ParserHook.init();
     DatabaseSearch.init();
+    ProfileHeaderUi.init();
 
     if (Lampa.Manifest) {
       Lampa.Manifest.plugins = {

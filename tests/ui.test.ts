@@ -16,6 +16,7 @@ import type { TorrentUpdate, TorstInstance } from '../src/types/torst';
 import { CatalogChoice } from '../src/ui/catalog-choice';
 import { InstancePoolUi } from '../src/ui/instance-pool';
 import { SAVE_TO_DATABASE_STORAGE_KEY } from '../src/ui/play-dialog';
+import { ProfilesUi } from '../src/ui/profiles';
 import {
   TORST_STORAGE_BADGE,
   TORST_STORAGE_BADGE_ICON,
@@ -225,6 +226,27 @@ describe('UI & Settings Integration', () => {
     lastSelectOptions.onBack();
     assert.equal(toggledController, 'settings_component', 'onBack must return focus to the settings component');
   });
+
+  for (const change of ['replaced', 'removed']) {
+    it(`returns from profile management using the current pool after the instance was ${change}`, async () => {
+      const instance: TorstInstance = { authType: 'none', enableDownloader: false, id: 'one', name: 'One', url: 'http://one.test' };
+      let instances = [instance];
+      let onBack!: () => void;
+      mock.method(InstanceManager, 'getInstances', () => instances);
+      mock.method(ProfilesUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'profile'));
+      await new Promise(resolve => setImmediate(resolve));
+      const current = { ...instance, name: 'Updated Instance', url: 'http://updated.test' };
+      instances = change === 'replaced' ? [current] : [];
+      const openActions = mock.method(InstancePoolUi, 'openInstanceActions', () => {});
+      const openPool = mock.method(InstancePoolUi, 'openPoolManager', () => {});
+      onBack();
+      assert.equal(openActions.mock.callCount(), change === 'replaced' ? 1 : 0);
+      assert.equal(openPool.mock.callCount(), change === 'removed' ? 1 : 0);
+      if (change === 'replaced') assert.equal(openActions.mock.calls[0].arguments[0], current);
+    });
+  }
 
   it('opens TV-friendly instance pool manager via Lampa.Select', () => {
     SettingsUi.init();

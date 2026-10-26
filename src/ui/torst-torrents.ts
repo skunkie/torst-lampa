@@ -190,7 +190,8 @@ export class TorstTorrentsComponent {
       if (!isCurrent()) return;
       await view.show(instance, () => {
         if (isCurrent()) {
-          this.updateProfileLabel(instance);
+          const currentInstance = InstanceManager.getInstances().find(candidate => candidate.id === instance.id);
+          this.updateProfileLabel(currentInstance);
           Lampa.Controller.toggle('content');
         }
       });
@@ -209,8 +210,8 @@ export class TorstTorrentsComponent {
     return focused && toolbar?.contains?.(focused) ? focused : null;
   }
 
-  private updateProfileLabel(instance: TorstInstance): void {
-    this.toolbar?.find('.torst-library-profile').text(instance.profileName || translate('torst_profiles_title', 'Torst Profiles'));
+  private updateProfileLabel(instance?: TorstInstance): void {
+    this.toolbar?.find('.torst-library-profile').text(instance?.profileName || translate('torst_profiles_title', 'Torst Profiles'));
   }
 
   public async load(silent = false): Promise<void> {

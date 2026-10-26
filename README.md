@@ -33,7 +33,8 @@ Torst is unreleased and in active development. The plugin targets its current AP
   - Browse torrents stored in the Torst database with posters, metadata, and multi-file selection.
   - Displays a file-storage badge icon over card posters for torrents cached on disk, alongside file counts and sizes.
 - **Profiles, Progress, and Up Next**:
-  - Choose, create, rename, or delete Torst profiles from the library's **Torst Profiles** button or an instance's actions menu. Each instance remembers its own active profile. Stored profile avatars appear in the picker, with a default icon when unavailable.
+  - Choose, create, rename, or delete Torst profiles from the **Torst icon in Lampa's top bar**, the library's **Torst Profiles** button, or an instance's actions menu. The top-bar button asks which instance to use when several are configured. Stored profile avatars appear in the picker, with a default icon when unavailable.
+  - **Local Lampa Progress** is the default; no Torst profile is selected initially. Choose a Torst profile to use server progress and **Up Next**. The plugin remembers the choice for each instance in this Lampa installation.
   - A selected profile uses Torst's saved file positions and completion state. Exact positions reported by Lampa or an external player are saved back to that profile. Players that report no position leave the saved server progress unchanged.
   - Existing Lampa resume points remain intact. Torst profiles use separate local progress caches; choosing **Local Lampa Progress** returns to the original local records. Local records are not automatically imported into Torst.
   - Open **Up Next** from the Torst library to resume a file or play the next episode in the server's order. Removing an entry from this view keeps its torrent and saved progress.

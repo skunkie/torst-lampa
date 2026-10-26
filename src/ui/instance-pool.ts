@@ -281,7 +281,11 @@ export class InstancePoolUi {
       },
       onSelect: (selectedItem: LampaSelectItem) => {
         if (selectedItem.action === 'profile') {
-          void ProfilesUi.show(instance, () => this.openInstanceActions(instance));
+          void ProfilesUi.show(instance, () => {
+            const currentInstance = InstanceManager.getInstances().find(candidate => candidate.id === instance.id);
+            if (currentInstance) this.openInstanceActions(currentInstance);
+            else this.openPoolManager();
+          });
         } else if (selectedItem.action === 'test') {
           if (Lampa.Noty) {
             Lampa.Noty.show(

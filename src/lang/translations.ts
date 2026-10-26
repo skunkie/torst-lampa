@@ -505,6 +505,10 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Delete this profile and all its viewing progress?',
     ru: 'Удалить профиль и весь его прогресс просмотра?',
   },
+  torst_profile_instance_title: {
+    en: 'Torst Profiles — Select Instance',
+    ru: 'Профили Torst — выбор инстанса',
+  },
   torst_profile_local: {
     en: 'Local Lampa Progress',
     ru: 'Прогресс только в Lampa',

@@ -288,7 +288,7 @@ interface LampaController {
   add(name: string, controller: any): void,
   collectionFocus(focus: any, element: any): void,
   collectionSet(element: any): void,
-  enabled(): { name: string },
+  enabled(): { controller?: unknown, name: string },
   listener?: LampaListener,
   toggle(name: string): void
 }
@@ -399,6 +399,7 @@ interface LampaNamespace {
   Empty: any,
   Favorite: any,
   Head?: {
+    addIcon?(icon: string, action: () => void): LampaDomElement,
     title(title: string): void
   },
   Input: {

@@ -53,6 +53,7 @@ src/
 │   ├── instance-pool.ts     # InstancePoolUi: Instance pool manager and per-instance action menus
 │   ├── play-dialog.ts       # Pre-playback options modal (storage type and database persistence)
 │   ├── preload-modal.ts     # Preload progress polling, native fullscreen loading UI, and stats
+│   ├── profile-header.ts    # Native Lampa top-bar access to the per-instance profile picker
 │   ├── profiles.ts          # Per-instance profile selection, CRUD, and authenticated avatars
 │   ├── provider-result-row.ts # Full-width torrent rows and media tags for the provider global search tab
 │   ├── provider-settings.ts # ProviderSettingsUi: Search provider pool manager and action modals
@@ -159,6 +160,7 @@ src/
     - Read and write seconds-based progress through the selected profile's file progress resources. Only actual player reports may advance progress. Suppress writes while applying server data, preserve server timestamps, and serialize/coalesce writes. Never estimate progress from bytes or elapsed time.
     - Up Next uses the server's entry order and opaque file IDs. Dismiss entries without deleting torrents or their progress. Expose the view from the Torst library.
     - Lampa's external player path does not call its internal player's exit callback. Track Torst's own external launch and browser visibility/focus return, restore the originating view once, and discard stale returns after navigation or unrelated playback.
+    - The native Lampa top bar exposes profile selection through `Head.addIcon`. With multiple instances, select the instance before opening its profile picker. Keep the native head controller's focus restoration and its separate Lampa account profile button intact. Cover this entry point in `tests/profile-header.test.ts`.
     - Cover these behaviors in `tests/playback-focus.test.ts`, `tests/playback-progress.test.ts`, `tests/torst-profiles-api.test.ts`, `tests/profile-ui.test.ts`, and `tests/up-next.test.ts`.
 
 ## Known Lampa Native API Quirks
