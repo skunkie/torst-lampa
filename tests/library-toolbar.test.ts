@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { InstanceManager } from '../src/instances/instance-manager';
 import { TorstInstance } from '../src/types/torst';
-import { ProfilesUi } from '../src/ui/profiles';
 import { TorstTorrentsComponent } from '../src/ui/torst-torrents';
 import { UpNextUi } from '../src/ui/up-next';
 import { createTestLanguage, getTestTranslation } from './support/translations';
@@ -65,9 +64,11 @@ describe('Torst library toolbar', () => {
   let collectionRoot: any;
   let nativeEmptyStarts: number;
   let notices: string[];
+  let activeController: string;
 
   beforeEach(() => {
     focused = null;
+    activeController = 'content';
     notices = [];
     nativeEmptyStarts = 0;
     (globalThis as any).$ = (value: any) => typeof value === 'object' ? value.wrapper || value : element(value);
@@ -77,7 +78,7 @@ describe('Torst library toolbar', () => {
         collectionFocus: () => {},
         collectionSet: (root: any) => { collectionRoot = root; focused = null; },
         enabled: () => ({ name: 'content' }),
-        toggle: () => {},
+        toggle: (name: string) => { activeController = name; },
       },
       Empty: class {
         destroy() {}
@@ -114,11 +115,11 @@ describe('Torst library toolbar', () => {
     (globalThis as any).Navigator = originalNavigator;
   });
 
-  it('keeps profile and Up Next controls when the grid is rebuilt', () => {
+  it('keeps the Up Next control when the grid is rebuilt', () => {
     const root: any = component.render();
     const toolbar = root[0].children[0];
     assert.ok(toolbar.wrapper.markup.includes('torst-library-toolbar'));
-    const button = toolbar.wrapper.find('.torst-library-profile')[0];
+    const button = toolbar.wrapper.find('.torst-library-up-next')[0];
     const torrent = { files: [], hash: 'one', name: 'One', retention: 'persisted' as const, storage: 'memory' as const, total_size: 1 };
     component.renderTorrents([torrent], instance);
     focused = button;
@@ -126,6 +127,14 @@ describe('Torst library toolbar', () => {
     assert.equal(root[0].children[0], toolbar);
     assert.equal(focused, button);
     assert.equal(collectionRoot, root);
+  });
+
+  it('renders only Up Next as a native Lampa button with a translated label', () => {
+    const toolbar: any = (component.render() as any)[0].children[0].wrapper;
+    assert.ok(toolbar.markup.includes('class="simple-button selector torst-library-up-next"'));
+    assert.equal((toolbar.markup.match(/\bselector\b/g) || []).length, 1);
+    assert.ok(!toolbar.markup.includes('torst-library-profile'));
+    assert.equal(toolbar.find('.torst-library-up-next span').textValue, getTestTranslation('torst_up_next_title'));
   });
 
   it('keeps toolbar navigation available when the library is empty', () => {
@@ -139,63 +148,61 @@ describe('Torst library toolbar', () => {
 
   it('remembers a toolbar button across a card refresh and menu return', () => {
     const toolbar: any = (component.render() as any)[0].children[0].wrapper;
-    const button = toolbar.find('.torst-library-profile')[0];
+    const button = toolbar.find('.torst-library-up-next')[0];
     toolbar.find('.selector').events['hover:focus']({ currentTarget: button });
     (component as any).lastFocusedTorrentHash = 'one';
     component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance, true);
     assert.equal((component as any).lastFocusedElement, button);
   });
 
-  it('opens the selected instance profile picker and Up Next from the toolbar', async () => {
-    const profile = mock.method(ProfilesUi, 'show', async () => {});
-    const upNext = mock.method(UpNextUi, 'show', async () => {});
+  it('opens Up Next from the toolbar and restores the content controller on Back', async () => {
+    let onBack!: () => void;
+    const upNext = mock.method(UpNextUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
     const root: any = component.render();
     const toolbar = root[0].children[0].wrapper;
-    toolbar.find('.torst-library-profile').events['hover:enter']();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(profile.mock.calls[0].arguments[0], instance);
     toolbar.find('.torst-library-up-next').events['hover:enter']();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(upNext.mock.calls[0].arguments[0], instance);
+    activeController = 'select';
+    onBack();
+    assert.equal(activeController, 'content');
   });
 
   it('uses the pinned search instance before its first library load completes', async () => {
     const pinned = { ...instance, id: 'pinned' };
     mock.method(InstanceManager, 'getInstances', () => [pinned]);
     (component as any).searchInstanceId = pinned.id;
-    const profile = mock.method(ProfilesUi, 'show', async () => {});
-    await (component as any).openLibraryView(ProfilesUi);
-    assert.equal(profile.mock.calls[0].arguments[0], pinned);
+    const upNext = mock.method(UpNextUi, 'show', async () => {});
+    await (component as any).openUpNext();
+    assert.equal(upNext.mock.calls[0].arguments[0], pinned);
     assert.equal((InstanceManager.getBestInstance as any).mock.callCount(), 0);
   });
 
-  for (const change of ['replaced', 'removed']) {
-    it(`does not restore a stale profile label after the instance was ${change}`, async () => {
+  for (const change of ['navigation', 'destruction']) {
+    it(`does not restore library focus after ${change}`, async () => {
+      let activity = {};
+      (globalThis as any).Lampa.Activity = { active: () => activity };
       let onBack!: () => void;
-      mock.method(ProfilesUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
-      const updateLabel = mock.method(component as any, 'updateProfileLabel');
-      await (component as any).openLibraryView(ProfilesUi);
-      const label = (component.render() as any)[0].children[0].wrapper.find('.torst-library-profile');
-      label.text('Old Profile');
-      const current = { ...instance, profileId: 'prf_sam', profileName: 'Sam' };
-      mock.method(InstanceManager, 'getInstances', () => change === 'replaced' ? [current] : []);
+      mock.method(UpNextUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
+      await (component as any).openUpNext();
+      if (change === 'navigation') activity = {};
+      else component.destroy();
+      activeController = 'select';
       onBack();
-      assert.equal(updateLabel.mock.callCount(), 1);
-      assert.equal(updateLabel.mock.calls[0].arguments[0], change === 'replaced' ? current : undefined);
-      assert.equal(label.textValue, change === 'replaced' ? 'Sam' : getTestTranslation('torst_profiles_title'));
+      assert.equal(activeController, 'select');
     });
   }
 
   it('reports an unavailable instance and ignores selection completed after navigation', async () => {
     mock.method(InstanceManager, 'getBestInstance', async () => { throw new Error('offline'); });
-    await (component as any).openLibraryView(ProfilesUi);
+    await (component as any).openUpNext();
     assert.ok(notices[0].includes('offline'));
     let activity = {};
     (globalThis as any).Lampa.Activity = { active: () => activity };
     let finish!: (value: TorstInstance) => void;
     mock.method(InstanceManager, 'getBestInstance', () => new Promise<TorstInstance>(resolve => { finish = resolve; }));
-    const show = mock.method(ProfilesUi, 'show', async () => {});
-    const opening = (component as any).openLibraryView(ProfilesUi);
+    const show = mock.method(UpNextUi, 'show', async () => {});
+    const opening = (component as any).openUpNext();
     activity = {};
     finish(instance);
     await opening;

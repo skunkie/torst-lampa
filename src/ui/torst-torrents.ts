@@ -12,7 +12,6 @@ import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import { Torrent, TorrentStorage, TorstInstance } from '../types/torst';
-import { ProfilesUi } from './profiles';
 import {
   buildSavedTorrentCard,
   describeViewedAction,
@@ -105,6 +104,11 @@ export class TorstTorrentsComponent {
           flex: 1;
           min-height: 0;
         }
+        .torst-library-toolbar {
+          display: flex;
+          flex-shrink: 0;
+          padding: 1.5em 1.5em 0;
+        }
         .torst-torrents--empty,
         .torst-torrents--empty .scroll {
           overflow: hidden !important;
@@ -159,15 +163,12 @@ export class TorstTorrentsComponent {
 
   public create(): LampaDomElement | HTMLElement {
     this.scrollView.minus();
-    this.toolbar = $(`<div class="torst-library-toolbar" style="display: flex; margin-bottom: 1em;">
-      <div class="button selector torst-library-profile" style="margin-right: 1em;"></div>
-      <div class="button selector torst-library-up-next"></div>
+    this.toolbar = $(`<div class="torst-library-toolbar">
+      <div class="simple-button selector torst-library-up-next"><span></span></div>
     </div>`);
-    this.toolbar.find('.torst-library-profile').text(translate('torst_profiles_title', 'Torst Profiles')).on('hover:enter', () => {
-      void this.openLibraryView(ProfilesUi);
-    });
-    this.toolbar.find('.torst-library-up-next').text(translate('torst_up_next_title', 'Up Next')).on('hover:enter', () => {
-      void this.openLibraryView(UpNextUi);
+    this.toolbar.find('.torst-library-up-next span').text(translate('torst_up_next_title', 'Up Next'));
+    this.toolbar.find('.torst-library-up-next').on('hover:enter', () => {
+      void this.openUpNext();
     });
     this.toolbar.find('.selector').on('hover:focus', (event: LampaDomEvent) => {
       this.lastFocusedElement = event.currentTarget || event.target || null;
@@ -180,7 +181,7 @@ export class TorstTorrentsComponent {
     return this.render();
   }
 
-  private async openLibraryView(view: { show: (instance: TorstInstance, onBack: () => void) => Promise<void> }): Promise<void> {
+  private async openUpNext(): Promise<void> {
     const activity = Lampa.Activity?.active?.();
     const isCurrent = () => !this.isDestroyed && (activity === undefined || Lampa.Activity?.active?.() === activity);
     try {
@@ -188,10 +189,8 @@ export class TorstTorrentsComponent {
       const instance = instances.find(candidate => candidate.id === (this.searchInstanceId || this.activeInstance?.id))
         || await InstanceManager.getBestInstance();
       if (!isCurrent()) return;
-      await view.show(instance, () => {
+      await UpNextUi.show(instance, () => {
         if (isCurrent()) {
-          const currentInstance = InstanceManager.getInstances().find(candidate => candidate.id === instance.id);
-          this.updateProfileLabel(currentInstance);
           Lampa.Controller.toggle('content');
         }
       });
@@ -208,10 +207,6 @@ export class TorstTorrentsComponent {
     const focused = getNavigator()?.getFocusedElement?.();
     const toolbar = this.toolbar?.[0];
     return focused && toolbar?.contains?.(focused) ? focused : null;
-  }
-
-  private updateProfileLabel(instance?: TorstInstance): void {
-    this.toolbar?.find('.torst-library-profile').text(instance?.profileName || translate('torst_profiles_title', 'Torst Profiles'));
   }
 
   public async load(silent = false): Promise<void> {
@@ -236,7 +231,6 @@ export class TorstTorrentsComponent {
       this.activeInstance = searchInstance || await InstanceManager.getBestInstance();
       if (this.isDestroyed) return;
       this.updateHeaderTitle(this.activeInstance);
-      this.updateProfileLabel(this.activeInstance);
       const searchQuery = this.searchQuery;
       const [torrents, settings] = await Promise.all([
         searchQuery === undefined
