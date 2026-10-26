@@ -21,11 +21,14 @@ export const TORST_SETTINGS_COMPONENT_ID = 'torst_settings';
 
 export const TORST_ICON = `
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="2.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
-  <rect x="9.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
-  <rect x="16.25" y="2.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
-  <rect x="9.25" y="9.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
-  <rect x="9.25" y="16.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  <rect x="1" y="1" width="22" height="22" rx="3.2" stroke="white" stroke-width="1.2"/>
+  <g transform="translate(3.84 3.84) scale(0.68)">
+    <rect x="2.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+    <rect x="9.25" y="2.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+    <rect x="16.25" y="2.25" width="5.5" height="5.5" rx="1.25" stroke="white" stroke-width="1.1"/>
+    <rect x="9.25" y="9.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+    <rect x="9.25" y="16.25" width="5.5" height="5.5" rx="1.25" fill="white"/>
+  </g>
 </svg>
 `;
 

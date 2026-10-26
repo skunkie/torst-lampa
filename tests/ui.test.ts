@@ -165,11 +165,21 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('draws only the Torst T with an outlined top-right piece and fixed white paint for Lampa focus inversion', () => {
-    const pieces = [...TORST_ICON.matchAll(/<rect\b[^>]*\/>/g)].map(([piece]) => (
+  it('frames the Torst T with a hollow square and top-right piece for Lampa focus styling', () => {
+    const [frame, ...pieces] = [...TORST_ICON.matchAll(/<rect\b[^>]*\/>/g)].map(([piece]) => (
       Object.fromEntries([...piece.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]))
     ));
 
+    assert.deepEqual(frame, {
+      height: '22',
+      rx: '3.2',
+      stroke: 'white',
+      'stroke-width': '1.2',
+      width: '22',
+      x: '1',
+      y: '1',
+    });
+    assert.ok(TORST_ICON.includes('<g transform="translate(3.84 3.84) scale(0.68)">'));
     const positions = [[2.25, 2.25], [9.25, 2.25], [16.25, 2.25], [9.25, 9.25], [9.25, 16.25]];
     assert.equal(pieces.length, positions.length);
     for (const [index, piece] of pieces.entries()) {
