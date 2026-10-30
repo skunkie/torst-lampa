@@ -27,7 +27,7 @@ describe('Torst profiles UI', () => {
   beforeEach(() => {
     menu = undefined;
     instance = { authType: 'none', id: 'one', name: 'One', profileId: 'prf_alex', profileName: 'Alex', url: 'http://torst.test' };
-    profiles = [{ avatar: null, id: 'prf_alex', name: 'Alex' }];
+    profiles = [{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Alex' }];
     backs = 0;
     notices = [];
     (globalThis as any).Lampa = {
@@ -41,11 +41,11 @@ describe('Torst profiles UI', () => {
     mock.method(InstanceManager, 'getInstances', () => [instance]);
     mock.method(TorstApi, 'getProfiles', async () => profiles);
     mock.method(TorstApi, 'createProfile', async (_instance: TorstInstance, name: string) => {
-      const profile = { id: 'prf_sam', name };
+      const profile = { id: 'prf_sam', kind: 'person', name };
       profiles.push(profile);
       return profile;
     });
-    mock.method(TorstApi, 'renameProfile', async (_instance: TorstInstance, id: string, name: string) => ({ id, name }));
+    mock.method(TorstApi, 'renameProfile', async (_instance: TorstInstance, id: string, name: string) => ({ id, kind: 'person', name }));
     mock.method(TorstApi, 'deleteProfile', async (_instance: TorstInstance, id: string) => { profiles = profiles.filter(profile => profile.id !== id); });
   });
   afterEach(() => {
@@ -71,6 +71,16 @@ describe('Torst profiles UI', () => {
     assert.equal((InstanceManager.updateInstance as any).mock.callCount(), 2);
   });
 
+  it('excludes device and unknown profile kinds and clears an unselectable profile', async () => {
+    profiles.push({ id: 'prf_device', kind: 'device', name: 'Devices' }, { id: 'prf_future', kind: 'future', name: 'Future' });
+    instance.profileId = 'prf_device';
+    await open();
+    assert.deepEqual(menu.items.filter((item: any) => item.data).map((item: any) => item.data.id), ['prf_alex']);
+    assert.equal(instance.profileId, undefined);
+    assert.equal(instance.profileName, undefined);
+    assert.equal(menu.items.find((item: any) => item.action === 'none').selected, true);
+  });
+
   it('creates and selects a named profile through the remote-friendly input', async () => {
     await open();
     select('create');
@@ -91,7 +101,7 @@ describe('Torst profiles UI', () => {
     select('profile');
     select('rename');
     assert.equal(input.value, 'Alex');
-    mock.method(TorstApi, 'renameProfile', async () => ({ id: 'prf_alex', name: 'Normalized Name' }));
+    mock.method(TorstApi, 'renameProfile', async () => ({ id: 'prf_alex', kind: 'person', name: 'Normalized Name' }));
     inputCallback('Normalized  Name');
     await flush();
     assert.equal(instance.profileName, 'Normalized Name');
@@ -258,7 +268,7 @@ describe('Torst profiles UI', () => {
     select('profile');
     select('delete');
     select('confirm');
-    profiles.push({ avatar: { updated_at: '2026-10-26' }, id: 'prf_sam', name: 'Sam' });
+    profiles.push({ avatar: { updated_at: '2026-10-26' }, id: 'prf_sam', kind: 'person', name: 'Sam' });
     (globalThis as any).Image = undefined;
     let finishAvatar!: (value: Blob) => void;
     let requests = 0;
@@ -279,7 +289,7 @@ describe('Torst profiles UI', () => {
   });
 
   it('keeps newer picker actions usable when the pending deletion fails', async () => {
-    profiles.push({ avatar: null, id: 'prf_sam', name: 'Sam' });
+    profiles.push({ avatar: null, id: 'prf_sam', kind: 'person', name: 'Sam' });
     let fail!: (error: Error) => void;
     mock.method(TorstApi, 'deleteProfile', () => new Promise<void>((_resolve, reject) => { fail = reject; }));
     await open();
@@ -299,7 +309,7 @@ describe('Torst profiles UI', () => {
   it('does not treat the same profile ID on another instance as deleted', async () => {
     const second = { ...instance, id: 'two', profileName: 'Taylor', url: 'http://two.test' };
     mock.method(InstanceManager, 'getInstances', () => [instance, second]);
-    mock.method(TorstApi, 'getProfiles', async (source: TorstInstance) => source.id === instance.id ? profiles : [{ avatar: null, id: 'prf_alex', name: 'Taylor' }]);
+    mock.method(TorstApi, 'getProfiles', async (source: TorstInstance) => source.id === instance.id ? profiles : [{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Taylor' }]);
     let finish!: () => void;
     mock.method(TorstApi, 'deleteProfile', () => new Promise<void>(resolve => {
       finish = () => { profiles = []; resolve(); };
@@ -322,7 +332,7 @@ describe('Torst profiles UI', () => {
   it('does not discard a profile rename because deletion finished on a different instance', async () => {
     const second = { ...instance, id: 'two', profileName: 'Taylor', url: 'http://two.test' };
     mock.method(InstanceManager, 'getInstances', () => [instance, second]);
-    mock.method(TorstApi, 'getProfiles', async (source: TorstInstance) => source.id === instance.id ? profiles : [{ avatar: null, id: 'prf_alex', name: 'Taylor' }]);
+    mock.method(TorstApi, 'getProfiles', async (source: TorstInstance) => source.id === instance.id ? profiles : [{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Taylor' }]);
     let finish!: () => void;
     mock.method(TorstApi, 'deleteProfile', () => new Promise<void>(resolve => { finish = resolve; }));
     await open();
@@ -347,7 +357,7 @@ describe('Torst profiles UI', () => {
     const opening = open();
     const current = { ...instance, password: 'updated-password' };
     mock.method(InstanceManager, 'getInstances', () => [current]);
-    finish([{ avatar: null, id: 'prf_alex', name: 'Alex Updated' }]);
+    finish([{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Alex Updated' }]);
     await opening;
     assert.equal(menu, undefined);
     assert.equal(current.profileName, 'Alex');
@@ -481,7 +491,7 @@ describe('Torst profiles UI', () => {
   });
 
   it('loads authenticated avatar thumbnails, falls back for missing images, and releases image URLs', async () => {
-    profiles = [{ avatar: { updated_at: '2026-10-25' }, id: 'prf_alex', name: 'Alex' }, { avatar: null, id: 'prf_sam', name: 'Sam' }];
+    profiles = [{ avatar: { updated_at: '2026-10-25' }, id: 'prf_alex', kind: 'person', name: 'Alex' }, { avatar: null, id: 'prf_sam', kind: 'person', name: 'Sam' }];
     (globalThis as any).Image = undefined;
     const avatar = mock.method(TorstApi, 'getProfileAvatar', async () => new Blob(['image'], { type: 'image/png' }));
     mock.method(URL, 'createObjectURL', () => 'blob:profile-avatar');
@@ -541,7 +551,7 @@ describe('Torst profiles UI', () => {
     inputCallback('Sam');
     await open();
     const currentMenu = menu;
-    resolve({ id: 'prf_sam', name: 'Sam' });
+    resolve({ id: 'prf_sam', kind: 'person', name: 'Sam' });
     await flush();
     assert.equal(instance.profileId, 'prf_alex');
     assert.equal(menu, currentMenu);
@@ -557,7 +567,7 @@ describe('Torst profiles UI', () => {
     inputCallback('Sam');
     const previousMenu = menu;
     activity = {};
-    resolve({ id: 'prf_sam', name: 'Sam' });
+    resolve({ id: 'prf_sam', kind: 'person', name: 'Sam' });
     await flush();
     assert.equal(instance.profileId, 'prf_alex');
     assert.equal(menu, previousMenu);
@@ -584,7 +594,7 @@ describe('Torst profiles UI', () => {
     inputCallback('Sam');
     const previousMenu = menu;
     controller = { controller: {}, name: 'search' };
-    finish({ id: 'prf_sam', name: 'Sam' });
+    finish({ id: 'prf_sam', kind: 'person', name: 'Sam' });
     await flush();
     assert.equal(instance.profileId, 'prf_alex');
     assert.equal(menu, previousMenu);

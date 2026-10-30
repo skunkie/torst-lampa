@@ -2,13 +2,13 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { TorstApi } from '../api/torst';
 import { translate } from '../lang/translations';
 import { Torrent, TorrentFile, TorstInstance } from '../types/torst';
 import { buildFileListItemElement } from '../ui/file-list-item';
 import { PreloadModal } from '../ui/preload-modal';
 import { closeModalSafely, markTorrentViewed, recordWatchedHistory } from './engine-utils';
 import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from './episode-preview';
+import { ExternalProgress } from './external-progress';
 import { resolveFileIndex, resolveFileInfo, selectVideoFiles } from './file-parser';
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { PlaybackFocus } from './playback-focus';
@@ -232,6 +232,9 @@ export async function playTorrentFile(
   sourceTorrentItem?: LampaTorrentItem
 ): Promise<boolean> {
   const generation = ++playbackGeneration;
+  ExternalProgress.cancel();
+  PlaybackFocus.cancel();
+  const playbackInstance = { ...instance };
   const activity = Lampa.Activity?.active?.();
   const instanceUrl = instance.url;
   const profileId = instance.profileId;
@@ -280,11 +283,15 @@ export async function playTorrentFile(
   if (!isPreloadReady || !isCurrent()) return false;
 
   // Resolve final stream URL with playback token attached
-  const streamUrl = await TorstApi.getStreamUrl(instance, torrentHash, {
+  const stream = await ExternalProgress.getStream(instance, torrentHash, {
+    fileId: playlistItem.torstFileId,
     index: fileIndex,
     path: playlistItem.path,
   });
-  if (!isCurrent()) return false;
+  if (!isCurrent()) {
+    ExternalProgress.release(playbackInstance, stream.viewing);
+    return false;
+  }
 
   const playerTimeline = Lampa.Timeline
     ? PlaybackProgress.trackTimeline(Lampa.Timeline.view(timelineHash))
@@ -319,19 +326,28 @@ export async function playTorrentFile(
       timeline: candidateTimeline,
       torrent_hash: torrentHash,
       url: isCurrentFile
-        ? streamUrl
+        ? stream.url
         : (callback?: () => void) => {
-          TorstApi.getStreamUrl(instance, torrentHash, {
+          ExternalProgress.getStream(instance, torrentHash, {
+            fileId: candidateItem.torstFileId,
             index: targetIndex,
             path: candidateItem.path,
-          }).then(resolvedUrl => {
-            mappedItem.url = resolvedUrl;
+          }).then(resolved => {
+            if (!isCurrent() || !ExternalProgress.isTracked(mappedItem)) {
+              ExternalProgress.release(playbackInstance, resolved.viewing);
+              return;
+            }
+            mappedItem.url = resolved.url;
+            ExternalProgress.bind(mappedItem, resolved.viewing);
             if (typeof callback === 'function') callback();
-          }).catch(() => {
-            if (typeof callback === 'function') callback();
+          }).catch((error: unknown) => {
+            if (!isCurrent() || !ExternalProgress.isTracked(mappedItem)) return;
+            Lampa.Player.close?.();
+            Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', { msg: error instanceof Error ? error.message : String(error) }));
           });
         },
     };
+    if (isCurrentFile) ExternalProgress.bind(mappedItem, stream.viewing);
     return mappedItem;
   });
 
@@ -352,8 +368,9 @@ export async function playTorrentFile(
       season: fileInfo.season,
       timeline: playerTimeline,
       torrent_hash: torrentHash,
-      url: streamUrl,
+      url: stream.url,
     };
+    ExternalProgress.bind(playerItem, stream.viewing);
     mappedPlaylist.push(playerItem);
   }
 
@@ -373,6 +390,7 @@ export async function playTorrentFile(
     rememberPlayerPlaylist(mappedPlaylist);
     Lampa.Player.playlist(mappedPlaylist);
   }
+  ExternalProgress.arm(instance, mappedPlaylist);
   PlaybackFocus.arm(mappedPlaylist, () => {
     Lampa.Controller.toggle(returnController);
   });

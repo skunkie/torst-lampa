@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: MIT
 
+import { ExternalProgress } from './external-progress';
+
 interface PlaybackFocusSession {
   activity: unknown,
   hasLeftPage: boolean,
@@ -29,11 +31,16 @@ export class PlaybackFocus {
     this.setCallback(restoreFocus);
   }
 
+  public static cancel(): void {
+    this.clear();
+  }
+
   public static setCallback(restoreFocus: () => void): void {
     const session = this.session;
     if (session) session.restoreFocus = restoreFocus;
     Lampa.Player.callback(() => {
       if (session && this.session !== session) return;
+      ExternalProgress.handleExit();
       this.clear();
       if (!session || session.activity === undefined || Lampa.Activity?.active?.() === session.activity) restoreFocus();
     });
@@ -43,34 +50,34 @@ export class PlaybackFocus {
     const listener = Lampa.Player?.listener;
     if (this.isInitialized || !listener) return;
     this.isInitialized = true;
-    const create = (event: { data?: LampaPlayerItem }) => {
+    const handlePlayerCreate = (event: { data?: LampaPlayerItem }) => {
       if (this.session && !this.session.playlist.includes(event.data as LampaPlayerItem)) this.clear();
     };
-    const external = (item: LampaPlayerItem) => {
+    const handleExternalLaunch = (item: LampaPlayerItem) => {
       if (this.session?.playlist.includes(item)) this.session.isExternal = true;
     };
-    listener.follow('create', create);
-    listener.follow('external', external);
+    listener.follow('create', handlePlayerCreate);
+    listener.follow('external', handleExternalLaunch);
     this.cleanupListeners.push(() => {
-      listener.remove?.('create', create);
-      listener.remove?.('external', external);
+      listener.remove?.('create', handlePlayerCreate);
+      listener.remove?.('external', handleExternalLaunch);
     });
-    const away = () => {
+    const handlePageLeave = () => {
       if (this.session) this.session.hasLeftPage = true;
     };
-    const returned = () => this.handleReturn();
+    const handlePageReturn = () => this.handleReturn();
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('blur', away);
-      window.addEventListener('focus', returned);
+      window.addEventListener('blur', handlePageLeave);
+      window.addEventListener('focus', handlePageReturn);
       this.cleanupListeners.push(() => {
-        window.removeEventListener('blur', away);
-        window.removeEventListener('focus', returned);
+        window.removeEventListener('blur', handlePageLeave);
+        window.removeEventListener('focus', handlePageReturn);
       });
     }
     if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-      const visibility = () => document.visibilityState === 'hidden' ? away() : returned();
-      document.addEventListener('visibilitychange', visibility);
-      this.cleanupListeners.push(() => document.removeEventListener('visibilitychange', visibility));
+      const handleVisibilityChange = () => document.visibilityState === 'hidden' ? handlePageLeave() : handlePageReturn();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      this.cleanupListeners.push(() => document.removeEventListener('visibilitychange', handleVisibilityChange));
     }
   }
 

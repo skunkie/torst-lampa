@@ -24,13 +24,15 @@ src/
 │   ├── database-search.ts   # Saved-torrent search through the instance's search filter, for global search and the filtered database view
 │   ├── engine-utils.ts      # Guarded modal close, viewed marking, and watch history recording
 │   ├── episode-preview.ts   # TMDB season episode lookup for file list stills, names, and air dates
+│   ├── external-progress.ts # External-player return fallback through per-file Torst viewings
 │   ├── file-parser.ts       # Torrent file sorting, video detection, and season/episode/timeline resolution
 │   ├── media-context.ts     # Movie card context and poster URL resolution
 │   ├── playback-focus.ts    # Restores the originating view after internal or external playback
-│   ├── playback-progress.ts # Profile-scoped timeline hydration and exact server progress writes
+│   ├── playback-progress.ts # Profile-scoped timeline hydration and server progress writes
 │   ├── playback-session.ts  # File list modal, single/multi-file playback, and player item construction
 │   ├── player-playlist.ts   # Restores the handed-over playlist when Lampa empties it on episode switches
 │   ├── saved-torrents.ts    # SavedTorrents: batched lookup cache of torrents stored in the database
+│   ├── title-progress.ts    # Catalog identities shared by TMDB, CUB, and IMDb progress
 │   └── torst-engine.ts      # Playback routing, parser integration, file resolution, and Lampa.Player hand-off
 ├── instances/
 │   └── instance-manager.ts  # Multi-instance CRUD, latency benchmarking, auto selection, and failover
@@ -94,7 +96,7 @@ src/
 3. **Storage and Persistence**:
    - Torst's wire storage modes are `memory` and `disk`; the plugin maps its internal `file` choice to `disk`.
    - Use `retention: persisted` to save and `retention: temporary` for temporary playback, in both JSON and multipart creation. Temporary torrents use memory storage and omit title, poster, and other library metadata. Torst handles their idle cleanup; never automatically delete after playback. A duplicate temporary torrent is promoted through an ETag-protected configuration patch when saving; temporary playback must never downgrade a persisted torrent.
-   - Create with `magnet_uri` JSON or upload `torrent_file` in multipart data. Download URL-only releases on the client before upload.
+   - Create with `magnet_uri` JSON or upload `metainfo` in multipart data. Download URL-only releases on the client before upload.
 
 4. **Preload Before Player Hand-off**:
    - Before launching video playback in `Lampa.Player`, initiate preloading via `POST /api/v1/torrents/{torrent_id}/files/{file_id}/preloads`.
@@ -155,13 +157,13 @@ src/
     - Translation dictionaries are sorted alphabetically by key too: `TRANSLATIONS` in `src/lang/translations.ts` and each locale of the landing page's `i18n` dictionary in `landing/script.js`.
 
 12. **Profiles, Progress, and External Player Returns**:
-    - Select a Torst profile independently for each instance. Profile renames use the current ETag; deleting the last profile may fail with a lifecycle conflict. Avatars require authenticated requests; never put an API access token in an image URL.
+    - Select a Torst profile independently for each instance. Profile renames use the current ETag. Offer only `person` profiles for selection; the device profile cannot be selected, renamed, deleted, or written by clients. Avatars require authenticated requests; never put an API access token in an image URL.
     - Keep existing Lampa timeline records intact. A selected Torst profile uses a separate timeline key scoped by instance, URL, profile, and opaque file ID. Never implicitly import local records into a server profile.
-    - Read and write seconds-based progress through the selected profile's file progress resources. Only actual player reports may advance progress. Suppress writes while applying server data, preserve server timestamps, and serialize/coalesce writes. Never estimate progress from bytes or elapsed time.
+    - Read and write seconds-based progress through the selected profile's file progress resources. Actual player reports take priority. For external players that report no position, create a per-file viewing before hand-off, include its `viewing_id` in the content URL, and read its seconds-based estimate after return. Save that fallback to the native timeline in local mode or the selected profile in profile mode; never overwrite an exact player report. Suppress writes while applying server data, preserve server timestamps, and serialize/coalesce writes. Never estimate progress on the client from bytes, elapsed time, or catalog runtime. For identified TMDB or IMDb movies and episodes, also read and save title progress, associating writes with the opaque torrent and file IDs. Resume from the newer exact title or file record; catalog progress survives torrent deletion.
     - Up Next uses the server's entry order and opaque file IDs. Dismiss entries without deleting torrents or their progress. Expose the view from the Torst library.
     - Lampa's external player path does not call its internal player's exit callback. Track Torst's own external launch and browser visibility/focus return, restore the originating view once, and discard stale returns after navigation or unrelated playback.
     - The native Lampa top bar exposes profile selection through `Head.addIcon`. With multiple instances, select the instance before opening its profile picker. Keep the native head controller's focus restoration and its separate Lampa account profile button intact. Cover this entry point in `tests/profile-header.test.ts`.
-    - Cover these behaviors in `tests/playback-focus.test.ts`, `tests/playback-progress.test.ts`, `tests/torst-profiles-api.test.ts`, `tests/profile-ui.test.ts`, and `tests/up-next.test.ts`.
+    - Cover these behaviors in `tests/title-progress.test.ts`, `tests/external-progress.test.ts`, `tests/playback-focus.test.ts`, `tests/playback-progress.test.ts`, `tests/torst-profiles-api.test.ts`, `tests/profile-ui.test.ts`, and `tests/up-next.test.ts`.
 
 ## Known Lampa Native API Quirks
 

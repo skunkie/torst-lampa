@@ -200,8 +200,8 @@ export class InstancePoolUi {
     if (typeof instance.enableDownloader === 'undefined') {
       TorstApi.getSettings(instance).then(settings => {
         let changed = false;
-        if (settings && typeof settings.background_downloads === 'boolean' && typeof instance.enableDownloader === 'undefined') {
-          instance.enableDownloader = settings.background_downloads;
+        if (settings && typeof settings.background_downloads_enabled === 'boolean' && typeof instance.enableDownloader === 'undefined') {
+          instance.enableDownloader = settings.background_downloads_enabled;
           changed = true;
         }
         if (changed) {
@@ -296,8 +296,8 @@ export class InstancePoolUi {
             if (healthResult.isOk) {
               TorstApi.getSettings(instance).then(settings => {
                 let changed = false;
-                if (settings && typeof settings.background_downloads === 'boolean') {
-                  instance.enableDownloader = settings.background_downloads;
+                if (settings && typeof settings.background_downloads_enabled === 'boolean') {
+                  instance.enableDownloader = settings.background_downloads_enabled;
                   changed = true;
                 }
                 if (changed) {
@@ -383,7 +383,7 @@ export class InstancePoolUi {
           }
         } else if (selectedItem.action === 'toggle_downloader') {
           const nextState = !instance.enableDownloader;
-          TorstApi.updateSettings(instance, { background_downloads: nextState }).then(() => {
+          TorstApi.updateSettings(instance, { background_downloads_enabled: nextState }).then(() => {
             instance.enableDownloader = nextState;
             InstanceManager.updateInstance(instance);
             if (Lampa.Noty) {

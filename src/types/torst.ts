@@ -29,7 +29,7 @@ export interface TorstInstance {
 
 export interface TorstSettings {
   [key: string]: unknown,
-  background_downloads?: boolean
+  background_downloads_enabled?: boolean
 }
 
 export interface TorrentFile {
@@ -111,6 +111,7 @@ export interface PlayOptions {
 export interface TorstProfile {
   avatar?: { updated_at: string } | null,
   id: string,
+  kind: string,
   name: string
 }
 
@@ -127,10 +128,27 @@ export interface FileProgress extends ProgressUpdate {
   viewed_at: string | null
 }
 
+export interface FileViewing {
+  duration_seconds: number | null,
+  id: string,
+  links: { self: string },
+  position_seconds: number | null,
+  streaming: boolean
+}
+
 export interface UpNextEntry {
   file: TorrentFile,
   id: string,
   progress: FileProgress | null,
   reason: string,
   torrent: Torrent
+}
+
+export interface TitleProgress extends ProgressUpdate {
+  completion_ratio: number,
+  file_id: string | null,
+  title_key: string,
+  torrent_id: string | null,
+  updated_at: string,
+  viewed_at: string | null
 }

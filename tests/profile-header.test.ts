@@ -191,7 +191,7 @@ describe('Torst profile header button', () => {
       activate();
       const overlay = { controller: {}, name };
       controller = overlay;
-      finish([{ avatar: null, id: 'prf_alex', name: 'Alex' }]);
+      finish([{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Alex' }]);
       await flush();
       assert.equal(menu, undefined);
       assert.equal(controller, overlay);
@@ -210,7 +210,7 @@ describe('Torst profile header button', () => {
     menu.onSelect(menu.items[1]);
     const overlay = { controller: {}, name: 'select' };
     controller = overlay;
-    finish([{ avatar: null, id: 'prf_alex', name: 'Alex' }]);
+    finish([{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Alex' }]);
     await flush();
     assert.equal(menu, instanceMenu);
     assert.equal(controller, overlay);
@@ -236,7 +236,7 @@ describe('Torst profile header button', () => {
   it('releases loaded avatars when another overlay opens during image loading', async () => {
     mock.method(ProfilesUi, 'show', originalShowProfiles);
     (globalThis as any).Image = undefined;
-    mock.method(TorstApi, 'getProfiles', async () => [{ avatar: { updated_at: '2026-10-26' }, id: 'prf_alex', name: 'Alex' }]);
+    mock.method(TorstApi, 'getProfiles', async () => [{ avatar: { updated_at: '2026-10-26' }, id: 'prf_alex', kind: 'person', name: 'Alex' }]);
     let finish!: (avatar: Blob) => void;
     mock.method(TorstApi, 'getProfileAvatar', () => new Promise<Blob>(resolve => { finish = resolve; }));
     mock.method(URL, 'createObjectURL', () => 'blob:avatar');
@@ -256,7 +256,7 @@ describe('Torst profile header button', () => {
 
   it('still opens the real picker and restores head focus when it closes normally', async () => {
     mock.method(ProfilesUi, 'show', originalShowProfiles);
-    mock.method(TorstApi, 'getProfiles', async () => [{ avatar: null, id: 'prf_alex', name: 'Alex' }]);
+    mock.method(TorstApi, 'getProfiles', async () => [{ avatar: null, id: 'prf_alex', kind: 'person', name: 'Alex' }]);
     ProfileHeaderUi.init();
     activate();
     await flush();

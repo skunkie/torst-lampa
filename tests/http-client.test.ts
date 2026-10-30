@@ -410,7 +410,7 @@ describe('HTTP Client (requestHttp)', () => {
       },
     };
     for (const method of ['HEAD', 'PUT', 'PATCH', 'DELETE']) {
-      const body = method === 'PUT' || method === 'PATCH' ? '{"background_downloads":false}' : undefined;
+      const body = method === 'PUT' || method === 'PATCH' ? '{"background_downloads_enabled":false}' : undefined;
       const response = await requestHttp('http://localhost:8080/api/v1/settings', { body, method });
       assert.equal(response.ok, true);
     }

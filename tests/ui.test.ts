@@ -510,6 +510,31 @@ describe('UI & Settings Integration', () => {
     });
   }
 
+  for (const isEnabled of [true, false]) {
+    it(`reads background downloader state (${isEnabled}) when opening instance actions`, async () => {
+      const instance = InstanceManager.getInstances()[0];
+      delete instance.enableDownloader;
+      const read = mock.method(TorstApi, 'getSettings', async () => ({ background_downloads_enabled: isEnabled }));
+      InstancePoolUi.openInstanceActions(instance);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      assert.equal(instance.enableDownloader, isEnabled);
+      assert.equal(InstanceManager.getInstances()[0].enableDownloader, isEnabled);
+    });
+
+    it(`refreshes background downloader state (${isEnabled}) after an instance health check`, async () => {
+      const instance = InstanceManager.getInstances()[0];
+      instance.enableDownloader = !isEnabled;
+      mock.method(TorstApi, 'checkHealth', async () => ({ isOk: true, latencyMs: 10 }));
+      const read = mock.method(TorstApi, 'getSettings', async () => ({ background_downloads_enabled: isEnabled }));
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'test'));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      assert.equal(instance.enableDownloader, isEnabled);
+    });
+  }
+
   it('toggles enable downloader in instance actions and updates Torst instance', async () => {
     (globalThis as any).Lampa.Lang = createTestLanguage('ru', NATIVE_TRANSLATIONS);
     const instance = InstanceManager.getInstances()[0];
@@ -521,6 +546,8 @@ describe('UI & Settings Integration', () => {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/api/v1/settings') && init?.method === 'PATCH') {
+        assert.equal((init.headers as Record<string, string>)['If-Match'], '"set-test"');
+        assert.equal((init.headers as Record<string, string>)['Content-Type'], 'application/merge-patch+json');
         patchedBody = String(init.body || '');
         return new Response(null, { status: 204 });
       }
@@ -537,7 +564,7 @@ describe('UI & Settings Integration', () => {
     lastSelectOptions.onSelect(downloaderAction);
     await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.equal(patchedBody, JSON.stringify({ background_downloads: true }));
+    assert.equal(patchedBody, JSON.stringify({ background_downloads_enabled: true }));
     assert.equal(instance.enableDownloader, true);
     assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_enabled', { name: instance.name }, 'ru')));
 
@@ -551,7 +578,7 @@ describe('UI & Settings Integration', () => {
     lastSelectOptions.onSelect(updatedAction);
     await new Promise(resolve => setTimeout(resolve, 20));
 
-    assert.equal(patchedBody, JSON.stringify({ background_downloads: false }));
+    assert.equal(patchedBody, JSON.stringify({ background_downloads_enabled: false }));
     assert.equal(instance.enableDownloader, false);
     assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_disabled', { name: instance.name }, 'ru')));
   });
@@ -973,7 +1000,7 @@ describe('UI & Settings Integration', () => {
 
     globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
       links: {},
-      total: 0,
+      total_count: 0,
     }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
@@ -1215,7 +1242,7 @@ describe('UI & Settings Integration', () => {
     storageMap.set('torst_selection_mode', 'manual');
     storageMap.set('torst_selected_instance', 'a');
 
-    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),  links: {}, total: 0 }), {
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),  links: {}, total_count: 0 }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
     });
@@ -1424,7 +1451,7 @@ describe('UI & Settings Integration', () => {
 
     globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
       links: {},
-      total: 0,
+      total_count: 0,
     }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
@@ -2093,7 +2120,7 @@ describe('UI & Settings Integration', () => {
         const ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
         sentTags.push(ifNoneMatch);
         if (ifNoneMatch === '"list-v1"') return new Response(null, { status: 304 });
-        return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
+        return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
           headers: { ETag: '"list-v1"' },
           status: 200,
         });
@@ -2155,12 +2182,12 @@ describe('UI & Settings Integration', () => {
 
     globalThis.fetch = async (input: RequestInfo | URL) => {
       if (String(input).endsWith('/api/v1/settings')) {
-        return new Response(JSON.stringify({ background_downloads: false }), {
+        return new Response(JSON.stringify({ background_downloads_enabled: false }), {
           headers: { 'Content-Type': 'application/json' },
           status: 200,
         });
       }
-      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       });
@@ -3099,7 +3126,7 @@ describe('UI & Settings Integration', () => {
     const requestedUrls: string[] = [];
     globalThis.fetch = async (input: RequestInfo | URL) => {
       requestedUrls.push(String(input));
-      return new Response(JSON.stringify({ facets: { categories: [], total: 2, version: 'v1' },
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },
         items: ([
           { files: [], hash: storedHash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
         ]).map(createTorstTorrent),
@@ -3159,7 +3186,7 @@ describe('UI & Settings Integration', () => {
       const url = String(input);
       requestedUrls.push(url);
       if (shouldFail && url.includes('/api/v1/torrents')) return new Response('boom', { status: 500 });
-      return new Response(JSON.stringify({ facets: { categories: [], total: 1, version: 'v1' },
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },
         items: ([
           { files: [], hash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
         ]).map(createTorstTorrent),

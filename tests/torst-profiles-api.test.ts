@@ -32,11 +32,11 @@ describe('Torst profiles and progress API', () => {
       const url = new URL(String(input));
       if (options?.method === 'POST') {
         assert.deepEqual(JSON.parse(String(options.body)), { name: 'Sam' });
-        return json({ id: 'prf_sam', name: 'Sam' }, 201);
+        return json({ id: 'prf_sam', kind: 'person', name: 'Sam' }, 201);
       }
       return url.searchParams.has('cursor')
-        ? json({ items: [{ id: 'prf_sam', name: 'Sam' }], links: {} })
-        : json({ items: [{ id: 'prf_alex', name: 'Alex' }], links: { next: '/api/v1/profiles?cursor=next' } });
+        ? json({ items: [{ id: 'prf_sam', kind: 'person', name: 'Sam' }], links: {} })
+        : json({ items: [{ id: 'prf_alex', kind: 'person', name: 'Alex' }], links: { next: '/api/v1/profiles?cursor=next' } });
     };
     assert.deepEqual((await TorstApi.getProfiles(instance)).map(profile => profile.id), ['prf_alex', 'prf_sam']);
     assert.equal((await TorstApi.createProfile(instance, 'Sam')).id, 'prf_sam');
@@ -51,21 +51,21 @@ describe('Torst profiles and progress API', () => {
         assert.equal((options.headers as Record<string, string>)['If-Match'], '"profile-v1"');
         assert.equal((options.headers as Record<string, string>)['Content-Type'], 'application/merge-patch+json');
         assert.deepEqual(JSON.parse(String(options.body)), { name: 'Sam' });
-        return json({ id: 'prf_one', name: 'Normalized Name' });
+        return json({ id: 'prf_one', kind: 'person', name: 'Normalized Name' });
       }
       assert.equal(methods.length, 1, 'a successful rename must not require another read');
-      return json({ id: 'prf_one', name: 'Alex' }, 200, { ETag: '"profile-v1"' });
+      return json({ id: 'prf_one', kind: 'person', name: 'Alex' }, 200, { ETag: '"profile-v1"' });
     };
     assert.equal((await TorstApi.renameProfile(instance, 'prf_one', 'Sam')).name, 'Normalized Name');
     assert.deepEqual(methods, ['GET', 'PATCH']);
   });
 
-  it('preserves a last-profile deletion rejection', async () => {
+  it('preserves a device-profile deletion rejection', async () => {
     globalThis.fetch = async (_input, options) => {
       assert.equal(options?.method, 'DELETE');
-      return json({ detail: 'Cannot delete the last profile' }, 409);
+      return json({ detail: 'The device profile cannot be deleted' }, 409);
     };
-    await assert.rejects(TorstApi.deleteProfile(instance, 'prf_last'), (error: unknown) => error instanceof TorstApiError && error.status === 409);
+    await assert.rejects(TorstApi.deleteProfile(instance, 'prf_device'), (error: unknown) => error instanceof TorstApiError && error.status === 409);
   });
 
   it('reads and saves seconds-based file progress through opaque resource IDs', async () => {
@@ -86,6 +86,64 @@ describe('Torst profiles and progress API', () => {
     };
     assert.deepEqual(await TorstApi.getTorrentProgress(instance, 'prf_one', hash), [progress]);
     assert.deepEqual(await TorstApi.saveFileProgress(instance, 'prf_one', hash, 'fil_one', { duration_seconds: 400, position_seconds: 100, viewed: false }), progress);
+  });
+
+  it('follows title progress cursors and saves the associated opaque file and torrent IDs', async () => {
+    const title = { ...progress, title_key: 'tmdb-tv-123-s1e1', torrent_id: 'trr_one' };
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/torrents') return json({ items: [torrent], links: {} });
+      if (options?.method === 'PUT') {
+        assert.equal(url.pathname, '/api/v1/profiles/prf_one/title-progress/tmdb-tv-123-s1e1');
+        assert.equal((options.headers as Record<string, string>)['Content-Type'], 'application/json');
+        assert.deepEqual(JSON.parse(String(options.body)), { duration_seconds: 400, file_id: 'fil_one', position_seconds: 100, torrent_id: 'trr_one', viewed: false });
+        return json(title, 201);
+      }
+      assert.equal(url.pathname, '/api/v1/profiles/prf_one/title-progress');
+      if (url.searchParams.has('cursor')) return json({ items: [title], links: {} });
+      assert.equal(url.searchParams.get('title_key_prefix'), 'tmdb-tv-123-');
+      return json({ items: [], links: { next: '/api/v1/profiles/prf_one/title-progress?cursor=next' } });
+    };
+    assert.deepEqual(await TorstApi.getTitleProgress(instance, 'prf_one', 'tmdb-tv-123-'), [title]);
+    assert.deepEqual(await TorstApi.saveTitleProgress(instance, 'prf_one', 'tmdb-tv-123-s1e1', hash, 'fil_one', { duration_seconds: 400, position_seconds: 100, viewed: false }), title);
+  });
+
+  it('reads one movie title directly without collecting neighboring title keys', async () => {
+    const title = { ...progress, title_key: 'tmdb-movie-123', torrent_id: 'trr_one' };
+    globalThis.fetch = async input => {
+      assert.equal(new URL(String(input)).pathname, '/api/v1/profiles/prf_one/title-progress/tmdb-movie-123');
+      return json(title);
+    };
+    assert.deepEqual(await TorstApi.getTitleProgress(instance, 'prf_one', title.title_key), [title]);
+    globalThis.fetch = async () => json({ detail: 'No progress for this title' }, 404);
+    assert.deepEqual(await TorstApi.getTitleProgress(instance, 'prf_one', title.title_key), []);
+    globalThis.fetch = async () => json({ detail: 'Unavailable' }, 503);
+    await assert.rejects(TorstApi.getTitleProgress(instance, 'prf_one', title.title_key), (error: unknown) => error instanceof TorstApiError && error.status === 503);
+  });
+
+  it('creates, reads, and deletes a viewing of an opaque file without a request body', async () => {
+    const filePath = '/api/v1/torrents/trr_one/files/fil_one';
+    const viewing = { duration_seconds: null, id: 'vwg_one', links: { self: `${filePath}/viewings/vwg_one` }, position_seconds: null, streaming: false };
+    const methods: string[] = [];
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/api/v1/torrents') return json({ items: [torrent], links: {} });
+      if (url.pathname === '/api/v1/torrents/trr_one') return json({ ...torrent, file_count: 1 });
+      if (url.pathname === '/api/v1/torrents/trr_one/files') return json({ items: [{ id: 'fil_one', path: ['Sintel.mkv'], size_bytes: 100 }], links: {} });
+      methods.push(options?.method || 'GET');
+      assert.equal(options?.body, undefined);
+      if (options?.method === 'POST') {
+        assert.equal(url.pathname, `${filePath}/viewings`);
+        return json(viewing, 201);
+      }
+      assert.equal(url.pathname, viewing.links.self);
+      return options?.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ ...viewing, duration_seconds: 400, position_seconds: 140 });
+    };
+    const created = await TorstApi.createFileViewing(instance, hash, { index: 0 });
+    assert.deepEqual(created, viewing);
+    assert.equal((await TorstApi.getFileViewing(instance, created)).position_seconds, 140);
+    await TorstApi.deleteFileViewing(instance, created);
+    assert.deepEqual(methods, ['POST', 'GET', 'DELETE']);
   });
 
   it('maps Up Next files and isolates cached progress from callers', async () => {

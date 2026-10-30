@@ -64,6 +64,16 @@ describe('playback focus', () => {
     assert.equal(restores, 1);
   });
 
+  it('cancels both pending return focus and the old exit callback when another launch starts', () => {
+    listeners.get('external')!(item);
+    browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    PlaybackFocus.cancel();
+    mock.timers.tick(0);
+    exit();
+    assert.equal(restores, 0);
+  });
+
   it('handles Android visibility changes and coalesces duplicate return events', () => {
     listeners.get('external')!(item);
     page.visibilityState = 'hidden';

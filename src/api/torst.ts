@@ -4,9 +4,11 @@
 
 import {
   FileProgress,
+  FileViewing,
   PreloadRequest,
   PreloadResponse,
   ProgressUpdate,
+  TitleProgress,
   Torrent,
   TorrentAdd,
   TorrentFile,
@@ -384,7 +386,7 @@ export class TorstApi {
     if (file.size > 10 * 1024 * 1024) throw new TorstApiError('Torrent file exceeds Torst\'s 10 MiB limit', 413);
     const retention = options.retention || 'persisted';
     const form = new FormData();
-    form.append('torrent_file', file, 'download.torrent');
+    form.append('metainfo', file, 'download.torrent');
     form.append('retention', retention);
     form.append('storage_mode', retention === 'temporary' || options.storage !== 'file' ? 'memory' : 'disk');
     if (retention === 'persisted' && options.title) form.append('title', options.title);
@@ -455,6 +457,29 @@ export class TorstApi {
     const torrent = await this.findTorrent(instance, hash);
     return (await this.request<FileProgress>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/torrents/${encodeURIComponent(torrent.id as string)}/progress/${encodeURIComponent(fileId)}`, {
       body: JSON.stringify(progress),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PUT',
+    })).data;
+  }
+
+  public static async getTitleProgress(instance: TorstInstance, profileId: string, keyOrPrefix: string): Promise<TitleProgress[]> {
+    const path = `/api/v1/profiles/${encodeURIComponent(profileId)}/title-progress`;
+    if (!keyOrPrefix.endsWith('-')) {
+      try {
+        return [(await this.request<TitleProgress>(instance, `${path}/${encodeURIComponent(keyOrPrefix)}`)).data];
+      } catch (error) {
+        if (error instanceof TorstApiError && error.status === 404) return [];
+        throw error;
+      }
+    }
+    const query = new URLSearchParams({ page_size: '200', title_key_prefix: keyOrPrefix });
+    return this.collectPages<TitleProgress>(instance, `${path}?${query}`);
+  }
+
+  public static async saveTitleProgress(instance: TorstInstance, profileId: string, titleKey: string, hash: string, fileId: string, progress: ProgressUpdate): Promise<TitleProgress> {
+    const torrent = await this.findTorrent(instance, hash);
+    return (await this.request<TitleProgress>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/title-progress/${encodeURIComponent(titleKey)}`, {
+      body: JSON.stringify({ ...progress, file_id: fileId, torrent_id: torrent.id }),
       headers: { 'Content-Type': 'application/json' },
       method: 'PUT',
     })).data;
@@ -540,7 +565,7 @@ export class TorstApi {
     let data: TorstPreload;
     try {
       data = (await this.request<TorstPreload>(instance, `${path}/preloads`, {
-        body: JSON.stringify({ offset_bytes: offsetBytes, ttl_seconds: 300 }),
+        body: JSON.stringify({ expires_in_seconds: 300, offset_bytes: offsetBytes }),
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       })).data;
@@ -605,6 +630,19 @@ export class TorstApi {
     const { path } = await this.fileResource(instance, hash, identifier);
     const token = await AuthManager.getPlaybackToken(instance);
     return `${instance.url.replace(/\/+$/, '')}${path}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  }
+
+  public static async createFileViewing(instance: TorstInstance, hash: string, identifier: { index?: number, path?: string }): Promise<FileViewing> {
+    const { path } = await this.fileResource(instance, hash, identifier);
+    return (await this.request<FileViewing>(instance, `${path}/viewings`, { method: 'POST' })).data;
+  }
+
+  public static async getFileViewing(instance: TorstInstance, viewing: FileViewing): Promise<FileViewing> {
+    return (await this.request<FileViewing>(instance, viewing.links.self)).data;
+  }
+
+  public static async deleteFileViewing(instance: TorstInstance, viewing: FileViewing): Promise<void> {
+    await this.request(instance, viewing.links.self, { method: 'DELETE' });
   }
 
   public static resetForTesting(): void {

@@ -5,19 +5,22 @@
 import { TorstApi } from '../api/torst';
 import { InstanceManager } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
-import { FileProgress, ProgressUpdate, Torrent, TorstInstance } from '../types/torst';
+import { FileProgress, ProgressUpdate, TitleProgress, Torrent, TorstInstance } from '../types/torst';
 import { resolveFileInfo, selectVideoFiles } from './file-parser';
+import { resolveTitleProgressKey, resolveTitleProgressLookup } from './title-progress';
 
 interface ProgressBinding {
   fileId: string,
+  hasEstimatedCompletion: boolean,
   instance: TorstInstance,
   instanceUrl: string,
-  pending?: ProgressUpdate,
+  isViewed: boolean,
+  pending?: { isEstimate: boolean, progress: ProgressUpdate },
   profileId: string,
   revision: number,
   saving?: Promise<void>,
-  torrentHash: string,
-  viewed: boolean
+  titleKey?: string,
+  torrentHash: string
 }
 
 interface PlaybackTimeline {
@@ -35,7 +38,7 @@ export class PlaybackProgress {
     return Lampa.Utils.hash(JSON.stringify(['torst', instance.id, instance.url, instance.profileId, fileId || String(localHash)]));
   }
 
-  private static applyTimeline(hash: number | string, saved?: FileProgress): void {
+  private static applyTimeline(hash: number | string, saved?: FileProgress | TitleProgress): void {
     const timeline = Lampa.Timeline?.view(hash);
     if (!timeline) return;
     Object.assign(timeline, {
@@ -48,22 +51,43 @@ export class PlaybackProgress {
     Lampa.Timeline.update?.({ ...timeline, received: true });
   }
 
+  private static async loadTitleProgress(instance: TorstInstance, profileId: string, movie: LampaMovie, isCurrent: () => boolean): Promise<TitleProgress[]> {
+    const keyOrPrefix = resolveTitleProgressLookup(movie);
+    if (!keyOrPrefix) return [];
+    try {
+      return await TorstApi.getTitleProgress(instance, profileId, keyOrPrefix);
+    } catch {
+      if (isCurrent()) Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+      return [];
+    }
+  }
+
+  private static resolveProgress(progress: FileProgress[], titles: TitleProgress[], fileId: string, titleKey?: string): FileProgress | TitleProgress | undefined {
+    const fileProgress = progress.find(saved => saved.file_id === fileId);
+    const titleProgress = titles.find(saved => saved.title_key === titleKey);
+    return titleProgress && (!fileProgress || Date.parse(titleProgress.updated_at) >= Date.parse(fileProgress.updated_at)) ? titleProgress : fileProgress;
+  }
+
   public static async hydrate(instance: TorstInstance, torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie = torrent as unknown as LampaMovie): Promise<void> {
     const profileId = instance.profileId;
     if (!profileId) return;
     const instanceUrl = instance.url;
     const generation = this.generation;
+    const isCurrent = () => generation === this.generation && instance.profileId === profileId && instance.url === instanceUrl;
     const revisions = new Map([...this.bindings].map(([hash, binding]) => [hash, binding.revision]));
     await this.flush();
-    if (generation !== this.generation || instance.profileId !== profileId || instance.url !== instanceUrl) return;
+    if (!isCurrent()) return;
     const progress = await TorstApi.getTorrentProgress(instance, profileId, torrent.hash);
-    if (generation !== this.generation || instance.profileId !== profileId || instance.url !== instanceUrl) return;
+    if (!isCurrent()) return;
+    const titles = await this.loadTitleProgress(instance, profileId, movie, isCurrent);
+    if (!isCurrent()) return;
     const files = selectVideoFiles(torrent.files);
     for (const file of files) {
       if (!file.fileId) continue;
-      const hash = this.timelineHash(instance, file.fileId, resolveFileInfo(file, movie, torrent.hash, files).hash);
+      const fileInfo = resolveFileInfo(file, movie, torrent.hash, files);
+      const hash = this.timelineHash(instance, file.fileId, fileInfo.hash);
       if (this.bindings.get(String(hash))?.revision !== revisions.get(String(hash))) continue;
-      this.applyTimeline(hash, progress.find(saved => saved.file_id === file.fileId));
+      this.applyTimeline(hash, this.resolveProgress(progress, titles, file.fileId, resolveTitleProgressKey(movie, fileInfo)));
     }
   }
 
@@ -81,17 +105,24 @@ export class PlaybackProgress {
     };
   }
 
-  private static recordProgress(binding: ProgressBinding, timeSeconds: number, durationSeconds: number): void {
+  private static recordProgress(binding: ProgressBinding, timeSeconds: number, durationSeconds: number, isEstimate = false): void {
     if (!this.isCurrent(binding)) return;
     const duration = Number(durationSeconds);
     const position = Number(timeSeconds);
     if (!Number.isFinite(duration) || duration <= 0 || duration > 1000000 || !Number.isFinite(position) || position < 0) return;
     binding.revision++;
-    binding.viewed ||= position / duration >= 0.9;
+    if (isEstimate) binding.hasEstimatedCompletion ||= position / duration >= 0.9;
+    else {
+      binding.hasEstimatedCompletion = false;
+      binding.isViewed ||= position / duration >= 0.9;
+    }
     binding.pending = {
-      duration_seconds: duration,
-      position_seconds: Math.min(position, duration),
-      viewed: binding.viewed,
+      isEstimate,
+      progress: {
+        duration_seconds: duration,
+        position_seconds: Math.min(position, duration),
+        viewed: binding.isViewed || binding.hasEstimatedCompletion,
+      },
     };
     if (!binding.saving) this.startSaving(binding);
   }
@@ -110,11 +141,15 @@ export class PlaybackProgress {
 
   private static async save(binding: ProgressBinding): Promise<void> {
     while (binding.pending && this.isCurrent(binding)) {
-      const progress = binding.pending;
+      const { isEstimate, progress } = binding.pending;
       binding.pending = undefined;
       try {
         const saved = await TorstApi.saveFileProgress(binding.instance, binding.profileId, binding.torrentHash, binding.fileId, progress);
-        binding.viewed ||= saved.viewed;
+        if (!isEstimate) binding.isViewed ||= saved.viewed;
+        if (binding.titleKey && this.isCurrent(binding)) {
+          const title = await TorstApi.saveTitleProgress(binding.instance, binding.profileId, binding.titleKey, binding.torrentHash, binding.fileId, progress);
+          if (!isEstimate) binding.isViewed ||= title.viewed;
+        }
       } catch {
         if (!this.hasReportedFailure) {
           this.hasReportedFailure = true;
@@ -133,30 +168,36 @@ export class PlaybackProgress {
     const profileId = instance.profileId;
     if (!profileId) return;
     const instanceUrl = instance.url;
+    const isCurrent = () => generation === this.generation && instance.profileId === profileId && instance.url === instanceUrl;
     for (const item of playlist) {
       if (item.torstFileId) this.applyTimeline(this.timelineHash(instance, item.torstFileId, resolveFileInfo(item, movie, torrentHash, playlist).hash));
     }
     try {
       const progress = await TorstApi.getTorrentProgress(instance, profileId, torrentHash);
-      if (generation !== this.generation || instance.profileId !== profileId || instance.url !== instanceUrl) return;
+      if (!isCurrent()) return;
+      const titles = await this.loadTitleProgress(instance, profileId, movie, isCurrent);
+      if (!isCurrent()) return;
       for (const item of playlist) {
         if (!item.torstFileId) continue;
         const fileInfo = resolveFileInfo(item, movie, torrentHash, playlist);
         const timelineHash = this.timelineHash(instance, item.torstFileId, fileInfo.hash);
-        const saved = progress.find(entry => entry.file_id === item.torstFileId);
+        const titleKey = resolveTitleProgressKey(movie, fileInfo);
+        const saved = this.resolveProgress(progress, titles, item.torstFileId, titleKey);
         this.applyTimeline(timelineHash, saved);
         this.bindings.set(String(timelineHash), {
           fileId: item.torstFileId,
+          hasEstimatedCompletion: false,
           instance,
           instanceUrl,
+          isViewed: saved?.viewed || false,
           profileId,
           revision: 0,
+          titleKey,
           torrentHash,
-          viewed: saved?.viewed || false,
         });
       }
     } catch {
-      if (generation === this.generation && instance.profileId === profileId && instance.url === instanceUrl) {
+      if (isCurrent()) {
         Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
       }
     }
@@ -168,6 +209,11 @@ export class PlaybackProgress {
       await Promise.all(pending);
       pending = [...this.bindings.values()].map(binding => binding.saving).filter((saving): saving is Promise<void> => saving !== undefined);
     }
+  }
+
+  public static saveExternalProgress(hash: number | string, positionSeconds: number, durationSeconds: number): void {
+    const binding = this.bindings.get(String(hash));
+    if (binding) this.recordProgress(binding, positionSeconds, durationSeconds, true);
   }
 
   public static resetForTesting(): void {

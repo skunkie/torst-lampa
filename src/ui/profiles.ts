@@ -89,10 +89,13 @@ export class ProfilesUi {
     const isInstanceCurrent = this.createInstanceGuard(instance);
     const deletionRevision = this.getDeletionRevision(instance);
     let profiles: TorstProfile[];
+    let excludedProfileIds: string[];
     const urls: string[] = [];
     let thumbnails: string[];
     try {
       profiles = await TorstApi.getProfiles(instance);
+      excludedProfileIds = profiles.filter(profile => profile.kind !== 'person').map(profile => profile.id);
+      profiles = profiles.filter(profile => profile.kind === 'person');
       if (!isCurrent()) return;
       if (deletionRevision !== this.getDeletionRevision(instance)) return this.show(instance, onBack);
       thumbnails = await Promise.all(profiles.map(profile => this.avatar(instance, profile, urls)));
@@ -106,6 +109,11 @@ export class ProfilesUi {
       urls.forEach(url => URL.revokeObjectURL(url));
       if (isCurrent()) return this.show(instance, onBack);
       return;
+    }
+    if (instance.profileId && excludedProfileIds.includes(instance.profileId)) {
+      delete instance.profileId;
+      delete instance.profileName;
+      InstanceManager.updateInstance(instance);
     }
     const selectedProfile = profiles.find(profile => profile.id === instance.profileId);
     if (selectedProfile && selectedProfile.name !== instance.profileName) {

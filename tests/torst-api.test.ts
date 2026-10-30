@@ -120,7 +120,7 @@ describe('Torst API contract', () => {
         assert.equal(url.searchParams.get('search'), 'Sintel');
         assert.equal(url.searchParams.get('fuzzy'), 'true');
         assert.equal(url.searchParams.get('page_size'), '200');
-        return json({ facets: { categories: [], total: 2, version: 'lv-test' }, items: [RESOURCE], links: { next: '/api/v1/torrents?cursor=opaque' }, total: 2 });
+        return json({ facets: { categories: [], total_count: 2, version: 'lv-test' }, items: [RESOURCE], links: { next: '/api/v1/torrents?cursor=opaque' }, total_count: 2 });
       }
       assert.equal(url.searchParams.get('cursor'), 'opaque');
       return json({ items: [{ ...RESOURCE, id: 'trr_second', info_hashes: [{ algorithm: 'sha1', value: 'a'.repeat(40) }] }], links: {} });
@@ -178,7 +178,7 @@ describe('Torst API contract', () => {
       assert.ok(options.body instanceof FormData);
       assert.equal(options.body.get('storage_mode'), 'disk');
       assert.equal(options.body.get('title'), 'Sintel');
-      const file = options.body.get('torrent_file') as File;
+      const file = options.body.get('metainfo') as File;
       assert.equal(await file.text(), 'torrent bytes');
       return json(RESOURCE, 201);
     };
@@ -205,12 +205,12 @@ describe('Torst API contract', () => {
   });
 
   it('refuses a settings patch without an exposed ETag and reports stale versions', async () => {
-    globalThis.fetch = async () => json({ background_downloads: true });
-    await assert.rejects(TorstApi.updateSettings(INSTANCE, { background_downloads: false }), /ETag/);
+    globalThis.fetch = async () => json({ background_downloads_enabled: true });
+    await assert.rejects(TorstApi.updateSettings(INSTANCE, { background_downloads_enabled: false }), /ETag/);
     globalThis.fetch = async (_input, options) => options?.method === 'PATCH'
       ? json({ detail: 'Settings changed' }, 412)
       : json({}, 200, { ETag: '"set-test"' });
-    await assert.rejects(TorstApi.updateSettings(INSTANCE, { background_downloads: false }), (error: unknown) => error instanceof TorstApiError && error.status === 412);
+    await assert.rejects(TorstApi.updateSettings(INSTANCE, { background_downloads_enabled: false }), (error: unknown) => error instanceof TorstApiError && error.status === 412);
   });
 
   it('creates, reads, and deletes a per-file preload and maps transfer statistics', async () => {
@@ -224,7 +224,7 @@ describe('Torst API contract', () => {
       if (path.endsWith('/files')) return json({ items: [FILE], links: {} });
       if (path.endsWith('/statistics')) return json({ download_rate_bytes_per_second: 1024, peer_count: 4 });
       if (options?.method === 'DELETE') return new Response(null, { status: 204 });
-      if (options?.method === 'POST') assert.deepEqual(JSON.parse(String(options.body)), { ttl_seconds: 300 });
+      if (options?.method === 'POST') assert.deepEqual(JSON.parse(String(options.body)), { expires_in_seconds: 300 });
       return json({ completed_bytes: 256, id: 'prl_test', state: preloadState, target_bytes: 1024 }, options?.method === 'POST' ? 201 : 200);
     };
     const started = await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
@@ -445,7 +445,7 @@ describe('Torst API contract', () => {
 
   for (const fraction of [0.5, 0.333, undefined, NaN, Infinity, -0.1, 0, 1]) {
     it(`maps a valid resume fraction to file bytes (${String(fraction)})`, async () => {
-      let payload: { offset_bytes?: number, ttl_seconds: number } | undefined;
+      let payload: { expires_in_seconds: number, offset_bytes?: number } | undefined;
       globalThis.fetch = async (input, options) => {
         const path = new URL(String(input)).pathname;
         if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
@@ -457,8 +457,8 @@ describe('Torst API contract', () => {
       };
       await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0, playbackFraction: fraction });
       assert.deepEqual(payload, fraction && fraction > 0 && fraction < 1
-        ? { offset_bytes: Math.floor(1024 * fraction), ttl_seconds: 300 }
-        : { ttl_seconds: 300 });
+        ? { expires_in_seconds: 300, offset_bytes: Math.floor(1024 * fraction) }
+        : { expires_in_seconds: 300 });
     });
   }
 
@@ -488,7 +488,7 @@ describe('Torst API contract', () => {
   it('isolates cached torrent data from caller mutations', async () => {
     globalThis.fetch = async (_input, options) => (options?.headers as Record<string, string>)['If-None-Match']
       ? new Response(null, { status: 304 })
-      : json({ facets: { categories: [{ count: 1, name: 'Animation' }], total: 1, version: 'test' }, items: [RESOURCE], links: {} }, 200, { ETag: '"listing"' });
+      : json({ facets: { categories: [{ count: 1, name: 'Animation' }], total_count: 1, version: 'test' }, items: [RESOURCE], links: {} }, 200, { ETag: '"listing"' });
     const first = await TorstApi.getTorrents(INSTANCE);
     first.torrents[0].name = 'Changed';
     first.torrents[0].files.push({ length: 1, name: 'Injected.mkv', path: 'Injected.mkv' });
@@ -529,7 +529,7 @@ describe('Torst API contract', () => {
         if (++oldRequests === 1) return new Response(null, { status: 401 });
         return new Promise(resolve => { finish = resolve; });
       }
-      return json({ background_downloads: true });
+      return json({ background_downloads_enabled: true });
     };
     const first = TorstApi.getSettings(instance);
     const second = TorstApi.getSettings(instance);
@@ -581,7 +581,7 @@ describe('Torst API contract', () => {
     const renewed = await TorstApi.getPreload(INSTANCE, HASH, started.preloadId);
     assert.equal(renewed.preloadId, 'prl_2');
     assert.equal(renewed.status, 'preloading');
-    assert.deepEqual(payloads, [{ offset_bytes: 512, ttl_seconds: 300 }, { offset_bytes: 512, ttl_seconds: 300 }]);
+    assert.deepEqual(payloads, [{ expires_in_seconds: 300, offset_bytes: 512 }, { expires_in_seconds: 300, offset_bytes: 512 }]);
   });
 
   it('does not renew a superseded preload whose status arrives late', async () => {

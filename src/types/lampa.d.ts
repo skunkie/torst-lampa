@@ -295,6 +295,7 @@ interface LampaController {
 
 interface LampaPlayer {
   callback(callback: () => void): void,
+  close?(): void,
   listener?: LampaListener,
   play(item: any): void,
   playlist(list: any[]): void

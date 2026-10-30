@@ -248,8 +248,8 @@ export class TorstTorrentsComponent {
       if (this.isDestroyed) return;
       if (settings) {
         let changed = false;
-        if (typeof settings.background_downloads === 'boolean') {
-          this.activeInstance.enableDownloader = settings.background_downloads;
+        if (typeof settings.background_downloads_enabled === 'boolean') {
+          this.activeInstance.enableDownloader = settings.background_downloads_enabled;
           changed = true;
         }
         if (changed) {
@@ -856,8 +856,8 @@ export class TorstTorrentsComponent {
         const instanceSettings = await TorstApi.getSettings(instance);
         if (instanceSettings) {
           let changed = false;
-          if (typeof instanceSettings.background_downloads === 'boolean') {
-            instance.enableDownloader = instanceSettings.background_downloads;
+          if (typeof instanceSettings.background_downloads_enabled === 'boolean') {
+            instance.enableDownloader = instanceSettings.background_downloads_enabled;
             changed = true;
           }
           if (changed) {
