@@ -107,7 +107,7 @@ The client follows the contract in [Torst's OpenAPI document](https://github.com
 
 Torst stores file progress in seconds for each profile. The plugin saves positions reported by the player. For external players that report nothing, it reads Torst's per-file viewing resource after returning to Lampa; Torst supplies an estimate in seconds from the file's seek index and stream activity. The plugin does not calculate positions from downloaded bytes or a catalog runtime. Torst's download directory is configured on the instance; the plugin does not edit it.
 
-Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for changes to settings, storage, and profile names. Torrent file downloads, poster downloads, and authenticated avatar requests also need to permit requests from the client. Android's native HTTP bridge cannot send PATCH, PUT, or DELETE, so these use the browser transport.
+Library reads keep Lampa's native transport when available. Listing revalidation uses the instance's ETag when the transport exposes it; otherwise the listing is fetched again without a conditional header. Browser requests need a reachable instance with the appropriate allowed host and a proxy or deployment that permits Lampa's origin. Expose the `ETag` response header for changes to settings, storage, and profile names. Torrent file downloads, poster downloads, and authenticated avatar requests also need to permit requests from the client. The plugin checks whether Android's native HTTP bridge honors explicit HTTP methods and uses it for PATCH, PUT, and DELETE when supported. Builds whose bridge only sends GET and POST use the browser transport for those methods and require the same cross-origin access.
 
 ---
 
@@ -122,7 +122,7 @@ To ensure a smooth, uninterrupted streaming experience on Smart TVs:
 
 - [Node.js](https://nodejs.org/) 24.x starting at 24.18.0, or 26.4.0 and later
 - `npm`
-- Google Chrome or Chromium for the landing page layout tests. The tests use `google-chrome` by default; set `CHROME_BIN` to another Chrome or Chromium executable if needed. Without either, the layout tests are skipped.
+- Google Chrome or Chromium for browser tests. The tests use `google-chrome` by default; set `CHROME_BIN` to another Chrome or Chromium executable if needed. Browser tests are skipped when no executable is available.
 
 ### Installation
 
@@ -134,7 +134,7 @@ npm install
 
 CSS declarations follow RECESS ordering through `stylelint-config-recess-order`. Tests check stylesheets, embedded style blocks, and inline styles; custom properties keep their chosen order.
 
-The landing page layout test runs headless Chrome to check navbar alignment, version visibility, and navigation in both languages and release channels at mobile and desktop widths.
+The landing page layout test runs headless Chrome to check navbar alignment, version visibility, and navigation in both languages and release channels at mobile and desktop widths. The HTTP browser test checks cross-origin blocking and verifies profile progress saves and successive preloads through an Android bridge with explicit HTTP method support.
 
 Before committing, ensure all quality gates pass:
 

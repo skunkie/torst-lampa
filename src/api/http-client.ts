@@ -72,6 +72,27 @@ type LampaRequestFn = (
   requestParams: LampaAjaxParams
 ) => void;
 
+const ADDITIONAL_NATIVE_METHODS: readonly string[] = ['DELETE', 'HEAD', 'OPTIONS', 'PATCH', 'PUT'];
+
+const nativeMethodSupport = new WeakMap<object, Map<string, boolean>>();
+
+async function supportsNativeMethods(requestConstructor: object, readinessUrl: string, probe: () => Promise<HttpResponse>): Promise<boolean> {
+  const cached = nativeMethodSupport.get(requestConstructor)?.get(readinessUrl);
+  if (cached !== undefined) return cached;
+  const response = await probe();
+  // A bridge that ignores OPTIONS sends GET instead, which succeeds on readiness.
+  const isSupported = response.status === 405;
+  if (isSupported || response.ok) {
+    let supportByReadinessUrl = nativeMethodSupport.get(requestConstructor);
+    if (!supportByReadinessUrl) {
+      supportByReadinessUrl = new Map();
+      nativeMethodSupport.set(requestConstructor, supportByReadinessUrl);
+    }
+    supportByReadinessUrl.set(readinessUrl, isSupported);
+  }
+  return isSupported;
+}
+
 export async function requestHttp(
   url: string,
   options: HttpRequestOptions = {}
@@ -106,7 +127,8 @@ export async function requestHttp(
     const dispatch = (
       invoke: LampaRequestFn,
       ajaxParams: LampaAjaxParams,
-      postData: string | false
+      postData: string | false,
+      requestUrl = url
     ): Promise<HttpResponse> => new Promise((resolve, reject) => {
       if (options.signal?.aborted) {
         reject(createAbortError());
@@ -133,7 +155,7 @@ export async function requestHttp(
         if (isSettled) return;
         isSettled = true;
         cleanup();
-        reject(new NetworkError(`Network error (${url}): request timed out`));
+        reject(new NetworkError(`Network error (${requestUrl}): request timed out`));
       }, timeoutMs);
 
       options.signal?.addEventListener('abort', handleAbort, { once: true });
@@ -156,7 +178,7 @@ export async function requestHttp(
 
       try {
         invoke(
-          url,
+          requestUrl,
           (responseBody: string | object) => {
             // Lampa's `Reguest` wrapper only passes the parsed body to its success callback
             // without exposing the underlying jqXHR status. We synthesize 200 vs 204 based
@@ -206,7 +228,7 @@ export async function requestHttp(
                 text: async () => responseText,
               });
             } else {
-              settleReject(new NetworkError(`Network error (${url})`));
+              settleReject(new NetworkError(`Network error (${requestUrl})`));
             }
           },
           postData,
@@ -220,7 +242,23 @@ export async function requestHttp(
     });
 
     const realPostData = (options.body as string) || (method === 'POST' ? '{}' : false);
-    const canUseNativeBridge = method === 'GET' || method === 'POST';
+    let canUseNativeBridge = method === 'GET' || method === 'POST';
+    if (ADDITIONAL_NATIVE_METHODS.includes(method) && typeof lampaRequest.native === 'function' && Lampa.Platform?.is('android')) {
+      const requestUrl = new URL(url);
+      const apiPathIndex = requestUrl.pathname.indexOf('/api/v1/');
+      const basePath = apiPathIndex < 0 ? '' : requestUrl.pathname.slice(0, apiPathIndex);
+      const readinessUrl = `${requestUrl.origin}${basePath}/readyz`;
+      try {
+        canUseNativeBridge = await supportsNativeMethods(Lampa.Reguest, readinessUrl, () => dispatch(
+          lampaRequest.native.bind(lampaRequest),
+          { ...buildAjaxParams(), headers: {}, type: 'OPTIONS' },
+          false,
+          readinessUrl
+        ));
+      } catch (error) {
+        if (options.signal?.aborted) throw error;
+      }
+    }
 
     if (typeof lampaRequest.native === 'function' && canUseNativeBridge) {
       try {

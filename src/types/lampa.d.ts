@@ -438,6 +438,9 @@ interface LampaNamespace {
     clear?(): void,
     get(params: LampaParserParams, onComplete: (data: LampaParserData) => void, onError?: (error?: unknown) => void): void
   },
+  Platform?: {
+    is(platform: string): boolean
+  },
   Player: LampaPlayer,
   PlayerPlaylist?: {
     get(): unknown[],

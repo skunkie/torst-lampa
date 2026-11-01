@@ -393,7 +393,7 @@ describe('HTTP Client (requestHttp)', () => {
     assert.deepEqual(body, { status: 'ok' });
   });
 
-  it('bypasses the native bridge for HEAD, PUT, PATCH, and DELETE', async () => {
+  it('uses browser transport for HEAD, PUT, PATCH, and DELETE outside Android', async () => {
     const calls: Array<{ body: unknown, params: any }> = [];
     let nativeCallCount = 0;
     (globalThis as any).Lampa = {
@@ -419,6 +419,163 @@ describe('HTTP Client (requestHttp)', () => {
     assert.deepEqual(calls.map(call => call.params.headers), [{}, {}, {}, {}]);
     assert.equal(calls[0].body, false);
     assert.equal(calls[3].body, false);
+  });
+
+  it('uses supported Android methods after a read-only capability check', async () => {
+    const calls: Array<{ body: unknown, headers: Record<string, string>, method: string, url: string }> = [];
+    (globalThis as any).Lampa = {
+      Platform: { is: (platform: string) => platform === 'android' },
+      Reguest: class {
+        public timeout() {}
+        public native(url: string, success: (body: string) => void, failure: (error: unknown) => void, body: unknown, params: any) {
+          calls.push({ body, headers: params.headers, method: params.type, url });
+          if (params.type === 'OPTIONS') {
+            assert.deepEqual(params.headers, {});
+            failure({ status: 405 });
+          } else success('{}');
+        }
+        public silent() { assert.fail('Browser transport cannot reach the cross-origin API'); }
+      },
+    };
+    for (const method of ['HEAD', 'PUT', 'PATCH', 'DELETE']) {
+      const body = method === 'PUT' || method === 'PATCH' ? '{"position_seconds":140}' : undefined;
+      await requestHttp('http://torst.test/api/v1/resource', { body, headers: { Authorization: 'Bearer api' }, method });
+    }
+    assert.deepEqual(calls.map(call => call.method), ['OPTIONS', 'HEAD', 'PUT', 'PATCH', 'DELETE']);
+    for (const call of calls.slice(1)) assert.deepEqual(call.headers, { Authorization: 'Bearer api' });
+    assert.equal(calls[0].url, 'http://torst.test/readyz');
+    assert.equal(calls[0].body, false);
+    assert.equal(calls[1].body, false);
+    assert.equal(calls[2].body, '{"position_seconds":140}');
+    assert.equal(calls[3].body, '{"position_seconds":140}');
+    assert.equal(calls[4].body, false);
+  });
+
+  it('keeps methods outside the Android bridge contract on browser transport', async () => {
+    const nativeMethods: string[] = [];
+    let browserCallCount = 0;
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, failure: (error: unknown) => void, _body: unknown, params: any) {
+          nativeMethods.push(params.type);
+          if (params.type === 'OPTIONS') failure({ status: 405 });
+          else success('{}');
+        }
+        public silent(_url: string, success: (body: string) => void, _failure: unknown, body: unknown, params: any) {
+          browserCallCount++;
+          assert.equal(params.type, 'REPORT');
+          assert.equal(body, '{}');
+          success('{}');
+        }
+      },
+    };
+    assert.equal((await requestHttp('http://custom.test/api/v1/resource', { body: '{}', method: 'REPORT' })).ok, true);
+    assert.deepEqual(nativeMethods, []);
+    assert.equal(browserCallCount, 1);
+  });
+
+  it('checks method support at the instance path prefix', async () => {
+    const urls: string[] = [];
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(url: string, success: (body: string) => void, failure: (error: unknown) => void, _body: unknown, params: any) {
+          urls.push(url);
+          if (params.type === 'OPTIONS') failure({ status: 405 });
+          else success('{}');
+        }
+        public silent() { assert.fail('The supported method should use the native bridge'); }
+      },
+    };
+    await requestHttp('http://prefix.test/torst/api/v1/resource', { method: 'DELETE' });
+    assert.deepEqual(urls, ['http://prefix.test/torst/readyz', 'http://prefix.test/torst/api/v1/resource']);
+  });
+
+  it('keeps mutations out of older Android bridges that silently send GET instead', async () => {
+    const methods: string[] = [];
+    const browserMethods: string[] = [];
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(url: string, success: (body: string) => void, _failure: unknown, body: unknown, params: any) {
+          methods.push(params.type);
+          assert.equal(url, 'http://legacy.test/readyz');
+          assert.equal(body, false);
+          success('ready');
+        }
+        public silent(_url: string, success: (body: string) => void, _failure: unknown, _body: unknown, params: any) {
+          browserMethods.push(params.type);
+          success('{}');
+        }
+      },
+    };
+    for (const method of ['PUT', 'DELETE']) await requestHttp('http://legacy.test/api/v1/resource', { method });
+    assert.deepEqual(methods, ['OPTIONS']);
+    assert.deepEqual(browserMethods, ['PUT', 'DELETE']);
+  });
+
+  it('rechecks native method support after a failed capability request', async () => {
+    let probeCount = 0;
+    let browserCallCount = 0;
+    let nativeMutationCount = 0;
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, failure: (error: unknown) => void, _body: unknown, params: any) {
+          if (params.type === 'OPTIONS') failure({ status: ++probeCount === 1 ? 503 : 405 });
+          else { nativeMutationCount++; success('{}'); }
+        }
+        public silent(_url: string, success: (body: string) => void) { browserCallCount++; success('{}'); }
+      },
+    };
+    await requestHttp('http://recover.test/api/v1/resource', { method: 'DELETE' });
+    await requestHttp('http://recover.test/api/v1/resource', { method: 'DELETE' });
+    assert.equal(probeCount, 2);
+    assert.equal(browserCallCount, 1);
+    assert.equal(nativeMutationCount, 1);
+  });
+
+  it('does not repeat a native Android mutation after a connection failure', async () => {
+    let mutationCount = 0;
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, _success: unknown, failure: (error: unknown) => void, _body: unknown, params: any) {
+          if (params.type === 'OPTIONS') failure({ status: 405 });
+          else { mutationCount++; failure({ status: 0 }); }
+        }
+        public silent() { assert.fail('A mutation must not be repeated after a connection failure'); }
+      },
+    };
+    await assert.rejects(requestHttp('http://uncertain.test/api/v1/resource', { method: 'PUT' }), NetworkError);
+    assert.equal(mutationCount, 1);
+  });
+
+  it('does not send a mutation after its capability check is aborted', async () => {
+    const controller = new AbortController();
+    let probeCount = 0;
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public clear() {}
+        public native(_url: string, _success: unknown, _failure: unknown, _body: unknown, params: any) {
+          assert.equal(params.type, 'OPTIONS');
+          probeCount++;
+        }
+        public silent() { assert.fail('An aborted request must not be repeated'); }
+      },
+    };
+    const saving = requestHttp('http://abort.test/api/v1/resource', { method: 'PUT', signal: controller.signal });
+    controller.abort();
+    await assert.rejects(saving, (error: Error) => error.name === 'AbortError');
+    assert.equal(probeCount, 1);
   });
 
   it('uses a header-capable transport when the caller needs an ETag', async () => {
