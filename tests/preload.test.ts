@@ -29,7 +29,7 @@ describe('PreloadModal', () => {
         method,
       });
       if (!response.ok) throw new TorstApiError('Preload rejected', response.status);
-      return await response.json() as PreloadResponse;
+      return { preloadId: 'prl_test', ...await response.json() } as PreloadResponse;
     };
     mock.method(TorstApi, 'startPreload', async (_instance: TorstInstance, _hash: string, request: PreloadRequest) => dispatch('POST', request));
     mock.method(TorstApi, 'getPreload', async () => dispatch('GET'));
@@ -346,9 +346,11 @@ describe('PreloadModal', () => {
         assert.deepEqual(requests, ['POST', 'DELETE']);
       });
 
-      it('still sends the cancel when the start fails, since it may have reached the instance', async () => {
+      it('does not cancel an unrelated preload when the start fails without a resource ID', async () => {
+        const cancel = mock.method(TorstApi, 'cancelPreload', async () => {});
         const requests = await runCancelDuringStart((_respond, fail) => fail(new TypeError('network error')));
-        assert.deepEqual(requests, ['POST', 'DELETE']);
+        assert.deepEqual(requests, ['POST']);
+        assert.equal(cancel.mock.callCount(), 0);
       });
     });
 
@@ -435,7 +437,7 @@ describe('PreloadModal', () => {
         assert.deepEqual(requests, ['POST', 'POST', 'GET'], 'no status read may happen before a start succeeds');
       });
 
-      for (const status of [400, 404]) {
+      for (const status of [400, 404, 409]) {
         it(`stops at once when the instance rejects the start with ${status}`, async () => {
           const requests: string[] = [];
           let loadingStopCount = 0;

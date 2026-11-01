@@ -48,7 +48,17 @@ function element(markup = ''): any {
     length: 1,
     markup,
     on: (name: string, callback: () => void) => { events[name] = callback; return wrapper; },
-    remove: () => wrapper,
+    prepend: (child: any) => {
+      const childNode = child[0] || child;
+      node.children.unshift(childNode);
+      childNode.parentNode = node;
+      return wrapper;
+    },
+    remove: () => {
+      if (node.parentNode) node.parentNode.children = node.parentNode.children.filter((child: any) => child !== node);
+      node.parentNode = null;
+      return wrapper;
+    },
     removeClass: () => wrapper,
     text: (value: string) => { wrapper.textValue = value; return wrapper; },
   };
@@ -70,12 +80,13 @@ describe('Torst library toolbar', () => {
   let activeController: string;
 
   beforeEach(() => {
+    instance.profileId = 'prf_one';
     focused = null;
     activeController = 'content';
     notices = [];
     nativeEmptyStarts = 0;
     (globalThis as any).$ = (value: any) => typeof value === 'object' ? value.wrapper || value : element(value);
-    (globalThis as any).Navigator = { focused: (value: any) => { focused = value; }, getFocusedElement: () => focused };
+    (globalThis as any).Navigator = { focused: (value: any) => { focused = value; }, getFocusedElement: () => focused, move: () => {} };
     (globalThis as any).Lampa = {
       Controller: {
         add: () => {},
@@ -85,8 +96,9 @@ describe('Torst library toolbar', () => {
         toggle: (name: string) => { activeController = name; },
       },
       Empty: class {
+        body = element('empty');
         destroy() {}
-        render() { return element('empty'); }
+        render() { return this.body; }
         start() { nativeEmptyStarts++; }
       },
       Lang: createTestLanguage(),
@@ -108,6 +120,7 @@ describe('Torst library toolbar', () => {
     mock.method(TorstTorrentsComponent.prototype as any, 'load', async () => {});
     mock.method(InstanceManager, 'getBestInstance', async () => instance);
     mock.method(InstanceManager, 'getInstances', () => []);
+    mock.method(InstanceManager, 'getPrimaryInstance', () => instance);
     component = new TorstTorrentsComponent();
     component.create();
   });
@@ -139,6 +152,104 @@ describe('Torst library toolbar', () => {
     assert.equal((toolbar.markup.match(/\bselector\b/g) || []).length, 1);
     assert.ok(!toolbar.markup.includes('torst-library-profile'));
     assert.equal(toolbar.find('.torst-library-up-next span').textValue, getTestTranslation('torst_up_next_title'));
+  });
+
+  it('omits Up Next and retains library navigation with local Lampa progress', () => {
+    component.destroy();
+    delete instance.profileId;
+    component = new TorstTorrentsComponent();
+    const root: any = component.create();
+    assert.equal(root[0].children.length, 1);
+    assert.equal((component as any).toolbar, null);
+    component.renderEmptyState('Empty');
+    assert.equal(nativeEmptyStarts, 0);
+    assert.equal(collectionRoot, (component as any).scrollView.render());
+  });
+
+  it('keeps its content controller when an empty local-progress library receives torrents', () => {
+    component.destroy();
+    delete instance.profileId;
+    component = new TorstTorrentsComponent();
+    component.create();
+    let contentController: any;
+    mock.method(Lampa.Controller, 'add', (_name: string, controller: any) => { contentController = controller; });
+    component.renderEmptyState('Empty');
+    component.start();
+    assert.ok(contentController);
+    component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance, true);
+    contentController.toggle();
+    assert.equal(collectionRoot, (component as any).scrollView.render());
+    assert.equal(nativeEmptyStarts, 0);
+  });
+
+  for (const outcome of ['populated', 'empty']) {
+    it(`restores focus from an empty local-progress screen after a ${outcome} background refresh`, () => {
+      component.destroy();
+      delete instance.profileId;
+      component = new TorstTorrentsComponent();
+      component.create();
+      component.renderEmptyState('Empty');
+      const button = (component as any).emptyState.render().find('.selector')[0];
+      focused = button;
+      if (outcome === 'populated') {
+        component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance, true);
+      } else component.renderEmptyState('Updated', 'Torst', true);
+      assert.notEqual(focused, button);
+      assert.equal(collectionRoot, (component as any).scrollView.render());
+    });
+  }
+
+  it('forgets a detached card when the library becomes empty', () => {
+    component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance);
+    const card = (component as any).renderedCards.get('one')[0];
+    (component as any).lastFocusedElement = card;
+    focused = card;
+    component.renderEmptyState('Empty', 'Torst', true);
+    assert.equal((component as any).lastFocusedElement, null);
+    assert.notEqual(focused, card);
+  });
+
+  it('updates Up Next when the profile changes even if the torrent listing is unchanged', async () => {
+    const torrent = { files: [], hash: 'one', name: 'One', retention: 'persisted' as const, storage: 'memory' as const, total_size: 1 };
+    component.renderTorrents([torrent], instance);
+    const toolbar = (component as any).toolbar;
+    const button = toolbar.find('.torst-library-up-next')[0];
+    toolbar.find('.selector').events['hover:focus']({ currentTarget: button });
+    focused = button;
+    delete instance.profileId;
+    component.renderTorrents([torrent], instance, true);
+    assert.equal((component as any).toolbar, null);
+    assert.notEqual((component as any).lastFocusedElement, button);
+    assert.equal(toolbar[0].parentNode, null);
+    assert.notEqual(focused, button);
+    assert.equal(collectionRoot, (component as any).scrollView.render());
+    const upNext = mock.method(UpNextUi, 'show', async () => {});
+    await (component as any).openUpNext();
+    assert.equal(upNext.mock.callCount(), 0);
+    instance.profileId = 'prf_two';
+    component.renderTorrents([torrent], instance, true);
+    assert.ok((component as any).toolbar);
+    assert.equal((component.render() as any)[0].children[0], (component as any).toolbar[0]);
+  });
+
+  it('uses the pinned instance progress mode for the toolbar', () => {
+    component.destroy();
+    const pinned = { ...instance, id: 'pinned', profileId: undefined };
+    mock.method(InstanceManager, 'getInstances', () => [instance, pinned]);
+    component = new TorstTorrentsComponent({ instanceId: pinned.id });
+    component.create();
+    assert.equal((component as any).toolbar, null);
+  });
+
+  it('replaces the empty state without stacking it when progress mode changes', () => {
+    component.renderEmptyState('Empty');
+    const scroll = (component as any).scrollView.render();
+    const previousEmpty = (component as any).emptyState.render()[0];
+    delete instance.profileId;
+    (component as any).updateToolbar(instance);
+    component.renderEmptyState('Empty', 'Torst', true);
+    assert.equal(scroll[0].children.length, 1);
+    assert.equal(previousEmpty.parentNode, null);
   });
 
   it('keeps toolbar navigation available when the library is empty', () => {

@@ -93,18 +93,17 @@ export class PreloadModal {
       };
 
       const cancelPreload = () => {
-        TorstApi.cancelPreload(instance, torrentHash, preloadId).catch(() => {});
+        if (preloadId) TorstApi.cancelPreload(instance, torrentHash, preloadId).catch(() => {});
       };
 
       const handleCancel = () => {
         if (isStopped) return;
         isStopped = true;
         cleanup();
-        // A start still in flight can reach the instance after the cancel and leave a preload
-        // nobody waits for, so the cancel follows it. A failed start may still have reached the
-        // instance, so the cancel is sent either way.
+        // A successful start supplies the resource ID needed for cancellation, even if the
+        // user stopped waiting while the request was in flight.
         if (pendingStart) {
-          pendingStart.then(cancelPreload, cancelPreload);
+          pendingStart.then(cancelPreload, () => {});
         } else {
           cancelPreload();
         }

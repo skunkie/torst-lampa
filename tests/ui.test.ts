@@ -1305,7 +1305,7 @@ describe('UI & Settings Integration', () => {
         lastEmptyParams = params;
       }
       public render() {
-        return { 0: { tagName: 'DIV' }, append: () => {}, empty: () => {} };
+        return { 0: { tagName: 'DIV' }, append: () => {}, empty: () => {}, remove: () => {} };
       }
     }
     const createMockElement = (tag: string) => {

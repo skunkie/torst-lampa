@@ -32,13 +32,8 @@ async function stopServer(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 }
 
-for (const scenario of [
-  { canSendExplicitMethods: true, previousPreloadState: 'ready' },
-  { canSendExplicitMethods: false, previousPreloadState: 'expired' },
-  { canSendExplicitMethods: false, previousPreloadState: 'failed' },
-  { canSendExplicitMethods: false, previousPreloadState: 'removed' },
-]) {
-  it(`starts another preload after the preceding one is ${scenario.previousPreloadState} (${scenario.canSendExplicitMethods ? 'explicit methods' : 'GET/POST bridge'})`, async t => {
+for (const canSendExplicitMethods of [true, false]) {
+  it(`starts another preload while the previous one is active (${canSendExplicitMethods ? 'explicit methods' : 'GET/POST bridge'})`, async t => {
     const mutations: string[] = [];
     const activePreloads = new Set<string>();
     let preloadCount = 0;
@@ -58,16 +53,14 @@ for (const scenario of [
         storage_mode: 'memory',
       });
       else if (request.method === 'GET' && requestPath.includes('/preloads/')) {
-        if (scenario.previousPreloadState !== 'ready') activePreloads.delete(requestPath);
-        if (scenario.previousPreloadState === 'removed') response.writeHead(404).end();
-        else sendJson({ completed_bytes: 16, id: requestPath.split('/').pop(), state: scenario.previousPreloadState, target_bytes: 16 });
+        sendJson({ completed_bytes: 16, id: requestPath.split('/').pop(), state: 'ready', target_bytes: 16 });
       }
       else if (request.method === 'GET' && requestPath.endsWith('/files')) sendJson({ items: [{ id: 'fil_one', path: ['Sintel.mkv'], size_bytes: 1024 }], links: {} });
       else {
         mutations.push(request.method || '');
         if (request.method === 'DELETE') response.writeHead(activePreloads.delete(requestPath) ? 204 : 404).end();
         else if (request.method === 'POST' && requestPath.endsWith('/preloads')) {
-          if (activePreloads.size > 0) { response.writeHead(409).end(); return; }
+          if (activePreloads.size >= 4) { response.writeHead(409).end(); return; }
           const id = `prl_${++preloadCount}`;
           activePreloads.add(`${requestPath}/${id}`);
           sendJson({ completed_bytes: 16, id, state: 'ready', target_bytes: 16 });
@@ -91,7 +84,7 @@ for (const scenario of [
         import { requestHttp } from './src/api/http-client';
         import { TorstApi } from './src/api/torst';
         const apiOrigin = ${JSON.stringify(apiOrigin)};
-        const canSendExplicitMethods = ${JSON.stringify(scenario.canSendExplicitMethods)};
+        const canSendExplicitMethods = ${JSON.stringify(canSendExplicitMethods)};
         const progressUrl = apiOrigin + '/api/v1/profiles/prf_one/torrents/trr_one/progress/fil_one';
         const preloadUrl = apiOrigin + '/api/v1/torrents/trr_one/files/fil_one/preloads/prl_1';
         function createRequestClass(canSendExplicitMethods) {
@@ -163,9 +156,11 @@ for (const scenario of [
       });
       const result = output.match(/<pre id="result">([^<]+)<\/pre>/)?.[1];
       assert.ok(result, 'Chrome must finish the cross-origin transport checks');
-      assert.deepEqual(JSON.parse(result), { isBrowserBlocked: true, isLegacyBlocked: true, positionSeconds: scenario.canSendExplicitMethods ? 140 : null, preloadStatus: 'ready' });
-      assert.deepEqual(mutations, scenario.canSendExplicitMethods ? ['POST', 'PUT', 'DELETE', 'POST'] : ['POST', 'POST']);
-      assert.deepEqual([...activePreloads], ['/api/v1/torrents/trr_one/files/fil_one/preloads/prl_2']);
+      assert.deepEqual(JSON.parse(result), { isBrowserBlocked: true, isLegacyBlocked: true, positionSeconds: canSendExplicitMethods ? 140 : null, preloadStatus: 'ready' });
+      assert.deepEqual(mutations.slice().sort(), canSendExplicitMethods ? ['DELETE', 'POST', 'POST', 'PUT'] : ['POST', 'POST']);
+      assert.deepEqual([...activePreloads], canSendExplicitMethods
+        ? ['/api/v1/torrents/trr_one/files/fil_one/preloads/prl_2']
+        : ['/api/v1/torrents/trr_one/files/fil_one/preloads/prl_1', '/api/v1/torrents/trr_one/files/fil_one/preloads/prl_2']);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') t.skip('Chrome is unavailable');
       else throw error;

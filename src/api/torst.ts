@@ -596,8 +596,8 @@ export class TorstApi {
 
   private static async createPreload(instance: TorstInstance, hash: string, request: PreloadRequest): Promise<PreloadResponse> {
     for (const [key, preload] of this.preloads) {
-      if (preload.instance.id === instance.id && preload.instance.url === instance.url) {
-        await this.releasePreviousPreload(instance, key, preload);
+      if (preload.instance.id === instance.id && preload.instance.url === instance.url && !preload.hasEnded) {
+        void this.deletePreload(instance, key, preload).catch(() => {});
       }
     }
     const { file, path } = await this.fileResource(instance, hash, { index: request.file_index, path: request.file_path });
@@ -623,6 +623,9 @@ export class TorstApi {
       throw error;
     }
     if (!data || typeof data.id !== 'string' || !data.id) throw new PreloadStartUnconfirmedError();
+    for (const [key, preload] of this.preloads) {
+      if (preload.instance.id === instance.id && preload.instance.url === instance.url) this.preloads.delete(key);
+    }
     this.preloads.set(this.cacheKey(instance, hash), {
       hasEnded: data.state === 'expired' || data.state === 'failed',
       id: data.id,
@@ -668,21 +671,6 @@ export class TorstApi {
     const preloadResponse = await this.preloadStatus(instance, hash, data);
     if (this.preloads.get(key) !== preload || (preload.hasEnded && !hasResponseEnded)) return { status: 'evicted' };
     return preloadResponse;
-  }
-
-  private static async releasePreviousPreload(instance: TorstInstance, key: string, preload: OwnedPreload): Promise<void> {
-    if (!preload.hasEnded) {
-      try {
-        const { data } = await this.request<TorstPreload>(instance, preload.path);
-        preload.hasEnded ||= data.state === 'expired' || data.state === 'failed';
-      } catch (error) {
-        if (!(error instanceof TorstApiError) || error.status !== 404) throw error;
-        preload.hasEnded = true;
-      }
-    }
-    if (this.preloads.get(key) !== preload) return;
-    if (preload.hasEnded) this.preloads.delete(key);
-    else await this.deletePreload(instance, key, preload);
   }
 
   private static async deletePreload(instance: TorstInstance, key: string, preload: OwnedPreload): Promise<void> {

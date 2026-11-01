@@ -57,6 +57,7 @@ export class TorstTorrentsComponent {
   private lastRenderedInstanceId: string | null = null;
   private lastRenderedSignature: string | null = null;
   private needsReload = false;
+  private needsToolbarFocusRestore = false;
   private pendingWatchedTorrentHash: string | null = null;
   private pollIntervalId: ReturnType<typeof setInterval> | null = null;
   private renderedCards = new Map<string, LampaDomElement>();
@@ -164,6 +165,27 @@ export class TorstTorrentsComponent {
 
   public create(): LampaDomElement | HTMLElement {
     this.scrollView.minus();
+    this.scrollView.append(this.contentGrid);
+    this.rootElement.append(this.scrollView.render());
+    const instance = InstanceManager.getInstances().find(candidate => candidate.id === this.searchInstanceId)
+      || InstanceManager.getPrimaryInstance();
+    this.updateToolbar(instance);
+    this.load();
+    return this.render();
+  }
+
+  private updateToolbar(instance: TorstInstance | null): void {
+    if (!instance?.profileId) {
+      if (this.toolbar) {
+        this.needsToolbarFocusRestore ||= !!this.focusedToolbarElement();
+        if (this.toolbar[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = null;
+        this.toolbar.remove();
+        this.toolbar = null;
+        this.lastRenderedSignature = null;
+      }
+      return;
+    }
+    if (this.toolbar) return;
     this.toolbar = $(`<div class="torst-library-toolbar">
       <div class="simple-button selector torst-library-up-next"><span></span></div>
     </div>`);
@@ -175,11 +197,8 @@ export class TorstTorrentsComponent {
       this.lastFocusedElement = event.currentTarget || event.target || null;
       this.watchedOverlay.cancel();
     });
-    this.rootElement.append(this.toolbar);
-    this.scrollView.append(this.contentGrid);
-    this.rootElement.append(this.scrollView.render());
-    this.load();
-    return this.render();
+    this.rootElement.prepend(this.toolbar);
+    this.lastRenderedSignature = null;
   }
 
   private async openUpNext(): Promise<void> {
@@ -189,7 +208,7 @@ export class TorstTorrentsComponent {
       const instances = InstanceManager.getInstances();
       const instance = instances.find(candidate => candidate.id === (this.searchInstanceId || this.activeInstance?.id))
         || await InstanceManager.getBestInstance();
-      if (!isCurrent()) return;
+      if (!isCurrent() || !instance.profileId) return;
       await UpNextUi.show(instance, () => {
         if (isCurrent()) {
           Lampa.Controller.toggle('content');
@@ -237,6 +256,7 @@ export class TorstTorrentsComponent {
     try {
       this.activeInstance = searchInstance || await InstanceManager.getBestInstance();
       if (this.isDestroyed) return;
+      this.updateToolbar(this.activeInstance);
       this.updateHeaderTitle(this.activeInstance);
       const searchQuery = this.searchQuery;
       const [torrents, settings] = await Promise.all([
@@ -356,12 +376,6 @@ export class TorstTorrentsComponent {
     if (this.isDestroyed) return;
     this.isPaused = false;
     this.clearContextMenuState();
-    if (!this.needsReload && !this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
-      this.emptyState.start();
-      this.startPolling();
-      return;
-    }
-
     Lampa.Controller.add('content', {
       back: () => {
         Lampa.Activity.backward();
@@ -464,26 +478,22 @@ export class TorstTorrentsComponent {
     return shouldReturnDomElement ? this.rootElement[0] : this.rootElement;
   }
 
-  /**
-   * True when the D-pad cursor currently sits on one of this grid's own cards. Rebuilding the
-   * grid detaches those cards, and the navigator steers by element geometry — a detached card
-   * measures as a zero-sized rect, so every direction becomes unreachable and the grid's own
-   * left/up handlers escape to the sidebar and the head instead of moving inside the grid.
-   */
+  // Detached elements have no usable geometry for the D-pad navigator.
   private ownsNavigatorFocus(): boolean {
     const gridElement = this.contentGrid[0];
-    if (!gridElement) return false;
+    const emptyElement = this.emptyState?.render()[0];
+    const contentElements = [gridElement, emptyElement];
 
     const navigator = getNavigator();
     if (navigator && typeof navigator.getFocusedElement === 'function') {
       const focusedElement = navigator.getFocusedElement();
       if (!focusedElement) return false;
-      return typeof gridElement.contains === 'function' && gridElement.contains(focusedElement);
+      return contentElements.some(element => element?.contains?.(focusedElement));
     }
 
     // Not every navigator build exposes the focused element, so fall back to the marker class
     // it puts on whatever currently holds the cursor.
-    return typeof gridElement.querySelector === 'function' && !!gridElement.querySelector('.card.focus');
+    return !!gridElement?.querySelector?.('.card.focus') || !!emptyElement?.querySelector?.('.selector.focus');
   }
 
   /**
@@ -532,12 +542,12 @@ export class TorstTorrentsComponent {
 
   public renderEmptyState(description: string, title = 'Torst', silent = false): void {
     const signature = TorstTorrentsComponent.buildEmptyStateSignature(title, description);
-    // The same empty state is already on screen, and a silent refresh never clears the scroll
-    // view — rendering again would stack another copy of it on every poll tick.
     if (silent && signature === this.lastRenderedSignature) return;
 
     const focusedToolbar = this.focusedToolbarElement();
-    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar);
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar || this.needsToolbarFocusRestore);
+    this.needsToolbarFocusRestore = false;
+    if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = null;
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = null;
     this.renderedCards = new Map();
@@ -555,6 +565,10 @@ export class TorstTorrentsComponent {
       if (typeof this.scrollView.reset === 'function') {
         this.scrollView.reset();
       }
+    }
+    if (this.emptyState) {
+      this.emptyState.render().remove();
+      this.emptyState.destroy?.();
     }
     this.contentGrid.empty();
 
@@ -575,9 +589,7 @@ export class TorstTorrentsComponent {
     // scroll layout or focus; the content controller's own toggle callback handles that when
     // this component genuinely regains control.
     if (!silent && this.canFocusLibrary()) {
-      if (!this.toolbar && this.emptyState && typeof this.emptyState.start === 'function') {
-        this.emptyState.start();
-      } else if (typeof Lampa !== 'undefined' && Lampa.Controller) {
+      if (typeof Lampa !== 'undefined' && Lampa.Controller) {
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(false, this.controllerRoot());
       }
@@ -593,6 +605,7 @@ export class TorstTorrentsComponent {
   }
 
   public renderTorrents(listedTorrents: Torrent[], instance: TorstInstance, silent = false): void {
+    this.updateToolbar(instance);
     const torrents = this.keepWatchedTorrentFirst(listedTorrents);
     const signature = TorstTorrentsComponent.buildTorrentsSignature(torrents);
     // Nothing on screen would change, so leave the live card elements in place rather than
@@ -602,7 +615,8 @@ export class TorstTorrentsComponent {
     if (silent && signature === this.lastRenderedSignature && instance.id === this.lastRenderedInstanceId) return;
 
     const focusedToolbar = this.focusedToolbarElement();
-    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar);
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar || this.needsToolbarFocusRestore);
+    this.needsToolbarFocusRestore = false;
     const previousFocusIndex = this.renderedTorrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = instance.id;

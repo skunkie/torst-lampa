@@ -380,27 +380,37 @@ describe('Torst API contract', () => {
     assert.equal(calls, 2);
   });
 
-  for (const state of ['expired', 'failed', 'removed']) {
-    it(`starts another preload without deleting the ${state} resource`, async () => {
+  for (const isCleanupDelayed of [false, true]) {
+    it(`starts another preload without waiting for ${isCleanupDelayed ? 'delayed' : 'failed'} cleanup`, async () => {
       let creationCount = 0;
-      let statusReadCount = 0;
       let deletionCount = 0;
+      let finishCleanup!: (response: Response) => void;
       globalThis.fetch = async (input, options) => {
         const path = new URL(String(input)).pathname;
         if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
         if (path === TORRENT_PATH) return json(RESOURCE);
         if (path.endsWith('/files')) return json({ items: [FILE], links: {} });
         if (options?.method === 'POST') return json({ completed_bytes: 1024, id: `prl_${++creationCount}`, state: 'ready', target_bytes: 1024 }, 201);
-        if (options?.method === 'DELETE') { deletionCount++; throw new TypeError('Browser CORS blocked'); }
-        statusReadCount++;
-        return state === 'removed' ? new Response(null, { status: 404 })
-          : json({ completed_bytes: 1024, id: 'prl_1', state, target_bytes: 1024 });
+        if (path.endsWith('/preloads/prl_2') && options?.method !== 'DELETE') return json({ completed_bytes: 1024, id: 'prl_2', state: 'ready', target_bytes: 1024 });
+        assert.equal(options?.method, 'DELETE');
+        deletionCount++;
+        if (isCleanupDelayed) return new Promise<Response>(resolve => { finishCleanup = resolve; });
+        throw new TypeError('Browser CORS blocked');
       };
       await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
-      assert.equal((await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 })).preloadId, 'prl_2');
-      assert.equal(statusReadCount, 1);
-      assert.equal(deletionCount, 0);
-      assert.equal(creationCount, 2);
+      const replacement = TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
+      await new Promise(resolve => setImmediate(resolve));
+      try {
+        assert.equal(creationCount, 2, 'creation must not wait for cleanup');
+        assert.equal((await replacement).preloadId, 'prl_2');
+        assert.equal(deletionCount, 1);
+      } finally {
+        if (isCleanupDelayed) finishCleanup(new Response(null, { status: 204 }));
+        await replacement;
+      }
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal((await TorstApi.getPreload(INSTANCE, HASH, 'prl_1')).status, 'evicted');
+      assert.equal((await TorstApi.getPreload(INSTANCE, HASH, 'prl_2')).status, 'ready');
     });
   }
 
@@ -461,48 +471,31 @@ describe('Torst API contract', () => {
     });
   }
 
-  it('does not delete a preload twice when cancellation finishes during its state check', async () => {
+  it('preserves ownership after cleanup fails and Torst rejects the replacement at its resource limit', async () => {
     let creationCount = 0;
-    let finishRead!: (response: Response) => void;
     const deletedPreloadPaths: string[] = [];
     globalThis.fetch = async (input, options) => {
       const path = new URL(String(input)).pathname;
       if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
       if (path === TORRENT_PATH) return json(RESOURCE);
       if (path.endsWith('/files')) return json({ items: [FILE], links: {} });
-      if (options?.method === 'POST') return json({ completed_bytes: 1024, id: `prl_${++creationCount}`, state: 'ready', target_bytes: 1024 }, 201);
-      if (options?.method === 'DELETE') { deletedPreloadPaths.push(path); return new Response(null, { status: 204 }); }
-      return new Promise<Response>(resolve => { finishRead = resolve; });
+      if (options?.method === 'POST') return ++creationCount === 1
+        ? json({ completed_bytes: 1024, id: 'prl_first', state: 'ready', target_bytes: 1024 }, 201)
+        : new Response(null, { status: 409 });
+      assert.equal(options?.method, 'DELETE');
+      deletedPreloadPaths.push(path);
+      if (deletedPreloadPaths.length === 1) throw new TypeError('Browser CORS blocked');
+      return new Response(null, { status: 204 });
     };
     const first = await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
-    const replacement = TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
-    await new Promise(resolve => setImmediate(resolve));
+    await assert.rejects(TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 }), (error: unknown) => error instanceof TorstApiError && error.status === 409);
+    assert.deepEqual(deletedPreloadPaths, [`${FILE_PATH}/preloads/prl_first`]);
     await TorstApi.cancelPreload(INSTANCE, HASH, first.preloadId);
-    finishRead(json({ completed_bytes: 1024, id: first.preloadId, state: 'ready', target_bytes: 1024 }));
-    assert.equal((await replacement).preloadId, 'prl_2');
-    assert.deepEqual(deletedPreloadPaths, [`${FILE_PATH}/preloads/prl_1`]);
-  });
-
-  it('does not create another preload if the previous state cannot be verified', async () => {
-    let creationCount = 0;
-    let deletionCount = 0;
-    globalThis.fetch = async (input, options) => {
-      const path = new URL(String(input)).pathname;
-      if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
-      if (path === TORRENT_PATH) return json(RESOURCE);
-      if (path.endsWith('/files')) return json({ items: [FILE], links: {} });
-      if (options?.method === 'POST') return json({ completed_bytes: 1024, id: `prl_${++creationCount}`, state: 'ready', target_bytes: 1024 }, 201);
-      if (options?.method === 'DELETE') { deletionCount++; return new Response(null, { status: 204 }); }
-      return new Response(null, { status: 503 });
-    };
-    await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
-    await assert.rejects(TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 }), (error: unknown) => error instanceof TorstApiError && error.status === 503);
-    assert.equal(creationCount, 1);
-    assert.equal(deletionCount, 0);
+    assert.deepEqual(deletedPreloadPaths, [`${FILE_PATH}/preloads/prl_first`, `${FILE_PATH}/preloads/prl_first`]);
   });
 
   for (const concurrent of [false, true]) {
-    it(`releases ready preloads before another file starts (${concurrent ? 'concurrent' : 'sequential'} calls)`, async () => {
+    it(`continues another file after superseded preload cleanup fails (${concurrent ? 'concurrent' : 'sequential'} calls)`, async () => {
       const active = new Set<string>();
       const operations: string[] = [];
       let nextId = 0;
@@ -515,6 +508,7 @@ describe('Torst API contract', () => {
         if (options?.method === 'DELETE') {
           const id = path.split('/').pop() as string;
           operations.push(`delete ${id}`);
+          if (id === 'prl_1') throw new TypeError('Browser CORS blocked');
           active.delete(id);
           return new Response(null, { status: 204 });
         }
@@ -522,7 +516,6 @@ describe('Torst API contract', () => {
           return json({ completed_bytes: 1024, id: path.split('/').pop(), state: 'ready', target_bytes: 1024 });
         }
         assert.equal(options?.method, 'POST');
-        assert.equal(active.size, 0, 'the preceding preload must release the budget before a new one is created');
         const id = `prl_${++nextId}`;
         active.add(id);
         operations.push(`create ${id}`);
@@ -534,14 +527,14 @@ describe('Torst API contract', () => {
       const [first, second] = await Promise.all([firstRequest, secondRequest]);
       assert.deepEqual(operations, ['create prl_1', 'delete prl_1', 'create prl_2']);
       await TorstApi.cancelPreload(INSTANCE, HASH, first.preloadId);
-      assert.deepEqual(Array.from(active), ['prl_2'], 'a late cancellation must not cancel the replacement');
+      assert.deepEqual(Array.from(active), ['prl_1', 'prl_2'], 'a late cancellation must not cancel the replacement');
       assert.equal((await TorstApi.getPreload(INSTANCE, HASH, first.preloadId)).status, 'evicted');
       await TorstApi.cancelPreload(INSTANCE, HASH, second.preloadId);
-      assert.equal(active.size, 0);
+      assert.deepEqual(Array.from(active), ['prl_1']);
     });
   }
 
-  it('releases preceding torrents on the same instance while leaving other instances alone', async () => {
+  it('attempts preceding torrent cleanup only on the same instance', async () => {
     const operations: string[] = [];
     let nextId = 0;
     globalThis.fetch = async (input, options) => {
