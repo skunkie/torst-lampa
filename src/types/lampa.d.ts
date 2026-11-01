@@ -172,6 +172,7 @@ declare global {
   interface LampaPlayerItem extends LampaPlaylistItem {
     card?: LampaMovie,
     continue_play?: boolean,
+    error?: (item: LampaPlayerItem, onRecovered: (url: string) => void) => void,
     first_title?: string,
     movie?: LampaMovie,
     timeline?: unknown,
@@ -297,8 +298,15 @@ interface LampaPlayer {
   callback(callback: () => void): void,
   close?(): void,
   listener?: LampaListener,
+  loading?(isLoading: boolean): void,
   play(item: any): void,
   playlist(list: any[]): void
+}
+
+interface LampaPlayerVideo {
+  listener: LampaListener,
+  to(positionSeconds: number): void,
+  video?(): { currentTime: number, duration: number } | undefined
 }
 
 interface LampaNoty {
@@ -435,6 +443,7 @@ interface LampaNamespace {
     get(): unknown[],
     set(playlist: unknown[]): void
   },
+  PlayerVideo?: LampaPlayerVideo,
   Reguest?: any,
   Scroll: any,
   Search?: {

@@ -70,6 +70,11 @@ export interface TorrentUpdate {
   storage: TorrentStorage
 }
 
+export interface TorrentRecoverySource {
+  metainfo: Blob,
+  torrent: Torrent
+}
+
 export interface PreloadRequest {
   file_index?: number,
   file_path?: string,

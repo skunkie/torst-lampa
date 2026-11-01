@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import { ExternalProgress } from './external-progress';
+import { PlaybackRecovery } from './playback-recovery';
 
 interface PlaybackFocusSession {
   activity: unknown,
@@ -17,6 +18,7 @@ export class PlaybackFocus {
   private static cleanupListeners: Array<() => void> = [];
   private static isInitialized = false;
   private static returnTimer: ReturnType<typeof setTimeout> | null = null;
+  private static restoreCallbacks = new WeakMap<LampaPlayerItem[], () => void>();
 
   public static arm(playlist: LampaPlayerItem[], restoreFocus: () => void): void {
     this.init();
@@ -35,11 +37,19 @@ export class PlaybackFocus {
     this.clear();
   }
 
+  public static rearm(playlist: LampaPlayerItem[], restoreFocus: () => void): void {
+    this.arm(playlist, this.restoreCallbacks.get(playlist) || restoreFocus);
+  }
+
   public static setCallback(restoreFocus: () => void): void {
     const session = this.session;
-    if (session) session.restoreFocus = restoreFocus;
+    if (session) {
+      session.restoreFocus = restoreFocus;
+      this.restoreCallbacks.set(session.playlist, restoreFocus);
+    }
     Lampa.Player.callback(() => {
       if (session && this.session !== session) return;
+      PlaybackRecovery.handleExit();
       ExternalProgress.handleExit();
       this.clear();
       if (!session || session.activity === undefined || Lampa.Activity?.active?.() === session.activity) restoreFocus();
@@ -104,5 +114,6 @@ export class PlaybackFocus {
     this.cleanupListeners.forEach(cleanup => cleanup());
     this.cleanupListeners = [];
     this.isInitialized = false;
+    this.restoreCallbacks = new WeakMap();
   }
 }

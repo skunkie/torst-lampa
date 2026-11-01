@@ -12,6 +12,7 @@ import {
   Torrent,
   TorrentAdd,
   TorrentFile,
+  TorrentRecoverySource,
   TorrentRetention,
   TorrentsResponse,
   TorrentUpdate,
@@ -65,6 +66,10 @@ interface TorstFile {
   id: string,
   path: string[],
   size_bytes: number
+}
+
+interface TorstRecoveryFile extends TorstFile {
+  links: { content: string }
 }
 
 interface TorstPreload {
@@ -384,6 +389,10 @@ export class TorstApi {
     this.ensureInstanceUnchanged(instance, original);
     if (isAborted?.()) throw new Error('Playback canceled');
     if (file.size > 10 * 1024 * 1024) throw new TorstApiError('Torrent file exceeds Torst\'s 10 MiB limit', 413);
+    return this.uploadMetainfo(instance, file, options);
+  }
+
+  private static async uploadMetainfo(instance: TorstInstance, file: Blob, options: TorrentAdd): Promise<Torrent> {
     const retention = options.retention || 'persisted';
     const form = new FormData();
     form.append('metainfo', file, 'download.torrent');
@@ -391,6 +400,43 @@ export class TorstApi {
     form.append('storage_mode', retention === 'temporary' || options.storage !== 'file' ? 'memory' : 'disk');
     if (retention === 'persisted' && options.title) form.append('title', options.title);
     return this.createTorrent(instance, form, options);
+  }
+
+  public static async captureTorrentRecovery(instance: TorstInstance, hash: string): Promise<TorrentRecoverySource> {
+    const torrent = await this.findTorrent(instance, hash);
+    const metainfo = (await this.request<Blob>(instance, `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/metainfo`, { responseType: 'blob' })).data;
+    if (!metainfo.size || metainfo.size > 10 * 1024 * 1024) throw new TorstApiError('Invalid recovery metainfo size', 413);
+    return { metainfo, torrent: { ...torrent, files: torrent.files.map(file => ({ ...file })) } };
+  }
+
+  public static async recoverTorrent(instance: TorstInstance, hash: string, source?: TorrentRecoverySource, isAborted: () => boolean = () => false): Promise<Torrent> {
+    if (isAborted()) throw new Error('Playback recovery canceled');
+    try {
+      return await this.getTorrent(instance, hash);
+    } catch (error) {
+      if (!(error instanceof TorstApiError) || error.status !== 404 || !source) throw error;
+    }
+    if (isAborted()) throw new Error('Playback recovery canceled');
+    const torrent = await this.uploadMetainfo(instance, source.metainfo, {
+      retention: source.torrent.retention,
+      storage: source.torrent.storage,
+      title: source.torrent.retention === 'persisted' ? source.torrent.title : undefined,
+    });
+    if (isAborted()) throw new Error('Playback recovery canceled');
+    if (torrent.hash !== source.torrent.hash) throw new TorstApiError('Recovery returned another torrent', 422);
+    return this.getTorrent(instance, torrent.hash);
+  }
+
+  public static async getRecoveredStreamUrl(instance: TorstInstance, torrent: Torrent, fileId: string): Promise<string> {
+    const file = (await this.request<TorstRecoveryFile>(instance, `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/files/${encodeURIComponent(fileId)}`)).data;
+    const path = file.links.content;
+    if (!path.startsWith('/api/v1/') || !new URL(path, 'http://torst.invalid').pathname.startsWith('/api/v1/')) {
+      throw new TorstApiError('Invalid Torst content link', 0);
+    }
+    const url = new URL(`${instance.url.replace(/\/+$/, '')}${path}`);
+    const token = await AuthManager.getPlaybackToken(instance);
+    if (token) url.searchParams.set('token', token);
+    return url.toString();
   }
 
   public static async deleteTorrent(instance: TorstInstance, hash: string): Promise<void> {
@@ -514,10 +560,11 @@ export class TorstApi {
     await this.patchResource(instance, '/api/v1/settings', settings);
   }
 
-  private static async fileResource(instance: TorstInstance, hash: string, identifier: { index?: number, path?: string }): Promise<{ file: TorrentFile, path: string }> {
+  private static async fileResource(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<{ file: TorrentFile, path: string }> {
     let torrent = await this.findTorrent(instance, hash);
     if (!torrent.files.length) torrent = await this.getTorrent(instance, hash);
-    const file = identifier.index !== undefined ? torrent.files[identifier.index] : torrent.files.find(item => item.path === identifier.path);
+    const file = identifier.fileId ? torrent.files.find(item => item.fileId === identifier.fileId)
+      : identifier.index !== undefined ? torrent.files[identifier.index] : torrent.files.find(item => item.path === identifier.path);
     if (!file?.fileId) throw new TorstApiError('Torst file is not available', 404);
     return { file, path: `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/files/${encodeURIComponent(file.fileId)}` };
   }
@@ -626,13 +673,13 @@ export class TorstApi {
     await this.deletePreload(instance, key, preload);
   }
 
-  public static async getStreamUrl(instance: TorstInstance, hash: string, identifier: { index?: number, path?: string }): Promise<string> {
+  public static async getStreamUrl(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<string> {
     const { path } = await this.fileResource(instance, hash, identifier);
     const token = await AuthManager.getPlaybackToken(instance);
     return `${instance.url.replace(/\/+$/, '')}${path}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   }
 
-  public static async createFileViewing(instance: TorstInstance, hash: string, identifier: { index?: number, path?: string }): Promise<FileViewing> {
+  public static async createFileViewing(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<FileViewing> {
     const { path } = await this.fileResource(instance, hash, identifier);
     return (await this.request<FileViewing>(instance, `${path}/viewings`, { method: 'POST' })).data;
   }

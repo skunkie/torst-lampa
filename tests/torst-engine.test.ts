@@ -10,6 +10,7 @@ import { NetworkError } from '../src/api/http-client';
 import { TorstApi, TorstApiError } from '../src/api/torst';
 import { resolveFileInfo, sortTorrentFiles } from '../src/engine/file-parser';
 import { resolveMovieContext, resolvePosterUrl } from '../src/engine/media-context';
+import { PlaybackRecovery } from '../src/engine/playback-recovery';
 import { displayFileList, playTorrentFile } from '../src/engine/playback-session';
 import { initPlayerPlaylist, resetPlayerPlaylistForTesting } from '../src/engine/player-playlist';
 import { TorstEngine } from '../src/engine/torst-engine';
@@ -30,7 +31,9 @@ describe('TorstEngine', () => {
   let lastNoty: string | null = null;
 
   beforeEach(() => {
+    PlaybackRecovery.resetForTesting();
     TorstEngine.resetForTesting();
+    mock.method(TorstApi, 'captureTorrentRecovery', async () => { throw new Error('Not captured in this fixture'); });
     mock.method(PreloadModal, 'waitUntilReady', async () => true);
     mock.method(TorstApi, 'getStreamUrl', async (instance: TorstInstance, hash: string, file: { index?: number }) =>
       instance.url + '/api/v1/torrents/' + hash + '/files/' + (file.index ?? 0) + '/content');
@@ -79,6 +82,7 @@ describe('TorstEngine', () => {
     TorstApi.resetForTesting();
     mock.restoreAll();
     globalThis.fetch = originalFetch;
+    PlaybackRecovery.resetForTesting();
     TorstEngine.resetForTesting();
   });
 
@@ -1718,6 +1722,7 @@ describe('TorstEngine', () => {
       assert.equal((startedPlaybackMovie as any).id, 20);
     } finally {
       TorstEngine.startPlayback = origStartPlayback;
+      PlaybackRecovery.resetForTesting();
       TorstEngine.resetForTesting();
     }
   });

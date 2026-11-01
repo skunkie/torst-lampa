@@ -128,6 +128,25 @@ describe('playback focus', () => {
     assert.equal(focused, 'search-row');
   });
 
+  it('preserves the updated return callback when recovery relaunches the same playlist', () => {
+    const playlist = [item];
+    PlaybackFocus.arm(playlist, () => { focused = 'original'; });
+    PlaybackFocus.setCallback(() => { focused = 'search-row'; restores++; });
+    listeners.get('external')!(item);
+    browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(focused, 'search-row');
+    PlaybackFocus.rearm(playlist, () => { focused = 'fallback'; });
+    focused = '';
+    listeners.get('external')!(item);
+    browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(focused, 'search-row');
+    assert.equal(restores, 2);
+  });
+
   it('cancels a pending external return when the built-in exit callback runs', () => {
     listeners.get('external')!(item);
     browser.dispatchEvent(new Event('blur'));

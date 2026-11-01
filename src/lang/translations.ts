@@ -657,6 +657,26 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Provider URL (e.g. http://192.168.1.100:9117)',
     ru: 'URL провайдера (например, http://192.168.1.100:9117)',
   },
+  torst_recovery_error: {
+    en: 'Could not recover playback: {msg}',
+    ru: 'Не удалось восстановить воспроизведение: {msg}',
+  },
+  torst_recovery_external: {
+    en: 'The stream was interrupted. Resume playback?',
+    ru: 'Поток прервался. Продолжить воспроизведение?',
+  },
+  torst_recovery_missing_file: {
+    en: 'The played file is no longer available',
+    ru: 'Воспроизводимый файл больше недоступен',
+  },
+  torst_recovery_resume: {
+    en: 'Resume Playback',
+    ru: 'Продолжить воспроизведение',
+  },
+  torst_recovery_unavailable: {
+    en: 'Torst is still unavailable',
+    ru: 'Torst пока недоступен',
+  },
   torst_save_to: {
     en: 'Save to Torst',
     ru: 'Сохранить в Torst',

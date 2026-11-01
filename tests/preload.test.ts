@@ -94,6 +94,30 @@ describe('PreloadModal', () => {
   });
 
   describe('waitUntilReady', () => {
+    it('does not start a preload for an already canceled recovery', async () => {
+      const controller = new AbortController();
+      controller.abort();
+      assert.equal(await PreloadModal.waitUntilReady(testInstance, 'hash123', { index: 0 }, undefined, undefined, controller.signal), false);
+      assert.equal((TorstApi.startPreload as any).mock.callCount(), 0);
+    });
+
+    it('aborts a recovery preload immediately and releases its owned resource after creation settles', async () => {
+      const controller = new AbortController();
+      let finish!: (value: PreloadResponse) => void;
+      mock.method(TorstApi, 'startPreload', () => new Promise<PreloadResponse>(resolve => { finish = resolve; }));
+      const cancel = mock.method(TorstApi, 'cancelPreload', async () => {});
+      const stop = mock.method((globalThis as any).Lampa.Loading, 'stop', () => {});
+      const waiting = PreloadModal.waitUntilReady(testInstance, 'hash123', { index: 0 }, undefined, undefined, controller.signal);
+      controller.abort();
+      assert.equal(await waiting, false);
+      assert.equal(stop.mock.callCount(), 1);
+      assert.equal(cancel.mock.callCount(), 0);
+      finish({ preloadId: 'recovery-preload', status: 'ready' });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(cancel.mock.callCount(), 1);
+      assert.equal((TorstApi.startPreload as any).mock.callCount(), 1);
+    });
+
     it('follows a renewed preload ID on later status reads', async () => {
       mock.timers.enable({ apis: ['setTimeout'] });
       mock.method(TorstApi, 'startPreload', async () => ({ preloadId: 'first', status: 'preloading' as const }));

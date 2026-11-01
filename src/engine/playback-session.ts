@@ -13,6 +13,7 @@ import { resolveFileIndex, resolveFileInfo, selectVideoFiles } from './file-pars
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { PlaybackFocus } from './playback-focus';
 import { PlaybackProgress } from './playback-progress';
+import { PlaybackRecovery } from './playback-recovery';
 import { rememberPlayerPlaylist } from './player-playlist';
 
 let playbackGeneration = 0;
@@ -232,6 +233,7 @@ export async function playTorrentFile(
   sourceTorrentItem?: LampaTorrentItem
 ): Promise<boolean> {
   const generation = ++playbackGeneration;
+  PlaybackRecovery.cancel();
   ExternalProgress.cancel();
   PlaybackFocus.cancel();
   const playbackInstance = { ...instance };
@@ -281,6 +283,9 @@ export async function playTorrentFile(
     playbackFraction
   );
   if (!isPreloadReady || !isCurrent()) return false;
+
+  const recoverySource = await PlaybackRecovery.capture(instance, torrentHash);
+  if (!isCurrent()) return false;
 
   // Resolve final stream URL with playback token attached
   const stream = await ExternalProgress.getStream(instance, torrentHash, {
@@ -390,7 +395,14 @@ export async function playTorrentFile(
     rememberPlayerPlaylist(mappedPlaylist);
     Lampa.Player.playlist(mappedPlaylist);
   }
-  ExternalProgress.arm(instance, mappedPlaylist);
+  ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), () => PlaybackRecovery.handleExternalReturn());
+  PlaybackRecovery.arm(instance, torrentHash, mappedPlaylist, recoverySource, historyCard, returnController, recoveredItem => {
+    rememberPlayerPlaylist(mappedPlaylist);
+    Lampa.Player.playlist(mappedPlaylist);
+    ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), () => PlaybackRecovery.handleExternalReturn());
+    PlaybackFocus.rearm(mappedPlaylist, () => { Lampa.Controller.toggle(returnController); });
+    Lampa.Player.play(recoveredItem);
+  });
   PlaybackFocus.arm(mappedPlaylist, () => {
     Lampa.Controller.toggle(returnController);
   });

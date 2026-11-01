@@ -53,8 +53,10 @@ export class PreloadModal {
     torrentHash: string,
     fileIdentifier: { index?: number, path?: string },
     mediaMetadata?: LampaMovie,
-    playbackFraction?: number
+    playbackFraction?: number,
+    signal?: AbortSignal
   ): Promise<boolean> {
+    if (signal?.aborted) return false;
     const loadingMedia = mediaMetadata
       ? {
         background: mediaMetadata.background || mediaMetadata.img || '',
@@ -80,6 +82,7 @@ export class PreloadModal {
       let preloadId: string | undefined;
 
       const cleanup = () => {
+        signal?.removeEventListener('abort', handleCancel);
         if (pollingTimeout) {
           clearTimeout(pollingTimeout);
           pollingTimeout = null;
@@ -107,6 +110,8 @@ export class PreloadModal {
         }
         resolve(false);
       };
+
+      signal?.addEventListener('abort', handleCancel, { once: true });
 
       // Start Lampa.Loading if available
       if (typeof Lampa !== 'undefined' && Lampa.Loading) {

@@ -20,6 +20,8 @@ interface ExternalSession {
   item?: LampaPlayerItem,
   launchRevision: number,
   measurementRevision?: number,
+  onCompleted?: () => void,
+  onReturn?: () => void,
   playlist: LampaPlayerItem[]
 }
 
@@ -28,24 +30,31 @@ interface PlaybackTimeline {
   hash: number | string
 }
 
+interface ReportedPosition {
+  durationSeconds: number,
+  positionSeconds: number
+}
+
 export class ExternalProgress {
   private static session: ExternalSession | null = null;
   private static viewings = new WeakMap<LampaPlayerItem, FileViewing>();
+  private static timelineHandlers = new WeakMap<LampaPlayerItem, NonNullable<PlaybackTimeline['handler']>>();
+  private static reportedPositions = new WeakMap<LampaPlayerItem, ReportedPosition>();
   private static cleanupListeners: Array<() => void> = [];
   private static isInitialized = false;
   private static returnTimer: ReturnType<typeof setTimeout> | null = null;
   private static tickTimer: ReturnType<typeof setInterval> | null = null;
   private static lastTickAtMs = 0;
 
-  public static async getStream(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<{ url: string, viewing?: FileViewing }> {
+  public static async getStream(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }, recoveredUrl?: string): Promise<{ url: string, viewing?: FileViewing }> {
     const original = { ...instance };
     const isUnchanged = () => instance.url === original.url && instance.authType === original.authType && instance.password === original.password;
-    const url = await TorstApi.getStreamUrl(instance, hash, { index: identifier.index, path: identifier.path });
+    const url = recoveredUrl || await TorstApi.getStreamUrl(instance, hash, identifier);
     if (!isUnchanged()) throw new Error('Instance settings changed during playback');
     if (!identifier.fileId || !Lampa.Player?.listener) return { url };
     let viewing: FileViewing;
     try {
-      viewing = await TorstApi.createFileViewing(instance, hash, { index: identifier.index, path: identifier.path });
+      viewing = await TorstApi.createFileViewing(instance, hash, identifier);
     } catch {
       if (!isUnchanged()) throw new Error('Instance settings changed during playback');
       return { url };
@@ -67,6 +76,15 @@ export class ExternalProgress {
 
   public static bind(item: LampaPlayerItem, viewing?: FileViewing): void {
     if (viewing) this.viewings.set(item, viewing);
+    else this.viewings.delete(item);
+  }
+
+  public static getViewing(item: LampaPlayerItem): FileViewing | undefined {
+    return this.viewings.get(item);
+  }
+
+  public static getReportedPosition(item: LampaPlayerItem): ReportedPosition | undefined {
+    return this.reportedPositions.get(item);
   }
 
   public static isTracked(item: LampaPlayerItem): boolean {
@@ -77,7 +95,7 @@ export class ExternalProgress {
     this.clear();
   }
 
-  public static arm(instance: TorstInstance, playlist: LampaPlayerItem[]): void {
+  public static arm(instance: TorstInstance, playlist: LampaPlayerItem[], onCompleted?: () => void, onReturn?: () => void): void {
     this.init();
     this.clear();
     const session: ExternalSession = {
@@ -87,19 +105,25 @@ export class ExternalProgress {
       hasLeftPage: false,
       instance: { ...instance },
       launchRevision: 0,
+      onCompleted,
+      onReturn,
       playlist,
     };
     this.session = session;
     for (const item of playlist) {
       const timeline = item.timeline as PlaybackTimeline | undefined;
-      const handler = timeline?.handler;
+      const handler = this.timelineHandlers.get(item) || timeline?.handler;
+      if (handler) this.timelineHandlers.set(item, handler);
       if (timeline && handler) item.timeline = {
         ...timeline,
         handler: (percent: number, time: number, duration: number) => {
           const positionSeconds = Number(time);
           const durationSeconds = Number(duration);
           if (Number.isFinite(positionSeconds) && positionSeconds >= 0 && Number.isFinite(durationSeconds)
-            && durationSeconds > 0 && durationSeconds <= 1000000) session.exactReports.add(item);
+            && durationSeconds > 0 && durationSeconds <= 1000000) {
+            session.exactReports.add(item);
+            this.reportedPositions.set(item, { durationSeconds, positionSeconds: Math.min(positionSeconds, durationSeconds) });
+          }
           handler(percent, time, duration);
         },
       };
@@ -126,6 +150,7 @@ export class ExternalProgress {
       session.item = item;
       session.externalItems.add(item);
       session.exactReports.delete(item);
+      this.reportedPositions.delete(item);
       session.launchRevision++;
       this.lastTickAtMs = Date.now();
       if (this.tickTimer === null) this.tickTimer = setInterval(() => this.handleTick(), TICK_MS);
@@ -191,6 +216,7 @@ export class ExternalProgress {
     if (!session?.item || this.returnTimer !== null || session.measurementRevision === session.launchRevision
       || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
     session.hasLeftPage = false;
+    session.onReturn?.();
     // Give platforms that report an exact position on return time to deliver it.
     this.returnTimer = setTimeout(() => {
       this.returnTimer = null;
@@ -237,7 +263,10 @@ export class ExternalProgress {
         await PlaybackProgress.flush();
       }
     }
-    if (this.isCurrent(session) && session.item === item && session.launchRevision === launchRevision && !observed.streaming) this.clear(true);
+    if (this.isCurrent(session) && session.item === item && session.launchRevision === launchRevision && !observed.streaming) {
+      session.onCompleted?.();
+      this.clear(true);
+    }
   }
 
   private static stopTimers(): void {
@@ -268,5 +297,7 @@ export class ExternalProgress {
     this.cleanupListeners = [];
     this.isInitialized = false;
     this.viewings = new WeakMap();
+    this.timelineHandlers = new WeakMap();
+    this.reportedPositions = new WeakMap();
   }
 }

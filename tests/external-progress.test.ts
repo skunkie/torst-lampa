@@ -9,6 +9,7 @@ import { TorstApi, TorstApiError } from '../src/api/torst';
 import { ExternalProgress } from '../src/engine/external-progress';
 import { PlaybackFocus } from '../src/engine/playback-focus';
 import { PlaybackProgress } from '../src/engine/playback-progress';
+import { PlaybackRecovery } from '../src/engine/playback-recovery';
 import { playTorrentFile } from '../src/engine/playback-session';
 import { resetPlayerPlaylistForTesting } from '../src/engine/player-playlist';
 import { InstanceManager } from '../src/instances/instance-manager';
@@ -62,6 +63,7 @@ describe('external player progress', () => {
     };
     item = { path: 'Sintel.mkv', timeline: view('local'), torstFileId: 'fil_one' };
     mock.method(InstanceManager, 'getInstances', () => [instance]);
+    mock.method(TorstApi, 'captureTorrentRecovery', async () => { throw new Error('Not captured in this fixture'); });
     mock.method(TorstApi, 'getStreamUrl', async () => 'http://torst.test/api/v1/torrents/trr_one/files/fil_one/content?token=playback');
     mock.method(TorstApi, 'createFileViewing', async () => viewing);
     mock.method(TorstApi, 'getFileViewing', async () => viewing);
@@ -73,6 +75,7 @@ describe('external player progress', () => {
   });
 
   afterEach(() => {
+    PlaybackRecovery.resetForTesting();
     ExternalProgress.resetForTesting();
     PlaybackFocus.resetForTesting();
     resetPlayerPlaylistForTesting();
@@ -109,7 +112,7 @@ describe('external player progress', () => {
     assert.equal(url.searchParams.get('token'), 'playback');
     assert.equal(url.searchParams.get('viewing_id'), 'vwg_one');
     assert.equal(stream.viewing, viewing);
-    assert.deepEqual((TorstApi.createFileViewing as any).mock.calls[0].arguments.slice(1), ['torrent', { index: 0, path: item.path }]);
+    assert.deepEqual((TorstApi.createFileViewing as any).mock.calls[0].arguments.slice(1), ['torrent', { fileId: 'fil_one', index: 0, path: item.path }]);
   });
 
   it('keeps playback available without repeating a failed viewing creation', async () => {

@@ -25,6 +25,7 @@ export default {
     'Lampa',
     'longhands',
     'Mbit',
+    'metainfo',
     'preroll',
     'Prowlarr',
     'Sintel',
