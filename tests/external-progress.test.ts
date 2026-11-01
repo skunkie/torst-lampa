@@ -57,7 +57,17 @@ describe('external player progress', () => {
           remove: (name: string) => listeners.delete(name),
         },
       },
-      Timeline: { update: (value: any) => timelines.set(value.hash, { ...value }), view },
+      Timeline: {
+        listener: {
+          follow: (name: string, callback: (event: any) => void) => listeners.set(`timeline:${name}`, callback),
+          remove: (name: string) => listeners.delete(`timeline:${name}`),
+        },
+        update: (value: any) => {
+          timelines.set(value.hash, { ...value });
+          listeners.get('timeline:update')?.({ data: { hash: value.hash, road: value } });
+        },
+        view,
+      },
       Torserver: { parse: () => ({ hash: 'local' }) },
       Utils: { hash: (value: string) => value },
     };
@@ -159,6 +169,196 @@ describe('external player progress', () => {
     assert.equal(timelines.get('local').time, 50);
     assert.deepEqual((TorstApi.saveFileProgress as any).mock.calls[0].arguments.slice(1), ['prf_one', 'torrent', 'fil_one', { duration_seconds: 400, position_seconds: 140, viewed: false }]);
     assert.deepEqual((TorstApi.saveTitleProgress as any).mock.calls[0].arguments.slice(1), ['prf_one', 'tmdb-movie-123', 'torrent', 'fil_one', { duration_seconds: 400, position_seconds: 140, viewed: false }]);
+  });
+
+  it('saves direct Android timeline reports to the profile and preserves them over viewing estimates', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+    mock.timers.tick(2000);
+    await settle();
+    assert.equal(timelines.get(timelineHash).time, 200);
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+    assert.equal((TorstApi.saveFileProgress as any).mock.calls[0].arguments[4].position_seconds, 200);
+    assert.equal((TorstApi.saveTitleProgress as any).mock.calls[0].arguments[5].position_seconds, 200);
+  });
+
+  it('saves a late Android report after the viewing fallback has completed', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    await returnToLampa();
+    assert.equal(ExternalProgress.isTracked(item), false);
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+    await PlaybackProgress.flush();
+    const calls = (TorstApi.saveFileProgress as any).mock.calls;
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].arguments[4].position_seconds, 200);
+  });
+
+  for (const viewingState of ['missing', 'expired']) {
+    it(`saves a late Android report when its viewing is ${viewingState}`, async () => {
+      const timelineHash = await useProfile();
+      arm();
+      if (viewingState === 'missing') ExternalProgress.bind(item);
+      else mock.method(TorstApi, 'getFileViewing', async () => { throw new TorstApiError('Viewing expired', 404); });
+      await returnToLampa();
+      (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+      await PlaybackProgress.flush();
+      assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+      assert.equal((TorstApi.saveFileProgress as any).mock.calls[0].arguments[4].position_seconds, 200);
+    });
+  }
+
+  for (const change of ['navigation', 'profile', 'url', 'credentials', 'removed']) {
+    it(`discards a late Android report after ${change} changes`, async () => {
+      const timelineHash = await useProfile();
+      arm();
+      await returnToLampa();
+      if (change === 'navigation') activity = {};
+      if (change === 'profile') instance.profileId = 'prf_other';
+      if (change === 'url') instance.url = 'http://other.test';
+      if (change === 'credentials') instance.password = 'different';
+      if (change === 'removed') mock.method(InstanceManager, 'getInstances', () => []);
+      (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+      await PlaybackProgress.flush();
+      assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+    });
+  }
+
+  it('saves Android reports for another episode in the handed-over playlist', async () => {
+    instance.profileId = 'prf_one';
+    const nextPlaylistItem = { path: 'Spring.mkv', torstFileId: 'fil_two' };
+    await PlaybackProgress.prepare(instance, 'torrent', [item, nextPlaylistItem], { id: 123 });
+    const timelineHash = PlaybackProgress.timelineHash(instance, 'fil_two', 'second');
+    const nextPlayerItem = { ...nextPlaylistItem, timeline: (globalThis as any).Lampa.Timeline.view(timelineHash) };
+    ExternalProgress.bind(item, viewing);
+    ExternalProgress.arm(instance, [item, nextPlayerItem]);
+    listeners.get('external')!(item);
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.calls[0].arguments[3], 'fil_two');
+    assert.equal((TorstApi.saveFileProgress as any).mock.calls[0].arguments[4].position_seconds, 200);
+  });
+
+  for (const hasMeasuredReturn of [false, true]) {
+    it(`ignores direct reports after built-in playback replaces an external launch (return measured: ${hasMeasuredReturn})`, async () => {
+      const timelineHash = await useProfile();
+      arm();
+      if (hasMeasuredReturn) await returnToLampa();
+      const previousSaveCount = (TorstApi.saveFileProgress as any).mock.callCount();
+      listeners.get('create')!({ data: item });
+      (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+      await PlaybackProgress.flush();
+      assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), previousSaveCount);
+    });
+  }
+
+  it('discards late native reports after tracking is canceled', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    await returnToLampa();
+    ExternalProgress.cancel();
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 50, time: 200 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+  });
+
+  it('does not treat server timeline hydration as an Android position report', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    await PlaybackProgress.hydrate(instance, { files: [{ fileId: 'fil_one', length: 100, name: 'Sintel.mkv', path: 'Sintel.mkv' }], hash: 'torrent' }, { id: 123 });
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+    await returnToLampa();
+    assert.equal(timelines.get(timelineHash).time, 140);
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+  });
+
+  it('preserves completed Android reports whose resume time was reset to zero', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: timelineHash, percent: 100, time: 0 });
+    await PlaybackProgress.flush();
+    const progress = (TorstApi.saveFileProgress as any).mock.calls[0].arguments[4];
+    assert.equal(progress.position_seconds, 400);
+    assert.equal(progress.viewed, true);
+  });
+
+  it('ignores unrelated, invalid, and stale direct timeline updates', async () => {
+    const timelineHash = await useProfile();
+    arm();
+    const updateTimeline = (globalThis as any).Lampa.Timeline.update;
+    updateTimeline({ duration: 400, hash: 'other', time: 200 });
+    updateTimeline({ duration: 0, hash: timelineHash, time: 200 });
+    activity = {};
+    updateTimeline({ duration: 400, hash: timelineHash, time: 200 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+  });
+
+  it('ignores incomplete native timeline events', async () => {
+    await useProfile();
+    arm();
+    const handleTimelineUpdate = listeners.get('timeline:update')!;
+    for (const event of [{}, { data: {} }, { data: { hash: (item.timeline as any).hash } }, { data: { road: {} } }]) {
+      assert.doesNotThrow(() => handleTimelineUpdate(event));
+    }
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+  });
+
+  it('drops exact positions when tracking is canceled', () => {
+    arm();
+    (item.timeline as any).handler(50, 200, 400);
+    assert.deepEqual(ExternalProgress.getReportedPosition(item), { durationSeconds: 400, positionSeconds: 200 });
+    ExternalProgress.cancel();
+    assert.equal(ExternalProgress.getReportedPosition(item), undefined);
+  });
+
+  it('does not reuse exact positions or stale handlers when the same playlist is rearmed', () => {
+    arm();
+    const handlePreviousTimeline = (item.timeline as any).handler;
+    handlePreviousTimeline(50, 200, 400);
+    ExternalProgress.arm(instance, [item]);
+    assert.equal(ExternalProgress.getReportedPosition(item), undefined);
+    handlePreviousTimeline(75, 300, 400);
+    assert.equal(ExternalProgress.getReportedPosition(item), undefined);
+    (item.timeline as any).handler(25, 100, 400);
+    assert.deepEqual(ExternalProgress.getReportedPosition(item), { durationSeconds: 400, positionSeconds: 100 });
+  });
+
+  it('does not expose exact positions after leaving the playback activity', () => {
+    arm();
+    (item.timeline as any).handler(50, 200, 400);
+    activity = {};
+    assert.equal(ExternalProgress.getReportedPosition(item), undefined);
+  });
+
+  for (const change of ['navigation', 'cancellation', 'playback', 'credentials']) {
+    it(`ignores a stale item handler (${change})`, async () => {
+      await useProfile();
+      arm();
+      const handlePreviousTimeline = (item.timeline as any).handler;
+      if (change === 'navigation') activity = {};
+      if (change === 'cancellation') ExternalProgress.cancel();
+      if (change === 'playback') ExternalProgress.arm(instance, [item]);
+      if (change === 'credentials') instance.password = 'different';
+      handlePreviousTimeline(50, 200, 400);
+      await PlaybackProgress.flush();
+      assert.equal(timelines.get((item.timeline as any).hash).time, 100);
+      assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
+      assert.equal((TorstApi.saveTitleProgress as any).mock.callCount(), 0);
+    });
+  }
+
+  it('keeps the last exact position available while accepting late native reports', async () => {
+    arm();
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: 'local', percent: 50, time: 200 });
+    mock.timers.tick(2000);
+    await settle();
+    assert.equal(ExternalProgress.isTracked(item), false);
+    assert.deepEqual(ExternalProgress.getReportedPosition(item), { durationSeconds: 400, positionSeconds: 200 });
+    (globalThis as any).Lampa.Timeline.update({ duration: 400, hash: 'local', percent: 75, time: 300 });
+    assert.deepEqual(ExternalProgress.getReportedPosition(item), { durationSeconds: 400, positionSeconds: 300 });
   });
 
   it('waits for an exact report during the return grace period and preserves it', async () => {
@@ -393,6 +593,43 @@ describe('external player progress', () => {
       assert.equal(restored, 1);
       assert.equal(timelines.get((played.timeline as any).hash).time, 140);
       assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), hasProfile ? 1 : 0);
+    });
+  }
+
+  for (const returnSignal of ['suspension', 'timeline', 'handler']) {
+    it(`restores Android file selection and allows replay after a ${returnSignal} return without browser events`, async () => {
+      instance.profileId = 'prf_one';
+      const lampa = (globalThis as any).Lampa;
+      lampa.Storage = { field: () => 'continue' };
+      let focusedController = '';
+      lampa.Controller = { toggle: (name: string) => { focusedController = name; } };
+      let launchCount = 0;
+      let playedItem!: LampaPlayerItem;
+      lampa.Player.playlist = () => {};
+      lampa.Player.callback = () => {};
+      lampa.Player.play = (current: LampaPlayerItem) => {
+        launchCount++;
+        playedItem = current;
+        listeners.get('create')!({ data: current });
+        listeners.get('external')!(current);
+      };
+      mock.method(PreloadModal, 'waitUntilReady', async () => true);
+      const startPlayback = () => playTorrentFile(instance, 'torrent', 0, item, [item], { id: 123 }, 'modal');
+      assert.equal(await startPlayback(), true);
+      if (returnSignal === 'suspension') {
+        mock.timers.setTime(11000);
+        mock.timers.tick(1000);
+      } else if (returnSignal === 'timeline') {
+        lampa.Timeline.update({ duration: 400, hash: (playedItem.timeline as any).hash, percent: 50, time: 200 });
+      } else {
+        (playedItem.timeline as any).handler(50, 200, 400);
+      }
+      mock.timers.tick(2000);
+      await settle();
+      assert.equal(focusedController, 'modal');
+      assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 1);
+      assert.equal(await startPlayback(), true);
+      assert.equal(launchCount, 2);
     });
   }
 

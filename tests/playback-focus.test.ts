@@ -74,6 +74,58 @@ describe('playback focus', () => {
     assert.equal(restores, 0);
   });
 
+  it('does not restore external focus after the same playlist switches to built-in playback', () => {
+    listeners.get('external')!(item);
+    PlaybackFocus.handleExternalReturn();
+    listeners.get('create')!({ data: item });
+    mock.timers.tick(0);
+    assert.equal(restores, 0);
+    browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(restores, 0);
+    exit();
+    assert.equal(restores, 1);
+  });
+
+  it('cancels a pending return when the item launches externally again', () => {
+    listeners.get('external')!(item);
+    PlaybackFocus.handleExternalReturn();
+    listeners.get('external')!(item);
+    mock.timers.tick(0);
+    assert.equal(restores, 0);
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(restores, 0);
+    browser.dispatchEvent(new Event('blur'));
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(restores, 1);
+  });
+
+  it('preserves a page leave delivered before an external relaunch announcement', () => {
+    listeners.get('external')!(item);
+    PlaybackFocus.handleExternalReturn();
+    browser.dispatchEvent(new Event('blur'));
+    listeners.get('external')!(item);
+    browser.dispatchEvent(new Event('focus'));
+    mock.timers.tick(0);
+    assert.equal(restores, 1);
+  });
+
+  it('waits until the page is visible before restoring an explicit external return', () => {
+    listeners.get('external')!(item);
+    page.visibilityState = 'hidden';
+    page.dispatchEvent(new Event('visibilitychange'));
+    PlaybackFocus.handleExternalReturn();
+    mock.timers.tick(0);
+    assert.equal(restores, 0);
+    page.visibilityState = 'visible';
+    page.dispatchEvent(new Event('visibilitychange'));
+    mock.timers.tick(0);
+    assert.equal(restores, 1);
+  });
+
   it('handles Android visibility changes and coalesces duplicate return events', () => {
     listeners.get('external')!(item);
     page.visibilityState = 'hidden';

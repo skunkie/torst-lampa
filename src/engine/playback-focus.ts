@@ -61,10 +61,23 @@ export class PlaybackFocus {
     if (this.isInitialized || !listener) return;
     this.isInitialized = true;
     const handlePlayerCreate = (event: { data?: LampaPlayerItem }) => {
-      if (this.session && !this.session.playlist.includes(event.data as LampaPlayerItem)) this.clear();
+      const session = this.session;
+      if (!session) return;
+      if (!session.playlist.includes(event.data as LampaPlayerItem)) {
+        this.clear();
+        return;
+      }
+      if (this.returnTimer !== null) clearTimeout(this.returnTimer);
+      this.returnTimer = null;
+      session.isExternal = false;
+      session.hasLeftPage = false;
     };
     const handleExternalLaunch = (item: LampaPlayerItem) => {
-      if (this.session?.playlist.includes(item)) this.session.isExternal = true;
+      const session = this.session;
+      if (!session?.playlist.includes(item)) return;
+      if (this.returnTimer !== null) clearTimeout(this.returnTimer);
+      this.returnTimer = null;
+      session.isExternal = true;
     };
     listener.follow('create', handlePlayerCreate);
     listener.follow('external', handleExternalLaunch);
@@ -91,9 +104,15 @@ export class PlaybackFocus {
     }
   }
 
-  private static handleReturn(): void {
+  public static handleExternalReturn(): void {
+    this.handleReturn(true);
+  }
+
+  private static handleReturn(hasExplicitReturnSignal = false): void {
     const session = this.session;
-    if (!session?.isExternal || !session.hasLeftPage || this.returnTimer !== null) return;
+    if (!session?.isExternal || (!session.hasLeftPage && !hasExplicitReturnSignal) || this.returnTimer !== null
+      || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
+    session.hasLeftPage = false;
     this.returnTimer = setTimeout(() => {
       this.returnTimer = null;
       if (this.session !== session || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;

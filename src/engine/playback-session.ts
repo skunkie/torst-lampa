@@ -395,11 +395,15 @@ export async function playTorrentFile(
     rememberPlayerPlaylist(mappedPlaylist);
     Lampa.Player.playlist(mappedPlaylist);
   }
-  ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), () => PlaybackRecovery.handleExternalReturn());
+  const handleExternalReturn = () => {
+    PlaybackRecovery.handleExternalReturn();
+    PlaybackFocus.handleExternalReturn();
+  };
+  ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), handleExternalReturn);
   PlaybackRecovery.arm(instance, torrentHash, mappedPlaylist, recoverySource, historyCard, returnController, recoveredItem => {
     rememberPlayerPlaylist(mappedPlaylist);
     Lampa.Player.playlist(mappedPlaylist);
-    ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), () => PlaybackRecovery.handleExternalReturn());
+    ExternalProgress.arm(instance, mappedPlaylist, () => PlaybackRecovery.cancel(), handleExternalReturn);
     PlaybackFocus.rearm(mappedPlaylist, () => { Lampa.Controller.toggle(returnController); });
     Lampa.Player.play(recoveredItem);
   });

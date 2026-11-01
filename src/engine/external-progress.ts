@@ -13,7 +13,6 @@ const TICK_MS = 1000;
 
 interface ExternalSession {
   activity: unknown,
-  exactReports: Set<LampaPlayerItem>,
   externalItems: Set<LampaPlayerItem>,
   hasLeftPage: boolean,
   instance: TorstInstance,
@@ -22,7 +21,8 @@ interface ExternalSession {
   measurementRevision?: number,
   onCompleted?: () => void,
   onReturn?: () => void,
-  playlist: LampaPlayerItem[]
+  playlist: LampaPlayerItem[],
+  reportedPositions: Map<LampaPlayerItem, ReportedPosition>
 }
 
 interface PlaybackTimeline {
@@ -35,13 +35,25 @@ interface ReportedPosition {
   positionSeconds: number
 }
 
+interface TimelineUpdateEvent {
+  data?: {
+    hash?: number | string,
+    road?: {
+      duration?: unknown,
+      percent?: unknown,
+      time?: unknown
+    }
+  }
+}
+
 export class ExternalProgress {
   private static session: ExternalSession | null = null;
+  private static reportingSession: ExternalSession | null = null;
   private static viewings = new WeakMap<LampaPlayerItem, FileViewing>();
   private static timelineHandlers = new WeakMap<LampaPlayerItem, NonNullable<PlaybackTimeline['handler']>>();
-  private static reportedPositions = new WeakMap<LampaPlayerItem, ReportedPosition>();
   private static cleanupListeners: Array<() => void> = [];
   private static isInitialized = false;
+  private static isUpdatingTimeline = false;
   private static returnTimer: ReturnType<typeof setTimeout> | null = null;
   private static tickTimer: ReturnType<typeof setInterval> | null = null;
   private static lastTickAtMs = 0;
@@ -84,7 +96,8 @@ export class ExternalProgress {
   }
 
   public static getReportedPosition(item: LampaPlayerItem): ReportedPosition | undefined {
-    return this.reportedPositions.get(item);
+    const session = this.session || this.reportingSession;
+    return session && this.hasCurrentContext(session) ? session.reportedPositions.get(item) : undefined;
   }
 
   public static isTracked(item: LampaPlayerItem): boolean {
@@ -100,7 +113,6 @@ export class ExternalProgress {
     this.clear();
     const session: ExternalSession = {
       activity: Lampa.Activity?.active?.(),
-      exactReports: new Set(),
       externalItems: new Set(),
       hasLeftPage: false,
       instance: { ...instance },
@@ -108,6 +120,7 @@ export class ExternalProgress {
       onCompleted,
       onReturn,
       playlist,
+      reportedPositions: new Map(),
     };
     this.session = session;
     for (const item of playlist) {
@@ -117,22 +130,31 @@ export class ExternalProgress {
       if (timeline && handler) item.timeline = {
         ...timeline,
         handler: (percent: number, time: number, duration: number) => {
+          if ((this.session !== session && this.reportingSession !== session) || !this.hasCurrentContext(session)) return;
           const positionSeconds = Number(time);
           const durationSeconds = Number(duration);
           if (Number.isFinite(positionSeconds) && positionSeconds >= 0 && Number.isFinite(durationSeconds)
             && durationSeconds > 0 && durationSeconds <= 1000000) {
-            session.exactReports.add(item);
-            this.reportedPositions.set(item, { durationSeconds, positionSeconds: Math.min(positionSeconds, durationSeconds) });
+            session.reportedPositions.set(item, { durationSeconds, positionSeconds: Math.min(positionSeconds, durationSeconds) });
           }
-          handler(percent, time, duration);
+          this.isUpdatingTimeline = true;
+          try {
+            handler(percent, time, duration);
+          } finally {
+            this.isUpdatingTimeline = false;
+          }
+          if (this.session === session && session.externalItems.has(item)) this.scheduleMeasurement();
         },
       };
     }
   }
 
   private static isCurrent(session: ExternalSession): boolean {
-    return this.session === session
-      && (session.activity === undefined || Lampa.Activity?.active?.() === session.activity)
+    return this.session === session && this.hasCurrentContext(session);
+  }
+
+  private static hasCurrentContext(session: ExternalSession): boolean {
+    return (session.activity === undefined || Lampa.Activity?.active?.() === session.activity)
       && InstanceManager.getInstances().some(instance => instance.id === session.instance.id
         && instance.url === session.instance.url && instance.profileId === session.instance.profileId
         && instance.authType === session.instance.authType && instance.password === session.instance.password);
@@ -147,15 +169,16 @@ export class ExternalProgress {
       if (!session?.playlist.includes(item)) return;
       if (this.returnTimer !== null) clearTimeout(this.returnTimer);
       this.returnTimer = null;
+      this.reportingSession = session;
       session.item = item;
       session.externalItems.add(item);
-      session.exactReports.delete(item);
-      this.reportedPositions.delete(item);
+      session.reportedPositions.delete(item);
       session.launchRevision++;
       this.lastTickAtMs = Date.now();
       if (this.tickTimer === null) this.tickTimer = setInterval(() => this.handleTick(), TICK_MS);
     };
     const handlePlayerCreate = (event: { data?: LampaPlayerItem }) => {
+      this.reportingSession = null;
       const session = this.session;
       if (!session) return;
       if (!session.playlist.includes(event.data as LampaPlayerItem)) {
@@ -173,6 +196,13 @@ export class ExternalProgress {
       listener.remove?.('external', handleExternalLaunch);
       listener.remove?.('create', handlePlayerCreate);
     });
+    const timelineListener = Lampa.Timeline?.listener;
+    if (timelineListener) {
+      // Android can report directly to Timeline.update instead of the item's handler.
+      const handleTimelineUpdate = (event: TimelineUpdateEvent) => this.handleTimelineUpdate(event);
+      timelineListener.follow('update', handleTimelineUpdate);
+      this.cleanupListeners.push(() => timelineListener.remove?.('update', handleTimelineUpdate));
+    }
     const handlePageLeave = () => { if (this.session) this.session.hasLeftPage = true; };
     const handlePageReturn = () => {
       if (this.session?.hasLeftPage) this.scheduleMeasurement();
@@ -190,6 +220,24 @@ export class ExternalProgress {
       document.addEventListener('visibilitychange', handleVisibilityChange);
       this.cleanupListeners.push(() => document.removeEventListener('visibilitychange', handleVisibilityChange));
     }
+  }
+
+  private static handleTimelineUpdate(event: TimelineUpdateEvent): void {
+    const session = this.reportingSession;
+    if (this.isUpdatingTimeline || PlaybackProgress.isApplyingServerProgress()
+      || !session || !this.hasCurrentContext(session) || !event.data) return;
+    const { hash: timelineHash, road: reportedProgress } = event.data;
+    if (timelineHash === undefined || !reportedProgress) return;
+    const item = session.playlist.find(candidate => String((candidate.timeline as PlaybackTimeline | undefined)?.hash) === String(timelineHash));
+    if (!item) return;
+    const durationSeconds = Number(reportedProgress.duration);
+    const reportedTimeSeconds = Number(reportedProgress.time);
+    const positionSeconds = Number(reportedProgress.percent) >= 90 && reportedTimeSeconds === 0 ? durationSeconds : reportedTimeSeconds;
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > 1000000
+      || !Number.isFinite(positionSeconds) || positionSeconds < 0) return;
+    session.reportedPositions.set(item, { durationSeconds, positionSeconds: Math.min(positionSeconds, durationSeconds) });
+    PlaybackProgress.savePlayerProgress(timelineHash, positionSeconds, durationSeconds);
+    this.scheduleMeasurement();
   }
 
   private static handleTick(): void {
@@ -233,7 +281,7 @@ export class ExternalProgress {
     if (!item || !this.isCurrent(session) || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
     const viewing = this.viewings.get(item);
     if (!viewing) {
-      this.clear();
+      this.finishMeasurement(session);
       return;
     }
     const launchRevision = session.launchRevision;
@@ -244,7 +292,7 @@ export class ExternalProgress {
       if (error instanceof TorstApiError && error.status === 404 && this.isCurrent(session)
         && session.launchRevision === launchRevision) {
         this.viewings.delete(item);
-        this.clear();
+        this.finishMeasurement(session);
       }
       return;
     }
@@ -253,20 +301,31 @@ export class ExternalProgress {
     const timeline = item.timeline as PlaybackTimeline | undefined;
     const position = observed.position_seconds;
     const duration = observed.duration_seconds;
-    if (!session.exactReports.has(item) && timeline && position !== null && duration !== null
+    if (!session.reportedPositions.has(item) && timeline && position !== null && duration !== null
       && Number.isFinite(position) && Number.isFinite(duration) && position > 10 && duration > 0 && duration <= 1000000 && position <= duration) {
       const resumeSeconds = position / duration >= 0.9 ? 0 : position;
       const percent = position / duration >= 0.9 ? 100 : resumeSeconds / duration * 100;
-      Lampa.Timeline?.update({ ...timeline, duration, percent, time: resumeSeconds });
+      this.isUpdatingTimeline = true;
+      try {
+        Lampa.Timeline?.update({ ...timeline, duration, percent, time: resumeSeconds });
+      } finally {
+        this.isUpdatingTimeline = false;
+      }
       if (session.instance.profileId) {
         PlaybackProgress.saveExternalProgress(timeline.hash, position / duration >= 0.9 ? position : resumeSeconds, duration);
         await PlaybackProgress.flush();
       }
     }
     if (this.isCurrent(session) && session.item === item && session.launchRevision === launchRevision && !observed.streaming) {
+      this.finishMeasurement(session, true);
       session.onCompleted?.();
-      this.clear(true);
     }
+  }
+
+  private static finishMeasurement(session: ExternalSession, shouldReleaseViewings = false): void {
+    this.clear(shouldReleaseViewings);
+    // Native Android reports may arrive after the viewing has already stopped streaming.
+    this.reportingSession = session;
   }
 
   private static stopTimers(): void {
@@ -280,6 +339,7 @@ export class ExternalProgress {
     this.stopTimers();
     const session = this.session;
     this.session = null;
+    this.reportingSession = null;
     if (!session) return;
     for (const item of session.playlist) {
       if (session.externalItems.has(item) && (!shouldReleaseViewings || session.item !== item)) continue;
@@ -298,6 +358,5 @@ export class ExternalProgress {
     this.isInitialized = false;
     this.viewings = new WeakMap();
     this.timelineHandlers = new WeakMap();
-    this.reportedPositions = new WeakMap();
   }
 }

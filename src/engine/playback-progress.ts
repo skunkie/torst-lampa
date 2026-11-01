@@ -32,6 +32,7 @@ export class PlaybackProgress {
   private static bindings = new Map<string, ProgressBinding>();
   private static hasReportedFailure = false;
   private static generation = 0;
+  private static isApplyingServerTimeline = false;
 
   public static timelineHash(instance: TorstInstance | undefined, fileId: string | undefined, localHash: number | string): number | string {
     if (!instance?.profileId) return localHash;
@@ -48,7 +49,12 @@ export class PlaybackProgress {
       time: saved?.position_seconds || 0,
       updated: saved ? Date.parse(saved.updated_at) || 0 : 0,
     });
-    Lampa.Timeline.update?.({ ...timeline, received: true });
+    this.isApplyingServerTimeline = true;
+    try {
+      Lampa.Timeline.update?.({ ...timeline, received: true });
+    } finally {
+      this.isApplyingServerTimeline = false;
+    }
   }
 
   private static async loadTitleProgress(instance: TorstInstance, profileId: string, movie: LampaMovie, isCurrent: () => boolean): Promise<TitleProgress[]> {
@@ -209,6 +215,15 @@ export class PlaybackProgress {
       await Promise.all(pending);
       pending = [...this.bindings.values()].map(binding => binding.saving).filter((saving): saving is Promise<void> => saving !== undefined);
     }
+  }
+
+  public static isApplyingServerProgress(): boolean {
+    return this.isApplyingServerTimeline;
+  }
+
+  public static savePlayerProgress(timelineHash: number | string, positionSeconds: number, durationSeconds: number): void {
+    const binding = this.bindings.get(String(timelineHash));
+    if (binding) this.recordProgress(binding, positionSeconds, durationSeconds);
   }
 
   public static saveExternalProgress(hash: number | string, positionSeconds: number, durationSeconds: number): void {
