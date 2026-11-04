@@ -230,8 +230,10 @@ export async function playTorrentFile(
   playlist: LampaPlaylistItem[],
   movie?: LampaMovie,
   returnController = 'content',
-  sourceTorrentItem?: LampaTorrentItem
+  sourceTorrentItem?: LampaTorrentItem,
+  signal?: AbortSignal
 ): Promise<boolean> {
+  if (signal?.aborted) return false;
   const generation = ++playbackGeneration;
   PlaybackRecovery.cancel();
   ExternalProgress.cancel();
@@ -240,7 +242,7 @@ export async function playTorrentFile(
   const activity = Lampa.Activity?.active?.();
   const instanceUrl = instance.url;
   const profileId = instance.profileId;
-  const isCurrent = () => generation === playbackGeneration && instance.url === instanceUrl && instance.profileId === profileId
+  const isCurrent = () => !signal?.aborted && generation === playbackGeneration && instance.url === instanceUrl && instance.profileId === profileId
     && (activity === undefined || Lampa.Activity?.active?.() === activity);
   const resolvedMovie = resolveMovieContext(movie);
   const poster = resolvePosterUrl(undefined, resolvedMovie) || playlistItem.img || '';
@@ -280,7 +282,8 @@ export async function playTorrentFile(
     torrentHash,
     { index: fileIndex, path: playlistItem.path },
     loadingMedia,
-    playbackFraction
+    playbackFraction,
+    signal
   );
   if (!isPreloadReady || !isCurrent()) return false;
 

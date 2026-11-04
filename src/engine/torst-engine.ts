@@ -453,13 +453,17 @@ export class TorstEngine {
     fileIndex = 0,
     movie?: LampaMovie,
     sourceInstance?: TorstInstance,
-    returnController = 'content'
+    returnController = 'content',
+    signal?: AbortSignal
   ): Promise<boolean> {
+    if (signal?.aborted) return false;
     const instance = sourceInstance || await InstanceManager.getBestInstance();
+    if (signal?.aborted) return false;
     const readyTorrent = torrent.files && torrent.files.length > 0
       ? torrent
       : await this.waitForFiles(instance, torrent.hash);
 
+    if (signal?.aborted) return false;
     const torrentFiles: TorrentFile[] = readyTorrent.files || [];
     const sortedFiles = selectVideoFiles(torrentFiles);
 
@@ -514,7 +518,9 @@ export class TorstEngine {
       selectedPlaylistItem,
       playlist,
       mediaMetadata,
-      returnController
+      returnController,
+      undefined,
+      signal
     );
   }
 

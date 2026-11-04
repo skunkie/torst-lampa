@@ -1391,6 +1391,35 @@ describe('TorstEngine', () => {
     }
   });
 
+  for (const stage of ['before', 'instance', 'metadata']) {
+    it(`does not start a canceled database playback request during ${stage} resolution`, async () => {
+      const instance: TorstInstance = { authType: 'none', id: 'one', name: 'One', url: 'http://torst.test' };
+      const torrent: Torrent = {
+        files: [{ fileId: 'fil_one', length: 100, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
+        hash: 'a'.repeat(40), name: 'Sintel', retention: 'persisted', storage: 'memory', total_size: 100,
+      };
+      const abort = new AbortController();
+      let finish!: () => void;
+      const selection = mock.method(InstanceManager, 'getBestInstance', () => new Promise<TorstInstance>(resolve => { finish = () => resolve(instance); }));
+      const metadata = mock.method(TorstEngine as any, 'waitForFiles', () => new Promise<Torrent>(resolve => { finish = () => resolve(torrent); }));
+      const preload = mock.method(PreloadModal, 'waitUntilReady', async () => true);
+      if (stage === 'before') abort.abort();
+      const playback = TorstEngine.startTorrentPlayback(
+        stage === 'metadata' ? { ...torrent, files: [] } : torrent,
+        0, undefined, stage === 'metadata' ? instance : undefined, 'modal', abort.signal
+      );
+      if (stage !== 'before') {
+        assert.ok(finish);
+        abort.abort();
+        finish();
+      }
+      assert.equal(await playback, false);
+      assert.equal(preload.mock.callCount(), 0);
+      assert.equal(selection.mock.callCount(), stage === 'instance' ? 1 : 0);
+      assert.equal(metadata.mock.callCount(), stage === 'metadata' ? 1 : 0);
+    });
+  }
+
   it('reports no hand-off when the preload is canceled', async () => {
     let playCount = 0;
     const originalWaitUntilReady = PreloadModal.waitUntilReady;

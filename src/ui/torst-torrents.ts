@@ -404,9 +404,8 @@ export class TorstTorrentsComponent {
       },
       toggle: () => {
         this.isPaused = false;
-        // Recompute scroll layout here, not during silent background refreshes, since this
-        // callback fires exactly when this component genuinely regains focus.
-        this.scrollView.update(this.contentGrid, true);
+        // The toolbar sits outside the scroll view, so focusing it must not recenter the grid.
+        if (!this.toolbar?.[0]?.contains(this.lastFocusedElement)) this.scrollView.update(this.contentGrid, true);
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(this.lastFocusedElement || false, this.controllerRoot());
         if (this.needsReload) {

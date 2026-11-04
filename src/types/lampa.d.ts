@@ -282,7 +282,8 @@ interface LampaModalOptions {
 
 interface LampaModal {
   close(): void,
-  open(options: LampaModalOptions): void
+  open(options: LampaModalOptions): void,
+  update(html: LampaDomElement): void
 }
 
 interface LampaController {

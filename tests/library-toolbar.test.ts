@@ -270,6 +270,27 @@ describe('Torst library toolbar', () => {
     assert.equal((component as any).lastFocusedElement, button);
   });
 
+  it('preserves the grid scroll position when returning from Up Next to its toolbar button', async () => {
+    let controller: any;
+    mock.method(Lampa.Controller, 'add', (_name: string, value: any) => { controller = value; });
+    mock.method(Lampa.Controller, 'toggle', (name: string) => { if (name === 'content') controller?.toggle(); });
+    component.start();
+    const toolbar = (component as any).toolbar;
+    const button = toolbar.find('.torst-library-up-next')[0];
+    toolbar.find('.selector').events['hover:focus']({ currentTarget: button });
+    let onBack!: () => void;
+    mock.method(UpNextUi, 'show', async (_instance: TorstInstance, back: () => void) => { onBack = back; });
+    const scroll = mock.method((component as any).scrollView, 'update');
+    const focus = mock.method(Lampa.Controller, 'collectionFocus');
+    await (component as any).openUpNext();
+    onBack();
+    assert.equal(scroll.mock.callCount(), 0);
+    assert.equal(focus.mock.calls[0].arguments[0], button);
+    (component as any).lastFocusedElement = null;
+    controller.toggle();
+    assert.equal(scroll.mock.callCount(), 1);
+  });
+
   it('opens Up Next from the toolbar and restores the content controller on Back', async () => {
     let onBack!: () => void;
     const upNext = mock.method(UpNextUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
