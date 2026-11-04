@@ -212,9 +212,9 @@ export class TorstEngine {
   }
 
   /**
-   * Adds torrent to Torst database without immediately starting playback.
+   * Adds torrent to Torst library without immediately starting playback.
    */
-  public static async saveToDatabase(torrentItem: LampaTorrentItem, movie?: LampaMovie): Promise<void> {
+  public static async saveToLibrary(torrentItem: LampaTorrentItem, movie?: LampaMovie): Promise<void> {
     const rawSource = (
       torrentItem?.MagnetUri ||
       torrentItem?.Link ||
@@ -269,7 +269,7 @@ export class TorstEngine {
       SavedTorrents.markSaved(torrentHash || outcome.result?.hash, outcome.instance.id);
       if (Lampa.Noty) {
         Lampa.Noty.show(
-          translate('torst_noty_added_db', `Torst: "${title}" added to database!`, { title })
+          translate('torst_noty_added_library', `Torst: "${title}" added to library!`, { title })
         );
       }
     } catch (err: unknown) {
@@ -319,7 +319,7 @@ export class TorstEngine {
       'Torrent';
     const poster = resolvePosterUrl(torrentItem, resolvedMovie);
 
-    // 1. Resolve storage and DB persistence preferences
+    // 1. Resolve storage and library persistence preferences
     const playOptions = await PlayDialog.resolveOptions(title);
     if (!playOptions) return; // User canceled dialog
 
@@ -357,7 +357,7 @@ export class TorstEngine {
       const outcome = await this.withFailover(
         instance,
         async i => {
-          const retention = playOptions.saveToDb ? 'persisted' : 'temporary';
+          const retention = playOptions.saveToLibrary ? 'persisted' : 'temporary';
           if (torrentLink) {
             return TorstApi.resolveTorrent(i, torrentLink, {
               poster,

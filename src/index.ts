@@ -10,7 +10,7 @@ import { initTranslations, translate } from './lang/translations';
 import { ParserHook } from './providers/parser-hook';
 import { ProviderManager } from './providers/provider-manager';
 import { CatalogChoice } from './ui/catalog-choice';
-import { DatabaseSearch } from './ui/database-search';
+import { LibrarySearch } from './ui/library-search';
 import { ProfileHeaderUi } from './ui/profile-header';
 import { SettingsUi } from './ui/settings';
 import { SidebarManager } from './ui/sidebar';
@@ -32,7 +32,7 @@ function initPlugin(): void {
     TorstEngine.init();
     initPlayerPlaylist();
     ParserHook.init();
-    DatabaseSearch.init();
+    LibrarySearch.init();
     ProfileHeaderUi.init();
 
     if (Lampa.Manifest) {

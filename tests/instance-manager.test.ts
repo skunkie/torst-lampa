@@ -105,7 +105,7 @@ describe('InstanceManager', () => {
     const notifications: string[] = [];
     InstanceManager.onSelectionChanged(() => notifications.push('changed'));
 
-    instance.url = 'http://another-database.example';
+    instance.url = 'http://another-library.example';
     InstanceManager.updateInstance(instance);
     assert.equal(notifications.length, 1);
 
@@ -122,7 +122,7 @@ describe('InstanceManager', () => {
     (InstanceManager as any).selectionListeners.length = 0;
   });
 
-  it('announces a pool reloaded from storage with other databases, but not the first load', () => {
+  it('announces a pool reloaded from storage with other libraries, but not the first load', () => {
     const notifications: string[] = [];
     InstanceManager.onSelectionChanged(() => notifications.push('changed'));
 

@@ -4,9 +4,9 @@
 
 import { isNetworkError } from '../api/http-client';
 import { TorstApi, TorstApiError } from '../api/torst';
-import { DATABASE_SEARCH_ENABLED_STORAGE_KEY, searchDatabaseTorrents } from '../engine/database-search';
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY, searchLibraryTorrents } from '../engine/library-search';
 import { PlaybackFocus } from '../engine/playback-focus';
 import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
@@ -30,18 +30,18 @@ import { TORST_TORRENTS_COMPONENT_ID } from './torst-torrents';
 // Lampa offers a row's "More" view once its results span more than one page of this size.
 const RESULTS_PER_PAGE = 20;
 
-interface DatabaseSearchItem {
-  databaseScopeId: string,
+interface LibrarySearchItem {
   instanceId: string,
-  params?: { createInstance: (item: DatabaseSearchItem) => SavedTorrentSearchCard },
+  libraryScopeId: string,
+  params?: { createInstance: (item: LibrarySearchItem) => SavedTorrentSearchCard },
   torrent: SavedTorrentSummary,
   torrentHash: string
 }
 
-interface DatabaseSearchRow {
+interface LibrarySearchRow {
   instanceId: string,
   query: string,
-  results: DatabaseSearchItem[],
+  results: LibrarySearchItem[],
   title: string,
   total: number,
   total_pages: number
@@ -54,13 +54,13 @@ interface GlobalSearchTabs {
   tabs(): HTMLElement
 }
 
-interface DatabaseSearchSource {
+interface LibrarySearchSource {
   onCancel: () => void,
-  onMore: (params: { data: DatabaseSearchRow, query?: string }, close: () => void) => void,
-  onRecall: (rows: DatabaseSearchRow[]) => void,
-  onSelect: (params: { element: DatabaseSearchItem, line: { toggle: () => void } }) => void,
+  onMore: (params: { data: LibrarySearchRow, query?: string }, close: () => void) => void,
+  onRecall: (rows: LibrarySearchRow[]) => void,
+  onSelect: (params: { element: LibrarySearchItem, line: { toggle: () => void } }) => void,
   params: { lazy: boolean },
-  search: (params: { query: string }, onComplete: (rows: DatabaseSearchRow[]) => void) => void,
+  search: (params: { query: string }, onComplete: (rows: LibrarySearchRow[]) => void) => void,
   title: string
 }
 
@@ -74,7 +74,7 @@ class SavedTorrentSearchCard {
   private onEnter: (() => void) | null = null;
   private readonly watchedOverlay = new WatchedOverlayScheduler();
 
-  public constructor(private readonly item: DatabaseSearchItem) {}
+  public constructor(private readonly item: LibrarySearchItem) {}
 
   public use(handlers: { onEnter?: () => void }): void {
     if (handlers.onEnter) this.onEnter = handlers.onEnter;
@@ -121,25 +121,25 @@ class SavedTorrentSearchCard {
   }
 }
 
-export class DatabaseSearch {
+export class LibrarySearch {
   private static cancelSearch: (() => void) | null = null;
-  private static databaseScopeId = '';
+  private static libraryScopeId = '';
   private static isRegistered = false;
   private static isSourceActive = false;
   private static playbackRequestId = 0;
-  private static source: DatabaseSearchSource | null = null;
+  private static source: LibrarySearchSource | null = null;
 
   public static init(): void {
     if (this.isRegistered || typeof Lampa === 'undefined' || !Lampa.Search || !Lampa.Storage) return;
     this.isRegistered = true;
-    this.databaseScopeId = generateUuid();
+    this.libraryScopeId = generateUuid();
     this.syncSource();
     Lampa.Storage.listener?.follow('change', event => {
-      if (event.name === DATABASE_SEARCH_ENABLED_STORAGE_KEY || event.name === TORST_ENABLED_STORAGE_KEY) {
+      if (event.name === LIBRARY_SEARCH_ENABLED_STORAGE_KEY || event.name === TORST_ENABLED_STORAGE_KEY) {
         this.syncSource();
       }
     });
-    InstanceManager.onSelectionChanged(() => this.invalidateDatabaseScope());
+    InstanceManager.onSelectionChanged(() => this.invalidateLibraryScope());
     this.followSearchOpening();
   }
 
@@ -175,19 +175,19 @@ export class DatabaseSearch {
     });
   }
 
-  private static invalidateDatabaseScope(): void {
-    this.databaseScopeId = generateUuid();
+  private static invalidateLibraryScope(): void {
+    this.libraryScopeId = generateUuid();
     this.playbackRequestId++;
     this.cancelSearch?.();
   }
 
-  private static addCardFactory(item: DatabaseSearchItem): void {
+  private static addCardFactory(item: LibrarySearchItem): void {
     item.params = { createInstance: candidate => new SavedTorrentSearchCard(candidate) };
   }
 
   private static isEnabled(): boolean {
     return Boolean(Lampa.Storage.get(TORST_ENABLED_STORAGE_KEY, true))
-      && readTriggerSetting(DATABASE_SEARCH_ENABLED_STORAGE_KEY);
+      && readTriggerSetting(LIBRARY_SEARCH_ENABLED_STORAGE_KEY);
   }
 
   private static syncSource(): void {
@@ -196,14 +196,14 @@ export class DatabaseSearch {
       Lampa.Search?.addSource(this.source);
       this.isSourceActive = true;
     } else if (!this.isEnabled() && this.isSourceActive) {
-      this.invalidateDatabaseScope();
+      this.invalidateLibraryScope();
       Lampa.Search?.removeSource(this.source);
       this.isSourceActive = false;
     }
   }
 
-  private static createSource(): DatabaseSearchSource {
-    const title = translate('torst_database_search_title', 'Torst Database');
+  private static createSource(): LibrarySearchSource {
+    const title = translate('torst_library_search_title', 'Torst Library');
     return {
       onCancel: () => {
         this.playbackRequestId++;
@@ -225,7 +225,7 @@ export class DatabaseSearch {
         const instanceIds = new Set(InstanceManager.getInstances().map(instance => instance.id));
         rows.forEach(row => {
           row.results = this.isEnabled()
-            ? row.results.filter(item => item.databaseScopeId === this.databaseScopeId && instanceIds.has(item.instanceId))
+            ? row.results.filter(item => item.libraryScopeId === this.libraryScopeId && instanceIds.has(item.instanceId))
             : [];
           row.results.forEach(item => this.addCardFactory(item));
         });
@@ -251,7 +251,7 @@ export class DatabaseSearch {
       search: (params, onComplete) => {
         this.cancelSearch?.();
         let isSettled = false;
-        const complete = (rows: DatabaseSearchRow[]) => {
+        const complete = (rows: LibrarySearchRow[]) => {
           if (isSettled) return;
           isSettled = true;
           if (this.cancelSearch === cancel) this.cancelSearch = null;
@@ -267,20 +267,20 @@ export class DatabaseSearch {
         InstanceManager.getBestKnownInstance().then(async instance => {
           if (isSettled) return;
           let activeInstance = instance;
-          const torrents = await searchDatabaseTorrents(instance, query).catch(async error => {
+          const torrents = await searchLibraryTorrents(instance, query).catch(async error => {
             const isServerError = error instanceof TorstApiError && error.status >= 500;
             if (isSettled || (!isServerError && !isNetworkError(error))) throw error;
             const fallbackInstance = await InstanceManager.failover(instance, () => isSettled);
             if (isSettled || !fallbackInstance) throw error;
             activeInstance = fallbackInstance;
-            return searchDatabaseTorrents(fallbackInstance, query);
+            return searchLibraryTorrents(fallbackInstance, query);
           });
           if (isSettled) return;
           // The whole match list goes in the row: Lampa counts a tab's results by the items it is
           // handed, and draws the row's cards progressively as it is scrolled.
-          const results: DatabaseSearchItem[] = torrents.map(torrent => ({
-            databaseScopeId: this.databaseScopeId,
+          const results: LibrarySearchItem[] = torrents.map(torrent => ({
             instanceId: activeInstance.id,
+            libraryScopeId: this.libraryScopeId,
             torrent: summarizeSavedTorrent(torrent),
             torrentHash: torrent.hash,
           }));
@@ -299,8 +299,8 @@ export class DatabaseSearch {
     };
   }
 
-  private static async openTorrent(item: DatabaseSearchItem, returnController: string, restoreFocus: () => void): Promise<void> {
-    if (!this.isEnabled() || item.databaseScopeId !== this.databaseScopeId) return;
+  private static async openTorrent(item: LibrarySearchItem, returnController: string, restoreFocus: () => void): Promise<void> {
+    if (!this.isEnabled() || item.libraryScopeId !== this.libraryScopeId) return;
     const playbackRequestId = ++this.playbackRequestId;
     const instance = InstanceManager.getInstances().find(candidate => candidate.id === item.instanceId);
     if (!instance) return;
@@ -311,11 +311,11 @@ export class DatabaseSearch {
       if (playbackRequestId !== this.playbackRequestId) return;
       throw error;
     }
-    if (playbackRequestId !== this.playbackRequestId || item.databaseScopeId !== this.databaseScopeId) return;
+    if (playbackRequestId !== this.playbackRequestId || item.libraryScopeId !== this.libraryScopeId) return;
     const torrentFiles = torrent.files || [];
     const files = selectVideoFiles(torrentFiles);
     const playFile = (fileIndex: number, playbackReturnController: string, restorePlaybackFocus: () => void) => {
-      if (!this.isEnabled() || item.databaseScopeId !== this.databaseScopeId) return;
+      if (!this.isEnabled() || item.libraryScopeId !== this.libraryScopeId) return;
       void this.playFile(torrent, fileIndex, item.instanceId, playbackReturnController).then(isHandedOff => {
         if (isHandedOff) PlaybackFocus.setCallback(restorePlaybackFocus);
         else restorePlaybackFocus();
@@ -332,7 +332,7 @@ export class DatabaseSearch {
     }
     await showSavedTorrentFiles({
       instance,
-      isStale: () => playbackRequestId !== this.playbackRequestId || item.databaseScopeId !== this.databaseScopeId,
+      isStale: () => playbackRequestId !== this.playbackRequestId || item.libraryScopeId !== this.libraryScopeId,
       onBack: () => {
         Lampa.Modal.close();
         restoreFocus();

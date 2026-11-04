@@ -54,8 +54,8 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     ru: 'Уже в Torst',
   },
   torst_already_saved_descr: {
-    en: 'Available in the Torst database',
-    ru: 'Доступен в базе Torst',
+    en: 'Available in the Torst library',
+    ru: 'Доступен в библиотеке Torst',
   },
   torst_auth_bearer_descr: {
     en: 'Sign in with the Torst password',
@@ -145,18 +145,6 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Current: {value}',
     ru: 'Текущее значение: {value}',
   },
-  torst_database_search_descr: {
-    en: 'Show saved torrents in Lampa global search',
-    ru: 'Сохраненные торренты в общем поиске Lampa',
-  },
-  torst_database_search_name: {
-    en: 'Torst Database in Global Search',
-    ru: 'База Torst в общем поиске',
-  },
-  torst_database_search_title: {
-    en: 'Torst Database',
-    ru: 'База Torst',
-  },
   torst_delete_instance: {
     en: 'Delete Instance',
     ru: 'Удалить инстанс',
@@ -190,16 +178,16 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     ru: 'Изменить URL инстанса',
   },
   torst_empty_conn_error: {
-    en: 'Unable to load database torrents: {msg}<br>Please check your instance connection.',
-    ru: 'Не удалось загрузить торренты из базы: {msg}<br>Проверьте подключение к инстансу.',
+    en: 'Unable to load library torrents: {msg}<br>Please check your instance connection.',
+    ru: 'Не удалось загрузить торренты из библиотеки: {msg}<br>Проверьте подключение к инстансу.',
   },
   torst_empty_conn_error_title: {
     en: 'Torst: Connection Error',
     ru: 'Torst: Ошибка подключения',
   },
-  torst_empty_db: {
-    en: 'No torrents found in Torst database',
-    ru: 'В базе Torst нет торрентов',
+  torst_empty_library: {
+    en: 'No torrents found in Torst library',
+    ru: 'В библиотеке Torst нет торрентов',
   },
   torst_empty_no_instances: {
     en: 'No Torst instances are configured.<br>Please add an instance in Settings → Torst → Manage Instance Pool.',
@@ -234,8 +222,8 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     ru: 'Включить Torst',
   },
   torst_hint_storage_requires_save: {
-    en: 'Disk storage requires Save to Database',
-    ru: 'Для хранения на диске нужно сохранение в базу',
+    en: 'Disk storage requires Save to Library',
+    ru: 'Для хранения на диске нужно сохранение в библиотеку',
   },
   torst_instance_url_placeholder: {
     en: 'Instance URL (e.g. http://192.168.1.100:8080)',
@@ -250,8 +238,8 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     ru: 'Оставить инстанс',
   },
   torst_label_persistence: {
-    en: 'Database:',
-    ru: 'Сохранение в базе:',
+    en: 'Library:',
+    ru: 'Сохранение в библиотеке:',
   },
   torst_label_storage: {
     en: 'Storage Type:',
@@ -260,6 +248,18 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
   torst_latency_ms: {
     en: '{latency} ms',
     ru: '{latency}\u00A0мс',
+  },
+  torst_library_search_descr: {
+    en: 'Show saved torrents in Lampa global search',
+    ru: 'Сохраненные торренты в общем поиске Lampa',
+  },
+  torst_library_search_name: {
+    en: 'Torst Library in Global Search',
+    ru: 'Библиотека Torst в общем поиске',
+  },
+  torst_library_search_title: {
+    en: 'Torst Library',
+    ru: 'Библиотека Torst',
   },
   torst_manage_pool_descr: {
     en: 'Instances, authentication, and latency checks',
@@ -305,9 +305,9 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Added {name} to pool',
     ru: 'Инстанс {name} добавлен в пул',
   },
-  torst_noty_added_db: {
-    en: 'Torst: "{title}" added to database!',
-    ru: 'Torst: «{title}» добавлен в базу!',
+  torst_noty_added_library: {
+    en: 'Torst: "{title}" added to library!',
+    ru: 'Torst: «{title}» добавлен в библиотеку!',
   },
   torst_noty_cannot_delete_only: {
     en: 'Cannot delete the only instance in pool',
@@ -441,9 +441,9 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: "Remember choice (don't ask again)",
     ru: 'Запомнить выбор (больше не спрашивать)',
   },
-  torst_opt_save_db: {
-    en: 'Save to Database',
-    ru: 'Сохранить в базу',
+  torst_opt_save_library: {
+    en: 'Save to Library',
+    ru: 'Сохранить в библиотеку',
   },
   torst_options_title: {
     en: 'Playback Options',
@@ -681,29 +681,29 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     en: 'Save to Torst',
     ru: 'Сохранить в Torst',
   },
-  torst_save_to_db_ask: {
+  torst_save_to_descr: {
+    en: 'Save torrent to the library for later',
+    ru: 'Сохранить в библиотеку для последующего просмотра',
+  },
+  torst_save_to_library_ask: {
     en: 'Ask Before Play',
     ru: 'Спрашивать перед просмотром',
   },
-  torst_save_to_db_descr: {
-    en: 'Save torrents to the Torst database',
-    ru: 'Сохранять торренты в базе Torst',
+  torst_save_to_library_descr: {
+    en: 'Save torrents to the Torst library',
+    ru: 'Сохранять торренты в библиотеке Torst',
   },
-  torst_save_to_db_false: {
+  torst_save_to_library_false: {
     en: 'Never',
     ru: 'Никогда',
   },
-  torst_save_to_db_name: {
-    en: 'Save to Database',
-    ru: 'Сохранение в базе',
+  torst_save_to_library_name: {
+    en: 'Save to Library',
+    ru: 'Сохранение в библиотеке',
   },
-  torst_save_to_db_true: {
+  torst_save_to_library_true: {
     en: 'Always',
     ru: 'Всегда',
-  },
-  torst_save_to_descr: {
-    en: 'Save torrent to the database for later',
-    ru: 'Сохранить в базу для последующего просмотра',
   },
   torst_select_active_title: {
     en: 'Select Active Instance',

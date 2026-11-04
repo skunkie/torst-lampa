@@ -4,9 +4,9 @@
 
 import { isNetworkError } from '../api/http-client';
 import { TorstApi, TorstApiError } from '../api/torst';
-import { searchDatabaseTorrents } from '../engine/database-search';
 import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
 import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
+import { searchLibraryTorrents } from '../engine/library-search';
 import { isPersistedTorrent, SavedTorrents } from '../engine/saved-torrents';
 import { TorstEngine } from '../engine/torst-engine';
 import { InstanceManager } from '../instances/instance-manager';
@@ -253,7 +253,7 @@ export class TorstTorrentsComponent {
       this.componentActivity.loader(true);
     }
 
-    // A view expanded from a search row stays on the database that produced the row.
+    // A view expanded from a search row stays on the library that produced the row.
     const searchInstance = this.searchInstanceId
       ? InstanceManager.getInstances().find(instance => instance.id === this.searchInstanceId)
       : undefined;
@@ -268,7 +268,7 @@ export class TorstTorrentsComponent {
       const [torrents, settings] = await Promise.all([
         searchQuery === undefined
           ? TorstApi.getTorrents(this.activeInstance).then(response => response.torrents || [])
-          : searchDatabaseTorrents(this.activeInstance, searchQuery),
+          : searchLibraryTorrents(this.activeInstance, searchQuery),
         TorstApi.getSettings(this.activeInstance).catch(() => null),
       ]);
       if (this.isDestroyed) return;
@@ -342,7 +342,7 @@ export class TorstTorrentsComponent {
         this.renderEmptyState(
           translate(
             'torst_empty_conn_error',
-            `Unable to load database torrents: ${errorMessage}<br>Please check your instance connection.`,
+            `Unable to load library torrents: ${errorMessage}<br>Please check your instance connection.`,
             { msg: errorMessage }
           ),
           translate('torst_empty_conn_error_title', 'Torst: Connection Error'),
@@ -359,7 +359,7 @@ export class TorstTorrentsComponent {
   }
 
   /**
-   * The saved-torrent cache describes the database requests are routed to; a view pinned to a
+   * The saved-torrent cache describes the library requests are routed to; a view pinned to a
    * different instance must not overwrite it with that instance's contents.
    */
   private isRoutedInstance(instance: TorstInstance): boolean {
@@ -372,7 +372,7 @@ export class TorstTorrentsComponent {
     this.renderEmptyState(
       query
         ? translate('torst_empty_search', 'No saved torrents match “{query}”', { query })
-        : translate('torst_empty_db', 'No torrents found in Torst database'),
+        : translate('torst_empty_library', 'No torrents found in Torst library'),
       'Torst',
       silent
     );

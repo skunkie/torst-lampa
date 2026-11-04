@@ -115,14 +115,14 @@ Lampa runs on TV platforms (Android TV, Tizen, WebOS) where screen real estate i
 
 - **Action Buttons**: Prefer concise infinitives or clear noun phrases.
   - *Good:* `Воспроизвести`, `Сохранить`, `Удалить`, `Тест подключения`.
-  - *Too wordy:* `Начать воспроизведение видео`, `Сохранить в базу данных Torst`.
+  - *Too wordy:* `Начать воспроизведение видео`, `Сохранить в библиотеку Torst`.
 - **Subtitles & Badges**: Keep under one line of text (~30–45 characters). Avoid wrapping across multiple lines in settings and select dialogs.
 - **Toast Notifications (`Lampa.Noty`)**: Keep short, direct, and factual.
   - *Good:* `Инстанс доступен (12 мс)`
   - *Too wordy:* `Проверка подключения успешно завершена, задержка составляет 12 миллисекунд.`
 - **Setting Values Answer the Name**: A select setting's values must not repeat its name, because Lampa shows the current value right under the name. The same applies to a dialog label next to its options.
-  - *Good:* `Сохранение в базе` → `Всегда` / `Никогда` / `Спрашивать перед просмотром`.
-  - *Avoid:* `Save to Database` → `Save to Database`, the same text twice in one row; its Russian echo `Сохранение в базе` → `Сохранять в базу` is the same mistake.
+  - *Good:* `Сохранение в библиотеке` → `Всегда` / `Никогда` / `Спрашивать перед просмотром`.
+  - *Avoid:* `Save to Library` → `Save to Library`, the same text twice in one row; its Russian echo `Сохранение в библиотеке` → `Сохранять в библиотеку` is the same mistake.
 
 ### B. Lampa & Torst UI Vocabulary
 
@@ -135,7 +135,7 @@ Lampa runs on TV platforms (Android TV, Tizen, WebOS) where screen real estate i
 | **Preload / Buffering**  | Предзагрузка / Буферизация  | Fullscreen loading screen before player hand-off                      |
 | **Catalog**              | Каталог                     | Movie and show cards                                                  |
 | **Context Menu**         | Контекстное меню            | Invoked via long-press on torrent cards                               |
-| **Save to Database**     | Сохранение в базе           | Setting name; the action is `Сохранить в базу`                        |
+| **Save to Library**      | Сохранение в библиотеке     | Setting name; the action is `Сохранить в библиотеку`                  |
 | **Ask Before Play**      | Спрашивать перед просмотром | Modal prompt for storage type or player choice                        |
 | **RAM (storage type)**   | Оперативная память          | Settings values, menu actions; never bare `RAM` or the `ОЗУ` initialism |
 | **Info hash**            | Инфо-хеш                    | Dictionary spelling is `хеш`, not `хэш`                               |
@@ -172,10 +172,10 @@ A faithful translation of a wrong English string is still wrong. Settle what a s
 
 - **Describe what the code does.** Check the behavior in the plugin source before writing or translating a description, and check the Torst server source for the effect of an API call.
   - *Wrong:* `Через стандартный торрент-плеер Lampa`. Lampa has no torrent player; the option hands the torrent to TorrServer, so the text is `Воспроизведение через TorrServer`.
-  - *Verified:* `Удалить торрент и скачанные данные`. The server's delete call drops the torrent from the client and removes its downloaded files, so "from the database" would understate it.
+  - *Verified:* `Удалить торрент и скачанные данные`. The server's delete call drops the torrent from the client and removes its downloaded files, so "from the library" would understate it.
 - **Cover everything a setting controls.** A setting's description names every area it switches, not just the most visible one. The Torst toggle also governs torrent search, so its description is `Просмотр и поиск торрентов через Torst`, not playback alone. When everything cannot fit the length limit, length wins: leave out what the user sees as soon as the item opens, never what the setting changes elsewhere. `Инстансы, аутентификация и проверка задержки` can omit choosing the active instance, because that choice is on the pool screen itself.
 - **Fit every call site of a shared key.** When one key is shown in several places, its text must be true in all of them. `torst_test_conn_descr` appears for both instances and search providers, so it reads `Проверить доступность и задержку` and does not mention an instance.
-- **Fix jargon in the English source first.** Developer terms leak into UI copy in English too: "persistence", "health endpoint", "native", or "handles playback" where the thing actually handles every request. Rewrite the English to plain behavior (`Save to Database`, `Check availability and measure latency`), then translate the corrected string.
+- **Fix jargon in the English source first.** Developer terms leak into UI copy in English too: "persistence", "health endpoint", "native", or "handles playback" where the thing actually handles every request. Rewrite the English to plain behavior (`Save to Library`, `Check availability and measure latency`), then translate the corrected string.
 
 ---
 
@@ -188,7 +188,7 @@ A faithful translation of a wrong English string is still wrong. Settle what a s
 - **Quotation Marks**:
   - Use Russian typographic angle quotes («ёлочки») in prose: `«Torst»`.
   - If nested quotes are needed, use inner quotes („лапки“): `«кнопка „Torst“ в карточке»`.
-  - Titles and names shown to the user inside UI strings also use angle quotes: `Torst: «{title}» добавлен в базу!`.
+  - Titles and names shown to the user inside UI strings also use angle quotes: `Torst: «{title}» добавлен в библиотеку!`.
   - Straight quotes (`"..."` / `'...'`) are only for code identifiers, never for user-visible text.
 - **Dashes & Hyphens**:
   - Em-dash (`—`) with surrounding spaces for definitions and parenthetical statements: `Torst — клиент для Lampa`.

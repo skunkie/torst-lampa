@@ -109,7 +109,7 @@ export interface ParsedFileInfo {
 }
 
 export interface PlayOptions {
-  saveToDb: boolean,
+  saveToLibrary: boolean,
   storage: TorrentStorage
 }
 

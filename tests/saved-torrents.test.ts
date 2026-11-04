@@ -10,7 +10,7 @@ import { isPersistedTorrent, SavedTorrents } from '../src/engine/saved-torrents'
 import { InstanceManager } from '../src/instances/instance-manager';
 import { TorrentsResponse, TorstInstance } from '../src/types/torst';
 
-describe('Saved torrent database scope', () => {
+describe('Saved torrent library scope', () => {
   const originalLampa = (globalThis as any).Lampa;
   const hash = 'a'.repeat(40);
 
@@ -48,13 +48,13 @@ describe('Saved torrent database scope', () => {
     assert.equal(SavedTorrents.isSaved(hash), undefined);
 
     SavedTorrents.markSaved(hash, instance.id);
-    instance.url = 'http://new-database.local';
+    instance.url = 'http://new-library.local';
     InstanceManager.updateInstance(instance);
     assert.equal(SavedTorrents.isSaved(hash), undefined);
   });
 
   for (const shouldResolveInReverse of [false, true]) {
-    it(`resolves overlapping batches for the same database in ${shouldResolveInReverse ? 'reverse' : 'request'} order`, async () => {
+    it(`resolves overlapping batches for the same library in ${shouldResolveInReverse ? 'reverse' : 'request'} order`, async () => {
       const instance = InstanceManager.getPrimaryInstance();
       const firstHash = 'b'.repeat(40);
       const secondHash = 'c'.repeat(40);
@@ -99,7 +99,7 @@ describe('Saved torrent database scope', () => {
       mock.method(TorstApi, 'getTorrents', () => new Promise<TorrentsResponse>((resolve, reject) => {
         announceStart();
         finishLookup = () => {
-          if (shouldReject) reject(new Error('Old database is unavailable'));
+          if (shouldReject) reject(new Error('Old library is unavailable'));
           else resolve({
             torrents: [{ files: [], hash, name: 'Saved', retention: 'persisted' as const, storage: 'memory', total_size: 0 }],
           });
@@ -118,7 +118,7 @@ describe('Saved torrent database scope', () => {
     });
   }
 
-  it('keeps queued lookups scheduled when a pending batch selects another database', async () => {
+  it('keeps queued lookups scheduled when a pending batch selects another library', async () => {
     const originalInstance = InstanceManager.getPrimaryInstance();
     const nextInstance = { ...originalInstance, id: 'next', url: 'http://next.local' };
     const firstHash = 'd'.repeat(40);
@@ -182,7 +182,7 @@ describe('Saved torrent database scope', () => {
     }
   }
 
-  it('does not replace a database established while instance selection was pending', async () => {
+  it('does not replace a library established while instance selection was pending', async () => {
     const instance = InstanceManager.getPrimaryInstance();
     let finishSelection: () => void = () => {};
     mock.method(InstanceManager, 'getBestInstance', () => new Promise<typeof instance>(resolve => {
@@ -200,7 +200,7 @@ describe('Saved torrent database scope', () => {
     assert.equal(SavedTorrents.isSaved(hash), true);
   });
 
-  it('keeps the rest of a batch queued when a save claims another database during instance selection', async () => {
+  it('keeps the rest of a batch queued when a save claims another library during instance selection', async () => {
     const instance = InstanceManager.getPrimaryInstance();
     const otherHash = 'b'.repeat(40);
     let finishSelection: () => void = () => {};

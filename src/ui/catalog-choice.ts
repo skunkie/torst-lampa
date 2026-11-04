@@ -177,24 +177,24 @@ export class CatalogChoice {
           title: translate('torst_play_via', 'Play via Torst'),
         });
 
-        // A torrent the database already holds keeps its row, as a plain statement of that
+        // A torrent the library already holds keeps its row, as a plain statement of that
         // state; only a torrent that is absent (or whose state never resolved) is offered
         // for saving.
         if (SavedTorrents.isSaved(resolveTorrentItemHash(event.element)) === true) {
           event.menu.push({
             ghost: true,
             noenter: true,
-            subtitle: translate('torst_already_saved_descr', 'Available in the Torst database'),
+            subtitle: translate('torst_already_saved_descr', 'Available in the Torst library'),
             title: translate('torst_already_saved', 'Already in Torst'),
           });
         } else {
           event.menu.push({
             onSelect: () => {
               // Focus goes back right away; the save reports its outcome through a notification.
-              void TorstEngine.saveToDatabase(event.element, movie);
+              void TorstEngine.saveToLibrary(event.element, movie);
               if (Lampa.Controller) Lampa.Controller.toggle(returnController);
             },
-            subtitle: translate('torst_save_to_descr', 'Save torrent to the database for later'),
+            subtitle: translate('torst_save_to_descr', 'Save torrent to the library for later'),
             title: translate('torst_save_to', 'Save to Torst'),
           });
         }

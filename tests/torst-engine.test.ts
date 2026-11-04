@@ -16,7 +16,7 @@ import { initPlayerPlaylist, resetPlayerPlaylistForTesting } from '../src/engine
 import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
 import type { Torrent, TorrentAdd, TorstInstance } from '../src/types/torst';
-import { SAVE_TO_DATABASE_STORAGE_KEY } from '../src/ui/play-dialog';
+import { SAVE_TO_LIBRARY_STORAGE_KEY } from '../src/ui/play-dialog';
 import { PreloadModal } from '../src/ui/preload-modal';
 import {
   PLAYBACK_MODE_STORAGE_KEY,
@@ -158,7 +158,7 @@ describe('TorstEngine', () => {
       return new Response(null, { status: 200 });
     };
 
-    await TorstEngine.saveToDatabase({
+    await TorstEngine.saveToLibrary({
       hash: '2938472948', // Numeric hash without magnet
       Link: 'not-a-torrent-source',
       Title: 'Invalid Source',
@@ -410,7 +410,7 @@ describe('TorstEngine', () => {
       toggle: (name: string) => { toggledControllers.push(name); },
     };
     (globalThis as any).Lampa.Modal = { close: () => {}, open: () => {} };
-    storageMap.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storageMap.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
 
     // Neither a magnet, a link, nor an info hash: playback bails out before any request.
     await TorstEngine.startPlayback({ Title: 'Sourceless Torrent' }, undefined, 'content');
@@ -514,7 +514,7 @@ describe('TorstEngine', () => {
     };
 
     try {
-      await TorstEngine.saveToDatabase({
+      await TorstEngine.saveToLibrary({
         MagnetUri: `magnet:?xt=urn:btih:${testHash}`,
         Title: 'Movie',
       });
@@ -1292,7 +1292,7 @@ describe('TorstEngine', () => {
     }
   });
 
-  it('uses the torrent\'s own poster and title instead of an unrelated active movie when playing from the database browser', async () => {
+  it('uses the torrent\'s own poster and title instead of an unrelated active movie when playing from the library browser', async () => {
     let playedItem: any = null;
     const testHash = '0123456789abcdef0123456789abcdef01234567';
 
@@ -1304,7 +1304,7 @@ describe('TorstEngine', () => {
       playlist: () => {},
     };
     // Simulate the user having some unrelated movie open elsewhere in the app —
-    // this must never bleed into a torrent played directly from the database browser.
+    // this must never bleed into a torrent played directly from the library browser.
     const unrelatedActivity = {
       movie: { id: 999, img: 'https://example.com/unrelated-movie-poster.jpg', title: 'Unrelated Movie' },
     };
@@ -1329,7 +1329,7 @@ describe('TorstEngine', () => {
       return new Response(null, { status: 200 });
     };
 
-    // No movie argument passed — matches how the database torrents browser calls this.
+    // No movie argument passed — matches how the library torrents browser calls this.
     await TorstEngine.startTorrentPlayback({
       files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
       hash: testHash,
@@ -1346,15 +1346,15 @@ describe('TorstEngine', () => {
     assert.notEqual(playedItem.card.title, 'Unrelated Movie');
   });
 
-  it('uses the originating instance when playing an existing database torrent', async () => {
+  it('uses the originating instance when playing an existing library torrent', async () => {
     let playedItem: any = null;
     let getBestInstanceCallCount = 0;
     const testHash = '0123456789abcdef0123456789abcdef01234567';
     const sourceInstance = {
       authType: 'none' as const,
-      id: 'database-instance',
-      name: 'Database Instance',
-      url: 'http://database.example.com',
+      id: 'library-instance',
+      name: 'Library Instance',
+      url: 'http://library.example.com',
     };
     const originalGetBestInstance = InstanceManager.getBestInstance;
 
@@ -1392,7 +1392,7 @@ describe('TorstEngine', () => {
   });
 
   for (const stage of ['before', 'instance', 'metadata']) {
-    it(`does not start a canceled database playback request during ${stage} resolution`, async () => {
+    it(`does not start a canceled library playback request during ${stage} resolution`, async () => {
       const instance: TorstInstance = { authType: 'none', id: 'one', name: 'One', url: 'http://torst.test' };
       const torrent: Torrent = {
         files: [{ fileId: 'fil_one', length: 100, name: 'Sintel.mkv', path: 'Sintel.mkv' }],
@@ -1441,7 +1441,7 @@ describe('TorstEngine', () => {
         },
         0,
         undefined,
-        { authType: 'none', id: 'database-instance', name: 'Database Instance', url: 'http://database.example.com' }
+        { authType: 'none', id: 'library-instance', name: 'Library Instance', url: 'http://library.example.com' }
       );
 
       assert.equal(isHandedOff, false);
@@ -1693,9 +1693,9 @@ describe('TorstEngine', () => {
     let playCount = 0;
     const sourceInstance = {
       authType: 'none' as const,
-      id: 'database-instance',
-      name: 'Database Instance',
-      url: 'http://database.example.com',
+      id: 'library-instance',
+      name: 'Library Instance',
+      url: 'http://library.example.com',
     };
 
     (globalThis as any).Lampa.Player = {
@@ -1821,14 +1821,14 @@ describe('Torst playback orchestration', () => {
       assert.equal(request.poster, 'https://images.test/sintel.jpg');
       return torrent;
     });
-    await TorstEngine.saveToDatabase({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, poster: 'https://images.test/sintel.jpg', Title: 'Sintel' });
+    await TorstEngine.saveToLibrary({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, poster: 'https://images.test/sintel.jpg', Title: 'Sintel' });
     assert.equal(add.mock.callCount(), 1);
     assert.equal(played, undefined);
-    assert.equal(notices[0], getTestTranslation('torst_noty_added_db', { title: 'Sintel' }));
+    assert.equal(notices[0], getTestTranslation('torst_noty_added_library', { title: 'Sintel' }));
   });
 
   it('plays a persistent magnet after creation and preserves playlist item identity', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
     storage.set('torst_storage_type', 'file');
     const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
       assert.equal(request.storage, 'file');
@@ -1843,7 +1843,7 @@ describe('Torst playback orchestration', () => {
   });
 
   it('uploads persistent torrent links once and passes storage and title', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
     storage.set('torst_storage_type', 'file');
     const upload = mock.method(TorstApi, 'resolveTorrent', async (_instance: TorstInstance, url: string, options?: TorrentAdd) => {
       assert.equal(url, 'https://indexer.test/sintel.torrent');
@@ -1859,7 +1859,7 @@ describe('Torst playback orchestration', () => {
   });
 
   it('creates a temporary magnet in memory without marking it as saved', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
     storage.set('torst_storage_type', 'file');
     const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
       assert.equal(request.retention, 'temporary');
@@ -1872,7 +1872,7 @@ describe('Torst playback orchestration', () => {
   });
 
   it('uploads temporary torrent files with temporary retention and memory storage', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
     const upload = mock.method(TorstApi, 'resolveTorrent', async (_instance: TorstInstance, url: string, request?: TorrentAdd) => {
       assert.equal(url, 'https://indexer.test/sintel.torrent');
       assert.equal(request?.retention, 'temporary');
@@ -1885,7 +1885,7 @@ describe('Torst playback orchestration', () => {
   });
 
   it('stops playback if canceled while creation is in flight', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
     mock.method(TorstApi, 'addTorrent', async () => { cancel(); return torrent; });
     await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
     assert.equal(played, undefined);
@@ -1893,7 +1893,7 @@ describe('Torst playback orchestration', () => {
   });
 
   it('reads the separate file list when created torrent metadata is still arriving', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
     mock.method(TorstApi, 'addTorrent', async () => ({ ...torrent, files: [] }));
     const read = mock.method(TorstApi, 'getTorrent', async () => torrent);
     await TorstEngine.startPlayback({ MagnetUri: `magnet:?xt=urn:btih:${hash}` });
@@ -1909,7 +1909,7 @@ describe('Torst playback orchestration', () => {
     { expectedFraction: undefined, mode: 'continue', timeline: { duration: 1500, percent: 1, time: 8 } },
   ]) {
     it(`passes the saved resume fraction to buffering (${settings.mode}, ${settings.timeline.time} seconds)`, async () => {
-      storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+      storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
       storage.set('player_timecode', settings.mode);
       (globalThis as any).Lampa.Timeline = { view: () => settings.timeline };
       mock.method(TorstApi, 'addTorrent', async () => torrent);
@@ -1922,7 +1922,7 @@ describe('Torst playback orchestration', () => {
 
   for (const status of [400, 401, 403, 404, 409, 422]) {
     it(`does not fail over on an ordinary creation rejection (${status})`, async () => {
-      storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+      storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
       const error = new TorstApiError('Rejected', status);
       mock.method(TorstApi, 'addTorrent', async () => { throw error; });
       const failover = mock.method(InstanceManager, 'failover', async () => null);
@@ -2005,8 +2005,8 @@ describe('Torst playback orchestration', () => {
       if (target.id === instance.id) throw new NetworkError('Unavailable');
       return torrent;
     });
-    await TorstEngine.saveToDatabase({ Link: 'https://indexer.test/sintel.torrent' });
+    await TorstEngine.saveToLibrary({ Link: 'https://indexer.test/sintel.torrent' });
     assert.deepEqual(upload.mock.calls.map(call => call.arguments[0]), [instance, fallback]);
-    assert.equal(notices[0], getTestTranslation('torst_noty_added_db', { title: 'Torrent' }));
+    assert.equal(notices[0], getTestTranslation('torst_noty_added_library', { title: 'Torrent' }));
   });
 });

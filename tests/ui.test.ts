@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { NetworkError } from '../src/api/http-client';
 import { TorstApi } from '../src/api/torst';
-import { DATABASE_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/database-search';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/library-search';
 import { SavedTorrents } from '../src/engine/saved-torrents';
 import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
@@ -15,7 +15,7 @@ import { PROVIDER_SEARCH_ENABLED_STORAGE_KEY, ProviderManager } from '../src/pro
 import type { TorrentUpdate, TorstInstance } from '../src/types/torst';
 import { CatalogChoice } from '../src/ui/catalog-choice';
 import { InstancePoolUi } from '../src/ui/instance-pool';
-import { SAVE_TO_DATABASE_STORAGE_KEY } from '../src/ui/play-dialog';
+import { SAVE_TO_LIBRARY_STORAGE_KEY } from '../src/ui/play-dialog';
 import { ProfilesUi } from '../src/ui/profiles';
 import {
   TORST_STORAGE_BADGE,
@@ -134,10 +134,10 @@ describe('UI & Settings Integration', () => {
 
     const parameterNames = registeredParams.map(parameter => parameter.param.name);
     assert.ok(parameterNames.includes(TORST_ENABLED_STORAGE_KEY));
-    assert.ok(parameterNames.includes(DATABASE_SEARCH_ENABLED_STORAGE_KEY));
-    const databaseSearchParam = registeredParams.find(parameter => parameter.param.name === DATABASE_SEARCH_ENABLED_STORAGE_KEY);
-    assert.equal(databaseSearchParam.param.type, 'trigger');
-    assert.equal(databaseSearchParam.param.default, false);
+    assert.ok(parameterNames.includes(LIBRARY_SEARCH_ENABLED_STORAGE_KEY));
+    const librarySearchParam = registeredParams.find(parameter => parameter.param.name === LIBRARY_SEARCH_ENABLED_STORAGE_KEY);
+    assert.equal(librarySearchParam.param.type, 'trigger');
+    assert.equal(librarySearchParam.param.default, false);
     assert.ok(!parameterNames.includes(PROVIDER_SEARCH_ENABLED_STORAGE_KEY));
     assert.ok(parameterNames.includes('torst_selection_mode'));
     assert.ok(parameterNames.includes('torst_instances_btn'));
@@ -150,11 +150,11 @@ describe('UI & Settings Integration', () => {
     assert.equal(playbackModeParam.param.default, 'torst');
     assert.ok(!parameterNames.includes('torst_file_storage_path'));
 
-    const saveToDbParam = registeredParams.find(parameter => parameter.param.name === SAVE_TO_DATABASE_STORAGE_KEY);
-    assert.ok(saveToDbParam);
-    assert.equal(saveToDbParam.param.default, 'false');
-    assert.equal(saveToDbParam.field.name, getTestTranslation('torst_save_to_db_name'));
-    assert.deepEqual(saveToDbParam.param.values, { ask: getTestTranslation('torst_save_to_db_ask'), false: getTestTranslation('torst_save_to_db_false'), true: getTestTranslation('torst_save_to_db_true') });
+    const saveToLibraryParam = registeredParams.find(parameter => parameter.param.name === SAVE_TO_LIBRARY_STORAGE_KEY);
+    assert.ok(saveToLibraryParam);
+    assert.equal(saveToLibraryParam.param.default, 'false');
+    assert.equal(saveToLibraryParam.field.name, getTestTranslation('torst_save_to_library_name'));
+    assert.deepEqual(saveToLibraryParam.param.values, { ask: getTestTranslation('torst_save_to_library_ask'), false: getTestTranslation('torst_save_to_library_false'), true: getTestTranslation('torst_save_to_library_true') });
 
     // Verify button parameters use onChange without redundant onRender click handlers
     const buttonParams = registeredParams.filter(parameter => parameter.param.type === 'button');
@@ -1865,7 +1865,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'));
   });
 
-  it('keeps show-more database results filtered while leaving the sidebar listing complete', async () => {
+  it('keeps show-more library results filtered while leaving the sidebar listing complete', async () => {
     const originalJquery = (globalThis as any).$;
     (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
     (globalThis as any).Lampa.Scroll = class {
@@ -1930,7 +1930,7 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('keeps the saved-torrent cache on the routed database while a view is pinned elsewhere', async () => {
+  it('keeps the saved-torrent cache on the routed library while a view is pinned elsewhere', async () => {
     const originalJquery = (globalThis as any).$;
     (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
     (globalThis as any).Lampa.Scroll = class {
@@ -1961,7 +1961,7 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('lets only the routed database update the saved-torrent cache from deletes', () => {
+  it('lets only the routed library update the saved-torrent cache from deletes', () => {
     const [primary] = InstanceManager.getInstances();
     const backup = { ...primary, id: 'search-backup' };
     const failoverTarget = { ...primary, id: 'failover-target' };
@@ -1981,7 +1981,7 @@ describe('UI & Settings Integration', () => {
       component.isPinnedToSearchInstance = false;
       component.activeInstance = primary;
       assert.equal(component.isRoutedInstance(backup), false);
-      // An unpinned listing served by failover still describes the database requests go to.
+      // An unpinned listing served by failover still describes the library requests go to.
       component.activeInstance = failoverTarget;
       assert.equal(component.isRoutedInstance(failoverTarget), true);
     } finally {
@@ -2025,7 +2025,7 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('tells a filtered database view that nothing matches instead of reporting an empty database', async () => {
+  it('tells a filtered library view that nothing matches instead of reporting an empty library', async () => {
     const originalJquery = (globalThis as any).$;
     const originalUtils = (globalThis as any).Lampa.Utils;
     (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
@@ -2049,7 +2049,7 @@ describe('UI & Settings Integration', () => {
       assert.ok(messages[0].includes('missing'));
       assert.ok(!messages[0].includes('<b>'));
       assert.equal(messages[0], getTestTranslation('torst_empty_search', { query: 'missing' }));
-      assert.equal(messages[1], getTestTranslation('torst_empty_db'));
+      assert.equal(messages[1], getTestTranslation('torst_empty_library'));
     } finally {
       (globalThis as any).$ = originalJquery;
       (globalThis as any).Lampa.Utils = originalUtils;
@@ -2719,7 +2719,7 @@ describe('UI & Settings Integration', () => {
     });
   });
 
-  it('plays the file the user picked from a database torrent, addressing it by its index in the complete file list', async () => {
+  it('plays the file the user picked from a library torrent, addressing it by its index in the complete file list', async () => {
     const templatedItems: any[] = [];
     const requestedFileIndexes: number[] = [];
 
@@ -2797,7 +2797,7 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('plays the only video of a database torrent by its real index when other files precede it', async () => {
+  it('plays the only video of a library torrent by its real index when other files precede it', async () => {
     const requestedFileIndexes: number[] = [];
 
     (globalThis as any).$ = (_html?: string) => {
@@ -2841,7 +2841,7 @@ describe('UI & Settings Integration', () => {
     }
   });
 
-  it('shows an error notice and stops loading when playback fails from the database torrents browser', async () => {
+  it('shows an error notice and stops loading when playback fails from the library torrents browser', async () => {
     const notyMessages: string[] = [];
     let loadingStopped = false;
     let toggledController = '';
@@ -2884,9 +2884,9 @@ describe('UI & Settings Integration', () => {
       const component = new TorstTorrentsComponent();
       const activeInstance = {
         authType: 'none',
-        id: 'database-instance',
-        name: 'Database Instance',
-        url: 'http://database.example.com',
+        id: 'library-instance',
+        name: 'Library Instance',
+        url: 'http://library.example.com',
       };
       (component as any).activeInstance = activeInstance;
       const singleFileTorrent: any = {
@@ -2981,8 +2981,8 @@ describe('UI & Settings Integration', () => {
 
     // Verify selecting 'Save to Torst' passes resolved movie instead of DOM item
     let savedMovie: any = null;
-    const origSaveToDb = TorstEngine.saveToDatabase;
-    TorstEngine.saveToDatabase = async (_element: any, movie: any) => {
+    const origSaveToLibrary = TorstEngine.saveToLibrary;
+    TorstEngine.saveToLibrary = async (_element: any, movie: any) => {
       savedMovie = movie;
     };
 
@@ -3006,7 +3006,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(saveOption);
     saveOption.onSelect();
     assert.deepEqual(savedMovie, mockMovie, 'Must pass active activity movie context instead of DOM element');
-    TorstEngine.saveToDatabase = origSaveToDb;
+    TorstEngine.saveToLibrary = origSaveToLibrary;
   });
 
   it('prefers the card a search result sends over the page behind the search screen', () => {
@@ -3026,9 +3026,9 @@ describe('UI & Settings Integration', () => {
     const playedMovies: unknown[] = [];
     const savedMovies: unknown[] = [];
     const originalPlayDirect = TorstEngine.playTorrentDirect;
-    const originalSave = TorstEngine.saveToDatabase;
+    const originalSave = TorstEngine.saveToLibrary;
     TorstEngine.playTorrentDirect = (_element: any, movie: any) => { playedMovies.push(movie); };
-    TorstEngine.saveToDatabase = async (_element: any, movie: any) => { savedMovies.push(movie); };
+    TorstEngine.saveToLibrary = async (_element: any, movie: any) => { savedMovies.push(movie); };
 
     try {
       const searchCard = { title: 'Search Result Title' };
@@ -3041,7 +3041,7 @@ describe('UI & Settings Integration', () => {
       assert.deepEqual(savedMovies, [searchCard]);
     } finally {
       TorstEngine.playTorrentDirect = originalPlayDirect;
-      TorstEngine.saveToDatabase = originalSave;
+      TorstEngine.saveToLibrary = originalSave;
     }
   });
 
@@ -3091,7 +3091,7 @@ describe('UI & Settings Integration', () => {
     });
     assert.ok(
       unsavedMenu.some(item => item.title === getTestTranslation('torst_save_to')),
-      'A torrent absent from the database must still be offered for saving'
+      'A torrent absent from the library must still be offered for saving'
     );
 
     const unknownMenu: any[] = [];
@@ -3145,7 +3145,7 @@ describe('UI & Settings Integration', () => {
       listingRequests[0].includes(storedHash) && listingRequests[0].includes(clientOnlyHash),
       'The listing must be filtered server-side by the rendered hashes'
     );
-    assert.equal(SavedTorrents.isSaved(storedHash), true, 'A database row must count as stored');
+    assert.equal(SavedTorrents.isSaved(storedHash), true, 'A library row must count as stored');
     assert.equal(
       SavedTorrents.isSaved(clientOnlyHash),
       false,
@@ -3170,7 +3170,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(
       SavedTorrents.isSaved(cachedHash),
       undefined,
-      'Another instance means another database, so the previous answer must not be reused'
+      'Another instance means another library, so the previous answer must not be reused'
     );
 
     InstanceManager.removeInstance('other-instance');
@@ -3252,7 +3252,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(
       lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'),
       false,
-      'A torrent with no database row cannot be switched to file storage'
+      'A torrent with no library row cannot be switched to file storage'
     );
     assert.ok(
       lastSelectOptions.items.some((item: any) => item.action === 'delete'),
@@ -3280,10 +3280,10 @@ describe('UI & Settings Integration', () => {
     (CatalogChoice as any).isRegistered = false;
     CatalogChoice.init();
 
-    const origSaveToDb = TorstEngine.saveToDatabase;
+    const origSaveToLibrary = TorstEngine.saveToLibrary;
     const origPlayDirect = TorstEngine.playTorrentDirect;
     let playReturnController: string | undefined;
-    TorstEngine.saveToDatabase = async () => {};
+    TorstEngine.saveToLibrary = async () => {};
     TorstEngine.playTorrentDirect = (_element: any, _movie: any, returnController?: string) => {
       playReturnController = returnController;
     };
@@ -3307,7 +3307,7 @@ describe('UI & Settings Integration', () => {
       menu.find(item => item.title === getTestTranslation('torst_play_via')).onSelect();
       assert.equal(playReturnController, 'content', 'playback must fall back to the card list, not the closed menu');
     } finally {
-      TorstEngine.saveToDatabase = origSaveToDb;
+      TorstEngine.saveToLibrary = origSaveToLibrary;
       TorstEngine.playTorrentDirect = origPlayDirect;
     }
   });
@@ -3487,7 +3487,7 @@ describe('UI & Settings Integration', () => {
     assert.equal(disabledBody.find('.view--torst').length, 0, 'Button must not be injected when plugin is disabled');
   });
 
-  it('offers dynamic mark/unmark in the database context menu', async () => {
+  it('offers dynamic mark/unmark in the library context menu', async () => {
     (globalThis as any).Lampa.Scroll = class {
       public append(_e: any) {}
       public destroy() {}
@@ -3509,7 +3509,7 @@ describe('UI & Settings Integration', () => {
       url: 'http://127.0.0.1:8080',
     };
     const torrent: any = {
-      hash: 'torrent_db_123',
+      hash: 'torrent_lib_123',
       name: 'Sample Show S01',
       storage: 'memory',
     };
@@ -3542,7 +3542,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(markAction, 'Mark action must be present when unviewed');
     await lastSelectOptions.onSelect(markAction);
     const viewedStorage = (globalThis as any).Lampa.Storage.get('torrents_view', []);
-    assert.ok(viewedStorage.includes('torrent_db_123'));
+    assert.ok(viewedStorage.includes('torrent_lib_123'));
     assert.ok(appendedHtml.includes('card__icon--viewed'));
 
     // 2. When viewed: 'unmark' action present
@@ -3551,7 +3551,7 @@ describe('UI & Settings Integration', () => {
     assert.ok(unmarkAction, 'Unmark action must be present when already viewed');
     await lastSelectOptions.onSelect(unmarkAction);
     const updatedStorage = (globalThis as any).Lampa.Storage.get('torrents_view', []);
-    assert.equal(updatedStorage.includes('torrent_db_123'), false);
+    assert.equal(updatedStorage.includes('torrent_lib_123'), false);
     assert.equal(isRemoved, true);
   });
 

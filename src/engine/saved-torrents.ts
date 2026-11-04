@@ -41,7 +41,7 @@ const LOOKUP_DEBOUNCE_MS = 300;
 const LOOKUP_CHUNK_SIZE = 40;
 
 /**
- * Tracks which torrents are already stored in the active instance's database.
+ * Tracks which torrents are already stored in the active instance's library.
  *
  * Lampa builds a torrent card's context menu synchronously, so the menu can only react to
  * what is already known by the time it opens. Card rendering queues a lookup, which the
@@ -55,13 +55,13 @@ export class SavedTorrents {
   private static readonly queuedHashes = new Set<string>();
   private static flushTimer: ReturnType<typeof setTimeout> | null = null;
   // Bumped whenever the cache is dropped, so an in-flight lookup can tell that its answers
-  // describe a database that is no longer the one being tracked.
+  // describe a library that is no longer the one being tracked.
   private static generation = 0;
 
   /**
    * Drops the cache whenever request routing moves to another instance. Nothing else forces a
    * re-lookup: a hash that is already cached is never queued again, so a pool that keeps
-   * serving the same cards would otherwise answer from the previous instance's database
+   * serving the same cards would otherwise answer from the previous instance's library
    * indefinitely.
    */
   public static init(): void {
@@ -71,7 +71,7 @@ export class SavedTorrents {
   }
 
   /**
-   * Returns whether the torrent is stored in the database, or undefined while that is
+   * Returns whether the torrent is stored in the library, or undefined while that is
    * still unknown — callers treat an unknown torrent as if it were not stored yet.
    */
   public static isSaved(hash?: string | null): boolean | undefined {
@@ -83,7 +83,7 @@ export class SavedTorrents {
   /**
    * Records a torrent as stored. Failover can write to an instance other than the one being
    * tracked, so the instance that actually answered is named to keep the cache attributed to
-   * the right database.
+   * the right library.
    */
   public static markSaved(hash?: string | null, instanceId?: string): void {
     this.mark(hash, true, instanceId);
@@ -102,7 +102,7 @@ export class SavedTorrents {
   }
 
   /**
-   * Records what a listing already answered, so a browsed database needs no extra lookups.
+   * Records what a listing already answered, so a browsed library needs no extra lookups.
    */
   public static syncFromListing(instanceId: string | undefined, torrents: Torrent[]): void {
     this.useInstance(instanceId);
@@ -129,7 +129,7 @@ export class SavedTorrents {
   }
 
   /**
-   * Drops everything cached for a previous instance, since database contents are per-instance.
+   * Drops everything cached for a previous instance, since library contents are per-instance.
    */
   public static reset(): void {
     this.generation += 1;
@@ -166,7 +166,7 @@ export class SavedTorrents {
       const instance = await InstanceManager.getBestInstance();
       if (this.generation !== generation) return;
       // A save recorded for another instance while this one was being chosen now owns the
-      // cache, so the batch waits for a later lookup instead of replacing that database.
+      // cache, so the batch waits for a later lookup instead of replacing that library.
       if (this.instanceId !== initialInstanceId && this.instanceId !== instance.id) {
         hashes.forEach(hash => this.queueLookup(hash));
         return;
@@ -175,7 +175,7 @@ export class SavedTorrents {
       generation = this.generation;
 
       for (let offset = 0; offset < hashes.length; offset += LOOKUP_CHUNK_SIZE) {
-        // A reset that landed mid-lookup means these answers describe a database that is no
+        // A reset that landed mid-lookup means these answers describe a library that is no
         // longer in use; recording them would resurrect the cache it just dropped.
         if (this.generation !== generation) return;
         const chunk = hashes.slice(offset, offset + LOOKUP_CHUNK_SIZE);

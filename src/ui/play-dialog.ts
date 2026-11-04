@@ -5,33 +5,33 @@
 import { translate } from '../lang/translations';
 import { PlayOptions, TorrentStorage } from '../types/torst';
 
-export const SAVE_TO_DATABASE_STORAGE_KEY = 'torst_save_to_db';
+export const SAVE_TO_LIBRARY_STORAGE_KEY = 'torst_save_to_library';
 export const STORAGE_TYPE_STORAGE_KEY = 'torst_storage_type';
 
 export class PlayDialog {
   public static async resolveOptions(title?: string): Promise<PlayOptions | null> {
     const rawStorage = Lampa.Storage.get<unknown>(STORAGE_TYPE_STORAGE_KEY, 'memory');
-    const rawSaveToDb = Lampa.Storage.get<unknown>(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    const rawSaveToLibrary = Lampa.Storage.get<unknown>(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
 
     const savedStorageType = String(rawStorage ?? 'memory');
     const isAskStorage = savedStorageType === 'ask';
 
-    const isAskDatabase = String(rawSaveToDb) === 'ask';
-    const isSaveToDatabase = !isAskDatabase &&
-      rawSaveToDb !== false && rawSaveToDb !== 'false' && rawSaveToDb !== 0 && rawSaveToDb !== '0';
+    const isAskLibrary = String(rawSaveToLibrary) === 'ask';
+    const isSaveToLibrary = !isAskLibrary &&
+      rawSaveToLibrary !== false && rawSaveToLibrary !== 'false' && rawSaveToLibrary !== 0 && rawSaveToLibrary !== '0';
 
     // If neither setting is set to "ask", return directly
-    if (!isAskStorage && !isAskDatabase) {
+    if (!isAskStorage && !isAskLibrary) {
       return {
-        saveToDb: isSaveToDatabase,
-        storage: isSaveToDatabase && savedStorageType === 'file' ? 'file' : 'memory',
+        saveToLibrary: isSaveToLibrary,
+        storage: isSaveToLibrary && savedStorageType === 'file' ? 'file' : 'memory',
       };
     }
 
     return new Promise<PlayOptions | null>(resolve => {
       let currentStorage: TorrentStorage = savedStorageType === 'file' ? 'file' : 'memory';
-      let shouldSaveToDatabase = isSaveToDatabase;
-      if (!shouldSaveToDatabase) {
+      let shouldSaveToLibrary = isSaveToLibrary;
+      if (!shouldSaveToLibrary) {
         currentStorage = 'memory';
       }
       let shouldRememberChoice = false;
@@ -40,14 +40,14 @@ export class PlayDialog {
 
       const defaultTitle = translate('torst_options_title', 'Playback Options');
       const storageLabel = translate('torst_label_storage', 'Storage Type:');
-      const persistenceLabel = translate('torst_label_persistence', 'Database:');
+      const persistenceLabel = translate('torst_label_persistence', 'Library:');
       const ramText = translate('torst_storage_type_ram', 'RAM');
       const diskText = translate('torst_storage_type_disk', 'Disk');
-      const saveDbText = translate('torst_opt_save_db', 'Save to Database');
+      const saveLibraryText = translate('torst_opt_save_library', 'Save to Library');
       const dontSaveText = translate('torst_opt_dont_save', 'Do Not Save (Temporary)');
       const rememberText = translate('torst_opt_remember', "Remember choice (don't ask again)");
       const playText = translate('torst_btn_start_play', 'Start Playback');
-      const storageHintText = translate('torst_hint_storage_requires_save', 'Disk storage requires Save to Database');
+      const storageHintText = translate('torst_hint_storage_requires_save', 'Disk storage requires Save to Library');
 
       const rootElement = $(`
         <div class="torst-options-modal" style="padding: 1.5em; font-size: 1.1em;">
@@ -67,8 +67,8 @@ export class PlayDialog {
 
           <div style="margin-bottom: 1.2em;">
             <div style="margin-bottom: 0.4em; color: #aaa;">${persistenceLabel}</div>
-            <div class="torst-opt-savedb selector" style="display: inline-block; padding: 0.5em 1em; color: #fff; cursor: pointer; background: #2a2a2a; border-radius: 0.4em;">
-              ${shouldSaveToDatabase ? saveDbText : dontSaveText}
+            <div class="torst-opt-savelib selector" style="display: inline-block; padding: 0.5em 1em; color: #fff; cursor: pointer; background: #2a2a2a; border-radius: 0.4em;">
+              ${shouldSaveToLibrary ? saveLibraryText : dontSaveText}
             </div>
           </div>
 
@@ -89,14 +89,14 @@ export class PlayDialog {
 
       const storageButton = rootElement.find('.torst-opt-storage');
       const storageHint = rootElement.find('.torst-opt-storage-hint');
-      const saveToDatabaseButton = rootElement.find('.torst-opt-savedb');
+      const saveToLibraryButton = rootElement.find('.torst-opt-savelib');
       const rememberChoiceControl = rootElement.find('.torst-opt-remember');
       const rememberChoiceCheckbox = rootElement.find('.torst-opt-remember input');
       const playButton = rootElement.find('.torst-btn-play');
 
       const updateStorageAvailability = () => {
         storageButton.text(currentStorage === 'memory' ? ramText : diskText);
-        if (shouldSaveToDatabase) {
+        if (shouldSaveToLibrary) {
           storageButton.addClass('selector').removeClass('torst-opt-disabled').css({ cursor: 'pointer', opacity: 1 });
           storageHint.css('display', 'none');
         } else {
@@ -108,15 +108,15 @@ export class PlayDialog {
       updateStorageAvailability();
 
       storageButton.on('hover:enter', () => {
-        if (!shouldSaveToDatabase) return;
+        if (!shouldSaveToLibrary) return;
         currentStorage = currentStorage === 'memory' ? 'file' : 'memory';
         updateStorageAvailability();
       });
 
-      saveToDatabaseButton.on('hover:enter', () => {
-        shouldSaveToDatabase = !shouldSaveToDatabase;
-        saveToDatabaseButton.text(shouldSaveToDatabase ? saveDbText : dontSaveText);
-        if (!shouldSaveToDatabase) {
+      saveToLibraryButton.on('hover:enter', () => {
+        shouldSaveToLibrary = !shouldSaveToLibrary;
+        saveToLibraryButton.text(shouldSaveToLibrary ? saveLibraryText : dontSaveText);
+        if (!shouldSaveToLibrary) {
           currentStorage = 'memory';
         }
         updateStorageAvailability();
@@ -138,9 +138,9 @@ export class PlayDialog {
       playButton.on('hover:enter', () => {
         if (shouldRememberChoice) {
           Lampa.Storage.set(STORAGE_TYPE_STORAGE_KEY, currentStorage);
-          Lampa.Storage.set(SAVE_TO_DATABASE_STORAGE_KEY, shouldSaveToDatabase ? 'true' : 'false');
+          Lampa.Storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, shouldSaveToLibrary ? 'true' : 'false');
         }
-        closeDialog({ saveToDb: shouldSaveToDatabase, storage: currentStorage });
+        closeDialog({ saveToLibrary: shouldSaveToLibrary, storage: currentStorage });
       });
 
       Lampa.Modal.open({

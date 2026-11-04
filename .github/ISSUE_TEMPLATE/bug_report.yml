@@ -45,7 +45,7 @@ body:
     id: settings
     attributes:
       label: Settings involved
-      description: Anything from Settings → Torst that bears on the problem, such as the player choice, storage type, database persistence, preload, the authentication mode of the instance, or the search providers configured.
+      description: Anything from Settings → Torst that bears on the problem, such as the player choice, storage type, library persistence, preload, the authentication mode of the instance, or the search providers configured.
   - type: textarea
     id: steps
     attributes:

@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { DATABASE_SEARCH_ENABLED_STORAGE_KEY } from '../engine/database-search';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY } from '../engine/library-search';
 import { InstanceManager, SelectionMode } from '../instances/instance-manager';
 import { translate } from '../lang/translations';
 import { ParserHook } from '../providers/parser-hook';
@@ -11,7 +11,7 @@ import type { TorrentProvider } from '../types/provider';
 import type { TorstInstance } from '../types/torst';
 import { AboutUi } from './about';
 import { InstancePoolUi } from './instance-pool';
-import { SAVE_TO_DATABASE_STORAGE_KEY, STORAGE_TYPE_STORAGE_KEY } from './play-dialog';
+import { SAVE_TO_LIBRARY_STORAGE_KEY, STORAGE_TYPE_STORAGE_KEY } from './play-dialog';
 import { ProviderSettingsUi } from './provider-settings';
 import { TORST_ENABLED_STORAGE_KEY } from './settings-keys';
 
@@ -91,14 +91,14 @@ export class SettingsUi {
       component: TORST_SETTINGS_COMPONENT_ID,
       field: {
         description: translate(
-          'torst_database_search_descr',
+          'torst_library_search_descr',
           'Show saved torrents in Lampa global search'
         ),
-        name: translate('torst_database_search_name', 'Torst Database in Global Search'),
+        name: translate('torst_library_search_name', 'Torst Library in Global Search'),
       },
       param: {
         default: false,
-        name: DATABASE_SEARCH_ENABLED_STORAGE_KEY,
+        name: LIBRARY_SEARCH_ENABLED_STORAGE_KEY,
         type: 'trigger',
       },
     });
@@ -209,17 +209,17 @@ export class SettingsUi {
     Lampa.SettingsApi.addParam({
       component: TORST_SETTINGS_COMPONENT_ID,
       field: {
-        description: translate('torst_save_to_db_descr', 'Save torrents to the Torst database'),
-        name: translate('torst_save_to_db_name', 'Save to Database'),
+        description: translate('torst_save_to_library_descr', 'Save torrents to the Torst library'),
+        name: translate('torst_save_to_library_name', 'Save to Library'),
       },
       param: {
         default: 'false',
-        name: SAVE_TO_DATABASE_STORAGE_KEY,
+        name: SAVE_TO_LIBRARY_STORAGE_KEY,
         type: 'select',
         values: {
-          ask: translate('torst_save_to_db_ask', 'Ask Before Play'),
-          false: translate('torst_save_to_db_false', 'Never'),
-          true: translate('torst_save_to_db_true', 'Always'),
+          ask: translate('torst_save_to_library_ask', 'Ask Before Play'),
+          false: translate('torst_save_to_library_false', 'Never'),
+          true: translate('torst_save_to_library_true', 'Always'),
         },
       },
     });

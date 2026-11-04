@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 
 import { NetworkError } from '../src/api/http-client';
 import { TorstApi, TorstApiError } from '../src/api/torst';
-import { DATABASE_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/database-search';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/library-search';
 import { TorstEngine } from '../src/engine/torst-engine';
 import { InstanceManager } from '../src/instances/instance-manager';
 import { Torrent, TorstInstance } from '../src/types/torst';
-import { DatabaseSearch } from '../src/ui/database-search';
+import { LibrarySearch } from '../src/ui/library-search';
 import { TORST_STORAGE_BADGE } from '../src/ui/saved-torrent-card';
 import { installFakeJquery } from './support/fake-card-element';
 import { createTestLanguage, getTestTranslation } from './support/translations';
@@ -35,7 +35,7 @@ function storageRead(values: Map<string, unknown>, key: string, fallback: unknow
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-describe('DatabaseSearch', () => {
+describe('LibrarySearch', () => {
   const storage = new Map<string, unknown>();
   const added: any[] = [];
   const removed: unknown[] = [];
@@ -53,9 +53,9 @@ describe('DatabaseSearch', () => {
     storageListeners.length = 0;
     selectionListeners.length = 0;
     searchListeners.length = 0;
-    for (const key of ['isRegistered', 'isSourceActive']) (DatabaseSearch as any)[key] = false;
-    (DatabaseSearch as any).source = null;
-    (DatabaseSearch as any).cancelSearch = null;
+    for (const key of ['isRegistered', 'isSourceActive']) (LibrarySearch as any)[key] = false;
+    (LibrarySearch as any).source = null;
+    (LibrarySearch as any).cancelSearch = null;
     (globalThis as any).Lampa = {
       Activity: { push: (params: unknown) => activities.push(params) },
       Controller: { enabled: () => ({ name: 'search' }), toggle: () => {} },
@@ -92,8 +92,8 @@ describe('DatabaseSearch', () => {
   afterEach(() => mock.restoreAll());
 
   function enable(): void {
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'true');
-    DatabaseSearch.init();
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'true');
+    LibrarySearch.init();
     source = added[0];
   }
 
@@ -153,7 +153,7 @@ describe('DatabaseSearch', () => {
 
   it('leaves global search alone when its source is switched off', () => {
     enable();
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'false');
     (globalThis as any).Lampa.Activity.active = () => ({ component: 'torst_torrents' });
 
     const opened = openGlobalSearch([{ title: 'TMDB' }, source]);
@@ -162,14 +162,14 @@ describe('DatabaseSearch', () => {
   });
 
   it('defaults off and adds/removes one source when toggled independently of providers', () => {
-    DatabaseSearch.init();
+    LibrarySearch.init();
     assert.equal(added.length, 0);
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'true');
-    DatabaseSearch.init();
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'true');
+    LibrarySearch.init();
     assert.equal(added.length, 1);
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'false');
     assert.deepEqual(removed, [added[0]]);
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'true');
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'true');
     Lampa.Storage.set('torst_enabled', 'false');
     assert.equal(added.length, 2);
     assert.equal(removed.length, 2);
@@ -242,7 +242,7 @@ describe('DatabaseSearch', () => {
     enable();
     mock.method(TorstApi, 'getTorrents', async () => { throw new Error('offline'); });
     assert.deepEqual(await search('test'), []);
-    Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
+    Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'false');
     assert.deepEqual(await search('test'), []);
   });
 
@@ -252,7 +252,7 @@ describe('DatabaseSearch', () => {
     Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }),
     new TorstApiError('Unavailable', 503),
   ]) {
-    it(`retries database listing on a fallback instance after ${error.name}: ${error.message}`, async () => {
+    it(`retries library listing on a fallback instance after ${error.name}: ${error.message}`, async () => {
       enable();
       const fallback = { ...instance, id: 'fallback', name: 'Backup', url: 'http://backup.local' };
       const requestedInstances: string[] = [];
@@ -295,7 +295,7 @@ describe('DatabaseSearch', () => {
     assert.equal((InstanceManager.failover as any).mock.callCount(), 0);
   });
 
-  it('limits failed database listing attempts to the primary and one fallback', async () => {
+  it('limits failed library listing attempts to the primary and one fallback', async () => {
     enable();
     const fallback = { ...instance, id: 'fallback' };
     mock.method(InstanceManager, 'failover', async () => fallback);
@@ -359,7 +359,7 @@ describe('DatabaseSearch', () => {
   });
 
   for (const action of ['cancel', 'disable', 'reroute', 'replace']) {
-    it(`discards late database responses after ${action}`, async () => {
+    it(`discards late library responses after ${action}`, async () => {
       enable();
       let release: (value: { torrents: Torrent[] }) => void = () => {};
       mock.method(TorstApi, 'getTorrents', () => new Promise<{ torrents: Torrent[] }>(resolve => { release = resolve; }));
@@ -367,7 +367,7 @@ describe('DatabaseSearch', () => {
       const pending = new Promise(resolve => source.search({ query: 'test' }, (rows: unknown) => { completions++; resolve(rows); }));
       await flush();
       if (action === 'cancel') source.onCancel();
-      if (action === 'disable') Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
+      if (action === 'disable') Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'false');
       if (action === 'reroute') selectionListeners[0]();
       if (action === 'replace') {
         void search('other');
@@ -755,7 +755,7 @@ describe('DatabaseSearch', () => {
     const [validRow] = JSON.parse(JSON.stringify(await search('test')));
     const staleRow = {
       ...validRow,
-      results: [{ ...validRow.results[0], databaseScopeId: 'old-session' }],
+      results: [{ ...validRow.results[0], libraryScopeId: 'old-session' }],
     };
     const emptyRow = { ...validRow, results: [] };
     const rows = [staleRow, validRow, emptyRow];
@@ -778,16 +778,16 @@ describe('DatabaseSearch', () => {
   });
 
   for (const action of ['reroute', 'reload', 'disable']) {
-    it(`rejects cached database rows and selections after ${action}`, async () => {
+    it(`rejects cached library rows and selections after ${action}`, async () => {
       enable();
       const rows = JSON.parse(JSON.stringify(await search('test')));
       const staleItem = rows[0].results[0];
       if (action === 'reroute') selectionListeners[0]();
       if (action === 'reload') {
-        (DatabaseSearch as any).isRegistered = false;
-        DatabaseSearch.init();
+        (LibrarySearch as any).isRegistered = false;
+        LibrarySearch.init();
       }
-      if (action === 'disable') Lampa.Storage.set(DATABASE_SEARCH_ENABLED_STORAGE_KEY, 'false');
+      if (action === 'disable') Lampa.Storage.set(LIBRARY_SEARCH_ENABLED_STORAGE_KEY, 'false');
       source.onRecall(rows);
       assert.deepEqual(rows, []);
       source.onSelect({ element: staleItem, line: { toggle: () => {} } });

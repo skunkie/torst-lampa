@@ -28,9 +28,9 @@ Torst is unreleased and in active development. The plugin targets its current AP
   - Initiates streaming preloading via `POST /api/v1/torrents/{torrent_id}/files/{file_id}/preloads`.
   - Displays real-time progress, buffered size vs. target size, download speed, and connected peers.
   - Automatically hands off to `Lampa.Player.play()` once the buffer threshold is reached.
-- **Sidebar Torst Torrents (Database)**:
+- **Sidebar Torst Torrents (Library)**:
   - Adds a dedicated **Torst** entry to Lampa's sidebar menu, backed by its own self-contained `torst_torrents` browser component (native TorrServer's `mytorrents` view is left untouched, and is instead hidden in "Always Torst" mode).
-  - Browse torrents stored in the Torst database with posters, metadata, and multi-file selection.
+  - Browse torrents stored in the Torst library with posters, metadata, and multi-file selection.
   - Displays a file-storage badge icon over card posters for torrents cached on disk, alongside file counts and sizes.
 - **Profiles, Progress, and Up Next**:
   - Choose, create, rename, or delete Torst profiles from the **Torst icon in Lampa's top bar**, the library's **Torst Profiles** button, or an instance's actions menu. The top-bar button asks which instance to use when several are configured. Stored profile avatars appear in the picker, with a default icon when unavailable.
@@ -44,7 +44,7 @@ Torst is unreleased and in active development. The plugin targets its current AP
 - **Torrent Search Providers (Jackett/Prowlarr)**:
   - Manage a pool of Jackett and Prowlarr search providers from **Settings → Torst → Manage Search Providers**, independent of the Torst instance pool.
   - Aggregates results from all enabled providers concurrently, deduplicates them, and ranks by seeder count.
-  - While Torst is enabled, the **Show in Global Search** toggle under **Manage Search Providers** shows provider results in their own **Jackett / Prowlarr** tab of Lampa global search, with a count of torrents found and the full torrent list (date, tracker, seeders, size, quality, audio and subtitle tags) right in the tab. The separate **Torst Database in Global Search** setting adds a tab of torrents saved in the Torst database, also with a count of matches, shown with the same cards and file list as the Torst library. Global search opened from the Torst library starts on that tab.
+  - While Torst is enabled, the **Show in Global Search** toggle under **Manage Search Providers** shows provider results in their own **Jackett / Prowlarr** tab of Lampa global search, with a count of torrents found and the full torrent list (date, tracker, seeders, size, quality, audio and subtitle tags) right in the tab. The separate **Torst Library in Global Search** setting adds a tab of torrents saved in the Torst library, also with a count of matches, shown with the same cards and file list as the Torst library. Global search opened from the Torst library starts on that tab.
   - Replaces Lampa's native torrent search while Torst and at least one provider are enabled. Otherwise, it uses Lampa's native parser if available, or reports an error if no native parser exists.
 - **Catalog & Torrent Card Playback Choice**:
   - Adds a **Torst** action button directly inside movie/show catalog detail cards.
@@ -82,13 +82,13 @@ In Lampa, open **Settings** &rarr; **Torst**:
 | Setting | Description | Default |
 |---|---|---|
 | **Enable Torst** | Toggle Torst for torrent playback and search. Videos played through Torst skip Lampa's pre-roll ad | `Enabled` |
-| **Torst Database in Global Search** | Include saved torrents from the active instance in Lampa global search | `Disabled` |
+| **Torst Library in Global Search** | Include saved torrents from the active instance in Lampa global search | `Disabled` |
 | **Instance Selection** | `Auto (Lowest Latency)` or `Manual Selection` | `Auto (Lowest Latency)` |
 | **Manage Instance Pool** | Add/edit instances, configure credentials, test latency, select active instance | Action menu |
 | **Manage Search Providers** | Add/edit Jackett and Prowlarr search providers, test latency. While Torst and at least one provider are enabled, it also holds **Show in Global Search**, which shows provider results in their own Lampa global search tab and starts from Lampa's own torrent global search preference | Action menu |
 | **Torrent Playback** | `Always Torst`, `Manual (Context Menu & Button)`, or `Ask Before Play (Torst / TorrServer)` | `Always Torst` |
-| **Storage Type** | `RAM`, `Disk`, or `Ask Before Play`. Disk requires saving to the database; temporary playback uses RAM | `RAM` |
-| **Save to Database** | `Always`, `Never` (temporary memory playback), or `Ask Before Play` | `Never` |
+| **Storage Type** | `RAM`, `Disk`, or `Ask Before Play`. Disk requires saving to the library; temporary playback uses RAM | `RAM` |
+| **Save to Library** | `Always`, `Never` (temporary memory playback), or `Ask Before Play` | `Never` |
 | **About Plugin** | Plugin version and build info | Info |
 
 ---

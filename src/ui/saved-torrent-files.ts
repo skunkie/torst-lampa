@@ -20,7 +20,7 @@ interface SavedTorrentFileListParams {
 }
 
 /**
- * Opens the file list of a torrent saved in the Torst database, laid out like Lampa's own
+ * Opens the file list of a torrent saved in the Torst library, laid out like Lampa's own
  * torrent file list: episode stills, names and air dates where TMDB knows the episode, the
  * file size and type, and watched progress. The modal stays open while a file plays, so the
  * player can hand focus back to it.

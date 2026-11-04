@@ -7,7 +7,7 @@ import { beforeEach, describe, it } from 'node:test';
 
 import {
   PlayDialog,
-  SAVE_TO_DATABASE_STORAGE_KEY,
+  SAVE_TO_LIBRARY_STORAGE_KEY,
   STORAGE_TYPE_STORAGE_KEY,
 } from '../src/ui/play-dialog';
 
@@ -24,7 +24,7 @@ describe('PlayDialog', () => {
     controls.clear();
     modalOptions = null;
     storage.clear();
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'ask');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'ask');
     storage.set(STORAGE_TYPE_STORAGE_KEY, 'ask');
 
     const createControl = () => {
@@ -101,7 +101,7 @@ describe('PlayDialog', () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     const selectors = [
       '.torst-opt-storage',
-      '.torst-opt-savedb',
+      '.torst-opt-savelib',
       '.torst-opt-remember',
       '.torst-btn-play',
     ];
@@ -114,7 +114,7 @@ describe('PlayDialog', () => {
     controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
     assert.equal(closeCount, 1);
@@ -133,18 +133,18 @@ describe('PlayDialog', () => {
     await resultPromise;
 
     assert.equal(storage.get(STORAGE_TYPE_STORAGE_KEY), 'memory');
-    assert.equal(storage.get(SAVE_TO_DATABASE_STORAGE_KEY), 'false');
+    assert.equal(storage.get(SAVE_TO_LIBRARY_STORAGE_KEY), 'false');
   });
 
   it('removes disabled storage from D-pad navigation and restores it when enabled', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     const storageControl = controls.get('.torst-opt-storage');
-    const saveDbControl = controls.get('.torst-opt-savedb');
+    const saveLibControl = controls.get('.torst-opt-savelib');
 
     assert.equal(storageControl.classes.has('selector'), false);
     assert.equal(storageControl.classes.has('torst-opt-disabled'), true);
 
-    saveDbControl.listeners.get('hover:enter')();
+    saveLibControl.listeners.get('hover:enter')();
     assert.equal(storageControl.classes.has('selector'), true);
     assert.equal(storageControl.classes.has('torst-opt-disabled'), false);
 
@@ -152,47 +152,47 @@ describe('PlayDialog', () => {
     await resultPromise;
   });
 
-  it('ignores storage toggle while Save to Database is off, and re-enables it once turned on', async () => {
+  it('ignores storage toggle while Save to Library is off, and re-enables it once turned on', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
     const storageControl = controls.get('.torst-opt-storage');
-    const saveDbControl = controls.get('.torst-opt-savedb');
+    const saveLibControl = controls.get('.torst-opt-savelib');
 
-    // Save to Database defaults to off (storage key is 'ask' in beforeEach) — toggling storage must be a no-op.
+    // Save to Library defaults to off (storage key is 'ask' in beforeEach) — toggling storage must be a no-op.
     storageControl.listeners.get('hover:enter')();
-    saveDbControl.listeners.get('hover:enter')(); // turn Save to Database on
+    saveLibControl.listeners.get('hover:enter')(); // turn Save to Library on
     storageControl.listeners.get('hover:enter')(); // now toggles memory -> file
 
     controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
-      saveToDb: true,
+      saveToLibrary: true,
       storage: 'file',
     });
   });
 
-  it('forces storage back to memory when Save to Database is turned off after selecting file storage', async () => {
+  it('forces storage back to memory when Save to Library is turned off after selecting file storage', async () => {
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
     const storageControl = controls.get('.torst-opt-storage');
-    const saveDbControl = controls.get('.torst-opt-savedb');
+    const saveLibControl = controls.get('.torst-opt-savelib');
 
-    saveDbControl.listeners.get('hover:enter')(); // turn Save to Database on
+    saveLibControl.listeners.get('hover:enter')(); // turn Save to Library on
     storageControl.listeners.get('hover:enter')(); // memory -> file
-    saveDbControl.listeners.get('hover:enter')(); // turn Save to Database back off
+    saveLibControl.listeners.get('hover:enter')(); // turn Save to Library back off
 
     controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
   });
 
-  it('defaults database persistence to false in Ask mode unless the user opts in', async () => {
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'ask');
+  it('defaults library persistence to false in Ask mode unless the user opts in', async () => {
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'ask');
 
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
@@ -200,56 +200,56 @@ describe('PlayDialog', () => {
     controls.get('.torst-btn-play').listeners.get('hover:enter')();
 
     assert.deepEqual(await resultPromise, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
   });
 
-  it('bypasses modal and returns saveToDb=false when setting is false', async () => {
+  it('bypasses modal and returns saveToLibrary=false when setting is false', async () => {
     storage.set(STORAGE_TYPE_STORAGE_KEY, 'memory');
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
 
     const result = await PlayDialog.resolveOptions('Movie');
     assert.deepEqual(result, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
     assert.equal(modalOptions, null);
   });
 
-  it('bypasses modal and returns saveToDb=true when setting is true', async () => {
+  it('bypasses modal and returns saveToLibrary=true when setting is true', async () => {
     storage.set(STORAGE_TYPE_STORAGE_KEY, 'file');
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'true');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
 
     const result = await PlayDialog.resolveOptions('Movie');
     assert.deepEqual(result, {
-      saveToDb: true,
+      saveToLibrary: true,
       storage: 'file',
     });
     assert.equal(modalOptions, null);
   });
 
-  it('initializes modal with shouldSaveToDatabase=false when database setting is false and storage is ask', async () => {
+  it('initializes modal with shouldSaveToLibrary=false when library setting is false and storage is ask', async () => {
     storage.set(STORAGE_TYPE_STORAGE_KEY, 'ask');
-    storage.set(SAVE_TO_DATABASE_STORAGE_KEY, 'false');
+    storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');
 
     const resultPromise = PlayDialog.resolveOptions('Movie');
     assert.ok(modalOptions);
 
     controls.get('.torst-btn-play').listeners.get('hover:enter')();
     assert.deepEqual(await resultPromise, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
   });
 
-  it('bypasses modal and defaults saveToDb to false when storage key is unset', async () => {
+  it('bypasses modal and defaults saveToLibrary to false when storage key is unset', async () => {
     storage.delete(STORAGE_TYPE_STORAGE_KEY);
-    storage.delete(SAVE_TO_DATABASE_STORAGE_KEY);
+    storage.delete(SAVE_TO_LIBRARY_STORAGE_KEY);
 
     const result = await PlayDialog.resolveOptions('Movie');
     assert.deepEqual(result, {
-      saveToDb: false,
+      saveToLibrary: false,
       storage: 'memory',
     });
     assert.equal(modalOptions, null);

@@ -18,7 +18,7 @@ export type SelectionMode = 'auto' | 'manual';
 
 export class InstanceManager {
   private static instances: TorstInstance[] = [];
-  // Which databases requests can reach: null until the pool is first loaded.
+  // Which libraries requests can reach: null until the pool is first loaded.
   private static instancePoolSignature: string | null = null;
   private static isInitialized = false;
   private static readonly selectionListeners: Array<() => void> = [];
@@ -156,8 +156,8 @@ export class InstanceManager {
   }
 
   /**
-   * Announces a change to the set of databases requests can reach. Only instance identity and
-   * URL count: credentials, names, and benchmarks leave every database where it was.
+   * Announces a change to the set of libraries requests can reach. Only instance identity and
+   * URL count: credentials, names, and benchmarks leave every library where it was.
    */
   private static syncPoolSignature(): void {
     const signature = JSON.stringify(this.instances.map(instance => [instance.id, instance.url]).sort());
