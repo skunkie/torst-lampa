@@ -223,6 +223,12 @@ export class TorstTorrentsComponent {
     return this.toolbar ? this.rootElement : this.scrollView.render(true);
   }
 
+  private updateScrollForFocus(element: HTMLElement | false | null): void {
+    // The toolbar sits outside the scroll view, including when it receives initial focus.
+    if (this.toolbar && (!element || this.toolbar[0]?.contains?.(element))) return;
+    this.scrollView.update(element ? $(element) : this.contentGrid, true);
+  }
+
   private canFocusLibrary(): boolean {
     if (this.isDestroyed || this.isPaused) return false;
     const controllerName = typeof Lampa !== 'undefined' ? Lampa.Controller?.enabled?.()?.name : undefined;
@@ -404,8 +410,7 @@ export class TorstTorrentsComponent {
       },
       toggle: () => {
         this.isPaused = false;
-        // The toolbar sits outside the scroll view, so focusing it must not recenter the grid.
-        if (!this.toolbar?.[0]?.contains(this.lastFocusedElement)) this.scrollView.update(this.contentGrid, true);
+        this.updateScrollForFocus(this.lastFocusedElement);
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(this.lastFocusedElement || false, this.controllerRoot());
         if (this.needsReload) {
@@ -709,7 +714,7 @@ export class TorstTorrentsComponent {
     // background refresh must never touch it. The content controller's own toggle callback
     // recomputes layout and restores focus once this component genuinely regains control.
     if (!silent && this.canFocusLibrary()) {
-      this.scrollView.update(this.contentGrid, true);
+      this.updateScrollForFocus(elementToFocus);
       if (typeof Lampa !== 'undefined' && Lampa.Controller) {
         Lampa.Controller.collectionSet(this.controllerRoot());
         Lampa.Controller.collectionFocus(elementToFocus || false, this.controllerRoot());

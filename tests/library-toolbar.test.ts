@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, it, mock } from 'node:test';
 import { TorstApi } from '../src/api/torst';
 import { SavedTorrents } from '../src/engine/saved-torrents';
 import { InstanceManager } from '../src/instances/instance-manager';
-import { TorstInstance } from '../src/types/torst';
+import { Torrent, TorstInstance } from '../src/types/torst';
 import { TorstTorrentsComponent } from '../src/ui/torst-torrents';
 import { UpNextUi } from '../src/ui/up-next';
 import { createTestLanguage, getTestTranslation } from './support/translations';
@@ -270,6 +270,38 @@ describe('Torst library toolbar', () => {
     assert.equal((component as any).lastFocusedElement, button);
   });
 
+  for (const cardCount of [12, 18, 30]) {
+    for (const order of ['start-first', 'render-first']) {
+      it(`keeps a ${cardCount}-card library at the top with initial Up Next focus (${order})`, () => {
+        let controller: any;
+        const toolbar = (component as any).toolbar;
+        const button = toolbar.find('.torst-library-up-next')[0];
+        mock.method(Lampa.Controller, 'add', (_name: string, value: any) => { controller = value; });
+        mock.method(Lampa.Controller, 'toggle', (name: string) => {
+          activeController = name;
+          if (name === 'content') controller?.toggle();
+        });
+        mock.method(Lampa.Controller, 'collectionFocus', (target: any) => {
+          focused = target || button;
+          if (focused === button) toolbar.find('.selector').events['hover:focus']({ currentTarget: button });
+        });
+        const scroll = mock.method((component as any).scrollView, 'update');
+        const torrents: Torrent[] = Array.from({ length: cardCount }, (_, index) => ({
+          files: [], hash: `torrent-${index}`, name: `Show ${index}`, retention: 'persisted', storage: 'memory', total_size: 1,
+        }));
+        if (order === 'start-first') component.start();
+        component.renderTorrents(torrents, instance);
+        if (order === 'render-first') component.start();
+        assert.equal(focused, button);
+        assert.equal(scroll.mock.callCount(), 0, 'focusing the toolbar must not center the multi-row grid');
+        const card = (component as any).renderedCards.get('torrent-6');
+        card.events['hover:focus']({ currentTarget: card[0] });
+        assert.equal(scroll.mock.callCount(), 1);
+        assert.equal(scroll.mock.calls[0].arguments[0], card, 'focusing a card must still scroll it into view');
+      });
+    }
+  }
+
   it('preserves the grid scroll position when returning from Up Next to its toolbar button', async () => {
     let controller: any;
     mock.method(Lampa.Controller, 'add', (_name: string, value: any) => { controller = value; });
@@ -288,7 +320,7 @@ describe('Torst library toolbar', () => {
     assert.equal(focus.mock.calls[0].arguments[0], button);
     (component as any).lastFocusedElement = null;
     controller.toggle();
-    assert.equal(scroll.mock.callCount(), 1);
+    assert.equal(scroll.mock.callCount(), 0, 'default toolbar focus must preserve the scroll position too');
   });
 
   it('opens Up Next from the toolbar and restores the content controller on Back', async () => {
