@@ -115,7 +115,7 @@ export class UpNextUi {
         .torst-up-next__progress { height: 100%; background: currentColor; }
         .torst-up-next__dismiss { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 2.8em; height: 2.8em; margin: 0.5em 0.2em 0.5em 1em; color: #bdbdbd; cursor: pointer; border: 1px solid rgba(255,255,255,0.2); border-radius: 0.5em; }
         .torst-up-next__dismiss svg { width: 1.2em; height: 1.2em; pointer-events: none; }
-        .torst-up-next .selector.focus { color: #000; outline: 0.15em solid #fff; outline-offset: 0.1em; background: #fff; }
+        .torst-up-next .selector.focus { color: #000; background: #fff; }
         .torst-up-next__play.focus .torst-up-next__status, .torst-up-next__play.focus .torst-up-next__file { color: #444; }
         .torst-up-next__play.focus .torst-up-next__track { background: rgba(0,0,0,0.2); }
         .torst-up-next__message { padding: 2em 1em; line-height: 1.5; color: #bdbdbd; overflow-wrap: break-word; }
