@@ -658,9 +658,24 @@ describe('Torst API contract', () => {
     assert.equal(instance.accessToken, 'fresh');
   });
 
+  it('uploads a downloaded torrent within Torst\'s metainfo limit', async () => {
+    let uploadedBytes = 0;
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'indexer.test') return new Response(new Uint8Array(33 * 1024 * 1024));
+      if (url.pathname === '/api/v1/torrents' && init?.method === 'POST') {
+        uploadedBytes = ((init.body as FormData).get('metainfo') as Blob).size;
+        return json(RESOURCE, 201);
+      }
+      return json({ ...RESOURCE, file_count: null });
+    };
+    await TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent', { retention: 'temporary' });
+    assert.equal(uploadedBytes, 33 * 1024 * 1024);
+  });
+
   it('rejects an oversized downloaded torrent before uploading it', async () => {
     let calls = 0;
-    globalThis.fetch = async () => { calls++; return new Response(new Uint8Array(10 * 1024 * 1024 + 1)); };
+    globalThis.fetch = async () => { calls++; return new Response(new Uint8Array(33 * 1024 * 1024 + 1)); };
     await assert.rejects(TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent'), (error: unknown) => error instanceof TorstApiError && error.status === 413);
     assert.equal(calls, 1);
   });

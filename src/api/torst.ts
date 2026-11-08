@@ -132,6 +132,9 @@ export function extractHashFromMagnet(magnetUri: string): string | null {
   return null;
 }
 
+// Torst accepts metainfo uploads of up to 33 MiB.
+const METAINFO_MAX_BYTES = 33 * 1024 * 1024;
+
 export class TorstApi {
   private static pages = new Map<string, { data: ResourcePage<unknown>, etag?: string }>();
   private static torrents = new Map<string, Torrent>();
@@ -389,7 +392,7 @@ export class TorstApi {
     const file = await response.blob();
     this.ensureInstanceUnchanged(instance, original);
     if (isAborted?.()) throw new Error('Playback canceled');
-    if (file.size > 10 * 1024 * 1024) throw new TorstApiError('Torrent file exceeds Torst\'s 10 MiB limit', 413);
+    if (file.size > METAINFO_MAX_BYTES) throw new TorstApiError('Torrent file exceeds Torst\'s 33 MiB limit', 413);
     return this.uploadMetainfo(instance, file, options);
   }
 
@@ -406,7 +409,7 @@ export class TorstApi {
   public static async captureTorrentRecovery(instance: TorstInstance, hash: string): Promise<TorrentRecoverySource> {
     const torrent = await this.findTorrent(instance, hash);
     const metainfo = (await this.request<Blob>(instance, `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/metainfo`, { responseType: 'blob' })).data;
-    if (!metainfo.size || metainfo.size > 10 * 1024 * 1024) throw new TorstApiError('Invalid recovery metainfo size', 413);
+    if (!metainfo.size || metainfo.size > METAINFO_MAX_BYTES) throw new TorstApiError('Invalid recovery metainfo size', 413);
     return { metainfo, torrent: { ...torrent, files: torrent.files.map(file => ({ ...file })) } };
   }
 
