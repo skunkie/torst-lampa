@@ -1827,6 +1827,19 @@ describe('Torst playback orchestration', () => {
     assert.equal(notices[0], getTestTranslation('torst_noty_added_library', { title: 'Sintel' }));
   });
 
+  it('saves the catalog card it was opened from as library details', async () => {
+    const add = mock.method(TorstApi, 'addTorrent', async () => torrent);
+    await TorstEngine.saveToLibrary({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, Title: 'Sintel' }, { genres: [{ id: 16, name: 'Animation' }], id: 45745, release_date: '2010-09-27', title: 'Sintel' });
+    assert.deepEqual(add.mock.calls[0].arguments[1]?.library, { genres: ['Animation'], kind: 'movie', year: 2010 });
+  });
+
+  it('takes no library details from an unrelated open title', async () => {
+    (globalThis as any).Lampa.Activity.active = () => ({ movie: { id: 7, release_date: '2006-01-01', title: 'Elephants Dream' } });
+    const add = mock.method(TorstApi, 'addTorrent', async () => torrent);
+    await TorstEngine.saveToLibrary({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, Title: 'Sintel' });
+    assert.equal(add.mock.calls[0].arguments[1]?.library, undefined);
+  });
+
   it('saves to the library with the chosen disk storage type', async () => {
     storage.set('torst_storage_type', 'file');
     const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {

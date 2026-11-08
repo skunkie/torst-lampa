@@ -23,11 +23,21 @@ import {
   resolveFileInfo,
   selectVideoFiles,
 } from './file-parser';
+import { buildLibraryDetails } from './library-details';
 import { resolveMovieContext, resolvePosterUrl } from './media-context';
 import { displayFileList, playSingleVideoFile, playTorrentFile } from './playback-session';
 import { isPersistedTorrent, SavedTorrents } from './saved-torrents';
 
 const METADATA_MAXIMUM_ATTEMPTS = 120;
+
+/**
+ * The catalog card a torrent was opened from, only when the caller passed it: the activity
+ * stack fallback may hold an unrelated title, whose details must not be stored with this torrent.
+ */
+function resolveCatalogCard(movie: LampaMovie | undefined, resolvedMovie: LampaMovie | undefined): LampaMovie | undefined {
+  if (!movie || !resolvedMovie) return undefined;
+  return resolvedMovie === movie || resolvedMovie === movie.card || resolvedMovie === movie.movie ? resolvedMovie : undefined;
+}
 
 export class TorstEngine {
   private static originalTorrentOpen: ((hash: string, movie?: LampaMovie) => void) | null = null;
@@ -243,6 +253,7 @@ export class TorstEngine {
       resolvedMovie?.name ||
       'Torrent';
     const poster = resolvePosterUrl(torrentItem, resolvedMovie);
+    const library = buildLibraryDetails(resolveCatalogCard(movie, resolvedMovie));
     const storage = PlayDialog.resolveSavedStorage();
 
     if (!torrentHash && !magnetUri && !torrentLink) {
@@ -258,10 +269,11 @@ export class TorstEngine {
       const instance = await InstanceManager.getBestInstance();
       const outcome = await this.withFailover(instance, async i => {
         const resolved = torrentLink
-          ? await TorstApi.resolveTorrent(i, torrentLink, { poster, retention: 'persisted', storage, title })
+          ? await TorstApi.resolveTorrent(i, torrentLink, { library, poster, retention: 'persisted', storage, title })
           : undefined;
         return resolved || TorstApi.addTorrent(i, {
           hash: torrentHash,
+          library,
           magnet: magnetUri,
           poster,
           storage,
@@ -320,6 +332,7 @@ export class TorstEngine {
       resolvedMovie?.name ||
       'Torrent';
     const poster = resolvePosterUrl(torrentItem, resolvedMovie);
+    const library = buildLibraryDetails(resolveCatalogCard(movie, resolvedMovie));
 
     // 1. Resolve storage and library persistence preferences
     const playOptions = await PlayDialog.resolveOptions(title);
@@ -362,6 +375,7 @@ export class TorstEngine {
           const retention = playOptions.saveToLibrary ? 'persisted' : 'temporary';
           if (torrentLink) {
             return TorstApi.resolveTorrent(i, torrentLink, {
+              library,
               poster,
               retention,
               storage: playOptions.storage,
@@ -371,6 +385,7 @@ export class TorstEngine {
           if (isCanceled) throw new Error('Playback canceled');
           return TorstApi.addTorrent(i, {
             hash: torrentHash,
+            library,
             magnet: magnetUri,
             poster,
             retention,

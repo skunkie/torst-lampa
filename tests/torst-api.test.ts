@@ -319,6 +319,77 @@ describe('Torst API contract', () => {
     assert.equal(torrent.storage, 'file');
   });
 
+  it('sends library details when saving a magnet and omits them for temporary playback', async () => {
+    const library = { description: 'A dragon story.', genres: ['Animation', 'Fantasy'], imdbId: 'tt1727587', kind: 'movie' as const, year: 2010 };
+    const bodies: unknown[] = [];
+    globalThis.fetch = async (_input, options) => {
+      if (options?.method === 'POST') bodies.push(JSON.parse(String(options.body)));
+      return json(RESOURCE, options?.method === 'POST' ? 201 : 200);
+    };
+    await TorstApi.addTorrent(INSTANCE, { hash: HASH, library, title: ' Sintel ' });
+    await TorstApi.addTorrent(INSTANCE, { hash: HASH, library, retention: 'temporary', title: 'Sintel' });
+    assert.deepEqual(bodies, [
+      { description: 'A dragon story.', genres: ['Animation', 'Fantasy'], imdb_id: 'tt1727587', kind: 'movie', magnet_uri: `magnet:?xt=urn:btih:${HASH}`, retention: 'persisted', storage_mode: 'memory', title: 'Sintel', year: 2010 },
+      { magnet_uri: `magnet:?xt=urn:btih:${HASH}`, retention: 'temporary', storage_mode: 'memory' },
+    ]);
+  });
+
+  it('uploads library details as form parts, one part per genre', async () => {
+    let form: FormData | undefined;
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      if (url.hostname === 'indexer.test') return new Response('d4:infod4:name4:testee');
+      if (options?.method === 'POST') form = options.body as FormData;
+      return json(RESOURCE, options?.method === 'POST' ? 201 : 200);
+    };
+    await TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent', { library: { genres: ['Animation', 'Fantasy'], kind: 'series', year: 2010 }, title: 'Sintel' });
+    assert.deepEqual(form?.getAll('genres'), ['Animation', 'Fantasy']);
+    assert.equal(form?.get('kind'), 'series');
+    assert.equal(form?.get('year'), '2010');
+    assert.equal(form?.get('title'), 'Sintel');
+  });
+
+  it('saves the torrent without library details Torst refuses', async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    globalThis.fetch = async (_input, options) => {
+      if (options?.method !== 'POST') return json(RESOURCE);
+      const body = JSON.parse(String(options.body));
+      bodies.push(body);
+      return body.genres
+        ? json({ detail: 'genres[0] is too long', status: 422, type: 'tag:skunkie.github.io,2026:torrplay/problems/validation-failed' }, 422)
+        : json(RESOURCE, 201);
+    };
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { genres: ['Animation'] }, title: 'Sintel' });
+    assert.equal(torrent.id, RESOURCE.id);
+    assert.deepEqual(bodies.map(body => body.genres), [['Animation'], undefined]);
+    assert.equal(bodies[1].title, 'Sintel');
+  });
+
+  it('does not retry a torrent Torst cannot process', async () => {
+    let posts = 0;
+    globalThis.fetch = async () => {
+      posts++;
+      return json({ detail: 'Not a torrent', status: 422, type: 'tag:skunkie.github.io,2026:torrplay/problems/unprocessable-torrent' }, 422);
+    };
+    await assert.rejects(TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { kind: 'movie' } }), (error: unknown) => error instanceof TorstApiError && error.status === 422);
+    assert.equal(posts, 1);
+  });
+
+  it('adds library details while promoting a duplicate temporary torrent', async () => {
+    let patch: unknown;
+    globalThis.fetch = async (input, options) => {
+      const path = new URL(String(input)).pathname;
+      if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+      if (path.endsWith('/configuration')) {
+        if (options?.method === 'PATCH') patch = JSON.parse(String(options.body));
+        return json({ retention: 'temporary' }, 200, { ETag: '"cfg-temp"' });
+      }
+      return json({ ...RESOURCE, retention: patch ? 'persisted' : 'temporary' });
+    };
+    await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { kind: 'series', year: 2015 }, title: 'Caminandes' });
+    assert.deepEqual(patch, { kind: 'series', retention: 'persisted', storage_mode: 'memory', title: 'Caminandes', year: 2015 });
+  });
+
   it('streams with a playback token limited to the torrent', async () => {
     const instance: TorstInstance = { ...INSTANCE, accessToken: 'tpa_secret', accessTokenExpiresAtMs: Infinity, authType: 'bearer', id: 'scoped', password: 'secret' };
     globalThis.fetch = async (input, options) => {

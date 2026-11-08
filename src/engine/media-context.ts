@@ -3,6 +3,17 @@
 // SPDX-License-Identifier: MIT
 
 /**
+ * Tells a catalog series card from a catalog movie card, or neither for a card that is not
+ * from a catalog.
+ */
+export function resolveCardKind(movie?: LampaMovie): 'movie' | 'series' | undefined {
+  if (!movie) return undefined;
+  if (movie.original_name || movie.number_of_seasons || movie.first_air_date || movie.media_type === 'tv') return 'series';
+  if (movie.original_title || movie.release_date || movie.media_type === 'movie') return 'movie';
+  return undefined;
+}
+
+/**
  * Extracts movie data from explicit context or currently active Lampa activity.
  */
 export function resolveMovieContext(movieContext?: unknown): LampaMovie | undefined {

@@ -25,6 +25,7 @@ src/
 │   ├── episode-preview.ts   # TMDB season episode lookup for file list stills, names, and air dates
 │   ├── external-progress.ts # External-player return fallback through per-file Torst viewings
 │   ├── file-parser.ts       # Torrent file sorting, video detection, and season/episode/timeline resolution
+│   ├── library-details.ts   # Torst library members (kind, year, IMDb ID, description, genres) from a Lampa catalog card
 │   ├── library-search.ts    # Saved-torrent search through the instance's search filter, for global search and the filtered library view
 │   ├── media-context.ts     # Movie card context and poster URL resolution
 │   ├── playback-focus.ts    # Restores the originating view after internal or external playback
@@ -68,6 +69,7 @@ src/
 │   ├── torst-torrents.ts    # TorstTorrentsComponent: Library torrents browser and file manager
 │   └── up-next.ts           # Profile Up Next view, exact file selection, and dismissal
 ├── utils/
+│   ├── library-text.ts      # Normalization of library text to Torst's stored form and limits
 │   ├── search-query.ts      # Lenient URI decoding of Lampa global search queries
 │   ├── storage-obfuscation.ts # Storage credential obfuscation codec with reversible cipher
 │   ├── template-text.ts     # Safe text for Lampa HTML template replacement
@@ -98,6 +100,7 @@ src/
    - Torst's wire storage modes are `memory` and `disk`; the plugin maps its internal `file` choice to `disk`.
    - Use `retention: persisted` to save and `retention: temporary` for temporary playback, in both JSON and multipart creation. Temporary torrents use memory storage and omit title, poster, and other library metadata. Torst handles their idle cleanup; never automatically delete after playback. A duplicate temporary torrent is promoted through an ETag-protected configuration patch when saving; temporary playback must never downgrade a persisted torrent.
    - Create with `magnet_uri` JSON or upload `metainfo` in multipart data. Download URL-only releases on the client before upload.
+   - Saved torrents carry the library members (`kind`, `year`, `imdb_id`, `description`, `genres`) of the catalog card they were opened from, normalized to Torst's limits, and only from a card the caller passed, never from the activity stack. A creation or promotion Torst refuses as `validation-failed` is retried once with the title alone.
 
 4. **Preload Before Player Hand-off**:
    - Before launching video playback in `Lampa.Player`, initiate preloading via `POST /api/v1/torrents/{torrent_id}/files/{file_id}/preloads`.
@@ -216,14 +219,14 @@ src/
     - **Instance Management**: Instance CRUD, concurrent latency benchmarking, latency-based auto selection, reuse of recent benchmark results, and automatic failover in `tests/instance-manager.test.ts`.
     - **Search Providers**: Provider CRUD, legacy Lampa key sync, and health checks in `tests/provider-manager.test.ts`; aggregated multi-provider search, dedupe, and ranking in `tests/provider-search.test.ts`; provider pool settings UI in `tests/provider-ui.test.ts`.
     - **Native Parser Integration**: Lampa torrent parser interception, result injection, and the provider global search source in `tests/parser-hook.test.ts`; its torrent rows and media tags in `tests/provider-result-row.test.ts`.
-    - **Engine & Playback**: Playback mode resolution, prompt dialogs, library persistence, and player routing in `tests/torst-engine.test.ts`; engine helpers in `tests/engine-utils.test.ts`; torrent file parsing in `tests/file-parser.test.ts`; episode switch playlist restoration in `tests/player-playlist.test.ts`; episode previews in `tests/episode-preview.test.ts`; global search over saved torrents in `tests/library-search.test.ts`; batched saved-torrent lookups and their per-instance cache in `tests/saved-torrents.test.ts`.
+    - **Engine & Playback**: Playback mode resolution, prompt dialogs, library persistence, and player routing in `tests/torst-engine.test.ts`; engine helpers in `tests/engine-utils.test.ts`; torrent file parsing in `tests/file-parser.test.ts`; episode switch playlist restoration in `tests/player-playlist.test.ts`; episode previews in `tests/episode-preview.test.ts`; global search over saved torrents in `tests/library-search.test.ts`; batched saved-torrent lookups and their per-instance cache in `tests/saved-torrents.test.ts`; library members from catalog cards in `tests/library-details.test.ts`.
     - **Preload & Loading UI**: Progress percentage calculation, buffer threshold hand-off, peer and speed stats, start and status-read retries and rejections, and cancellation lifecycle in `tests/preload.test.ts`.
     - **Playback Dialog**: Pre-playback options dialog, TV remote button activation, and controller restoration on Back in `tests/play-dialog.test.ts`.
     - **UI & Settings**: Settings parameter registration, TV-friendly instance pool management, password masking, add/delete confirmation dialogs, URL validation, sidebar integration, Torst torrents component lifecycle, and card rendering in `tests/ui.test.ts`; file list rows in `tests/file-list-item.test.ts`; card watched overlay in `tests/card-watched.test.ts`; the shared saved torrent card in `tests/saved-torrent-card.test.ts`; the shared saved torrent file list through the library view tests in `tests/ui.test.ts` and the global search tests in `tests/library-search.test.ts`.
     - **CSS Ordering**: RECESS declaration order across the landing page, embedded `<style>` blocks, and inline styles in `tests/css-order.test.ts`.
     - **Localization**: Translation key completeness, matching placeholders across locales, alphabetical ordering, and fallback behavior in `tests/lang.test.ts`.
     - **Spelling**: American English checks, project vocabulary, English UI translations, and exclusions for non-English text, quotations, code and fixture data in `tests/spelling.test.ts`; syntax-aware prose extraction and preserved diagnostic positions in `tests/spelling-parser.test.ts`.
-    - **Utilities**: Storage credential obfuscation in `tests/storage-obfuscation.test.ts`, search query decoding in `tests/search-query.test.ts`, on/off setting storage in `tests/trigger-setting.test.ts`, and identifier generation in `tests/uuid.test.ts`.
+    - **Utilities**: Storage credential obfuscation in `tests/storage-obfuscation.test.ts`, search query decoding in `tests/search-query.test.ts`, on/off setting storage in `tests/trigger-setting.test.ts`, identifier generation in `tests/uuid.test.ts`, and library text normalization in `tests/library-details.test.ts`.
     - **Versioning & Build**: `PLUGIN_VERSION` and `package.json` version consistency in `tests/version.test.ts`; build metadata and repository resolution, landing page builds, published pages, and landing page generation and the alphabetical order of its translation keys in `tests/build-metadata.test.ts`, `tests/build.test.ts`, `tests/build-pages.test.ts`, and `tests/landing-page.test.ts`; landing page navbar layout across locales, release channels, and screen widths, checked with headless Chrome, in `tests/landing-layout.test.ts`, which is skipped when no Chrome executable is available.
 - **Test Fixture Names**: Do not use real commercial movie or series titles, trademarks, or brand names in test fixtures, sample data, or examples. Use the Blender open movies (Sintel, Big Buck Bunny, Elephants Dream, Tears of Steel, Cosmos Laundromat, Spring, Caminandes) or invented names such as `Llamaland.Demo` or `Show.S01E02`; for non-Latin scripts, use ordinary words rather than real titles.
 - **Test Runner**:

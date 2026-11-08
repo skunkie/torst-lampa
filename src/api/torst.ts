@@ -21,16 +21,19 @@ import {
   TorstSettings,
   UpNextEntry,
 } from '../types/torst';
+import { normalizeLibraryLine } from '../utils/library-text';
 import { AuthenticationError, AuthManager } from './auth';
 import { isNetworkError, requestHttp } from './http-client';
 
 export class TorstApiError extends Error {
+  public problemType?: string;
   public resource?: string;
   public status: number;
 
-  constructor(message: string, status: number, resource?: string) {
+  constructor(message: string, status: number, resource?: string, problemType?: string) {
     super(message);
     this.name = 'TorstApiError';
+    this.problemType = problemType;
     this.resource = resource;
     this.status = status;
   }
@@ -198,12 +201,14 @@ export class TorstApi {
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText || ''}`.trim();
       let resource: string | undefined;
+      let problemType: string | undefined;
       try {
-        const problem = await response.json() as { detail?: string, title?: string, torrent?: string };
+        const problem = await response.json() as { detail?: string, title?: string, torrent?: string, type?: string };
         detail = problem.detail || problem.title || detail;
         resource = problem.torrent;
+        problemType = problem.type;
       } catch {}
-      throw new TorstApiError(`Torst API error (${path}): ${detail}`, response.status, resource);
+      throw new TorstApiError(`Torst API error (${path}): ${detail}`, response.status, resource, problemType);
     }
     if (options.responseType === 'blob') return { data: await response.blob() as T, etag: response.headers?.get('ETag') || undefined };
     const text = await response.text();
@@ -264,31 +269,65 @@ export class TorstApi {
     const magnet = torrentRequest.magnet?.trim() || (hash ? `magnet:?xt=urn:btih:${hash}` : '');
     if (!magnet) throw new TorstApiError('A magnet URI or info hash is required', 422);
     const retention = torrentRequest.retention || 'persisted';
-    return this.createTorrent(instance, JSON.stringify({
+    return this.createTorrent(instance, hasLibrary => JSON.stringify({
       magnet_uri: magnet,
       retention,
       storage_mode: retention === 'temporary' || torrentRequest.storage !== 'file' ? 'memory' : 'disk',
-      title: retention === 'persisted' ? torrentRequest.title || undefined : undefined,
+      ...(retention === 'persisted' ? this.libraryMembers(torrentRequest, hasLibrary) : {}),
     }), torrentRequest);
   }
 
-  private static async createTorrent(instance: TorstInstance, body: string | FormData, options: TorrentAdd): Promise<Torrent> {
+  /**
+   * The library members of a saved torrent, as Torst's wire names. Temporary torrents carry
+   * none, and `hasLibrary` false keeps only the title.
+   */
+  private static libraryMembers(options: TorrentAdd, hasLibrary: boolean): Record<string, string | number | string[]> {
+    const members: Record<string, string | number | string[]> = {};
+    const title = normalizeLibraryLine(options.title);
+    if (title) members.title = title;
+    const library = hasLibrary ? options.library : undefined;
+    if (library?.kind) members.kind = library.kind;
+    if (library?.year !== undefined) members.year = library.year;
+    if (library?.imdbId) members.imdb_id = library.imdbId;
+    if (library?.description) members.description = library.description;
+    if (library?.genres?.length) members.genres = library.genres;
+    return members;
+  }
+
+  private static isLibraryRejection(error: unknown): boolean {
+    return error instanceof TorstApiError && error.status === 422 && Boolean(error.problemType?.endsWith('/validation-failed'));
+  }
+
+  private static async createTorrent(instance: TorstInstance, buildBody: (hasLibrary: boolean) => string | FormData, options: TorrentAdd): Promise<Torrent> {
     let resource: TorstTorrent;
-    try {
-      resource = (await this.request<TorstTorrent>(instance, '/api/v1/torrents', {
+    const create = async (hasLibrary: boolean) => {
+      const body = buildBody(hasLibrary);
+      return (await this.request<TorstTorrent>(instance, '/api/v1/torrents', {
         body,
         headers: typeof body === 'string' ? { 'Content-Type': 'application/json' } : undefined,
         method: 'POST',
       })).data;
+    };
+    try {
+      try {
+        resource = await create(true);
+      } catch (error) {
+        // Catalog details are a convenience; one Torst refuses must not block the torrent itself.
+        if (!options.library || options.retention === 'temporary' || !this.isLibraryRejection(error)) throw error;
+        resource = await create(false);
+      }
     } catch (error) {
       if (!(error instanceof TorstApiError) || error.status !== 409 || !error.resource) throw error;
       resource = (await this.request<TorstTorrent>(instance, error.resource)).data;
       if (options.retention !== 'temporary' && resource.retention === 'temporary') {
-        await this.patchResource(instance, `/api/v1/torrents/${encodeURIComponent(resource.id)}/configuration`, {
-          retention: 'persisted',
-          storage_mode: options.storage === 'file' ? 'disk' : 'memory',
-          title: options.title || undefined,
-        });
+        const path = `/api/v1/torrents/${encodeURIComponent(resource.id)}/configuration`;
+        const promotion = { retention: 'persisted', storage_mode: options.storage === 'file' ? 'disk' : 'memory' };
+        try {
+          await this.patchResource(instance, path, { ...promotion, ...this.libraryMembers(options, true) });
+        } catch (patchError) {
+          if (!options.library || !this.isLibraryRejection(patchError)) throw patchError;
+          await this.patchResource(instance, path, { ...promotion, ...this.libraryMembers(options, false) });
+        }
         resource = (await this.request<TorstTorrent>(instance, `/api/v1/torrents/${encodeURIComponent(resource.id)}`)).data;
       }
     }
@@ -398,12 +437,19 @@ export class TorstApi {
 
   private static async uploadMetainfo(instance: TorstInstance, file: Blob, options: TorrentAdd): Promise<Torrent> {
     const retention = options.retention || 'persisted';
-    const form = new FormData();
-    form.append('metainfo', file, 'download.torrent');
-    form.append('retention', retention);
-    form.append('storage_mode', retention === 'temporary' || options.storage !== 'file' ? 'memory' : 'disk');
-    if (retention === 'persisted' && options.title) form.append('title', options.title);
-    return this.createTorrent(instance, form, options);
+    return this.createTorrent(instance, hasLibrary => {
+      const form = new FormData();
+      form.append('metainfo', file, 'download.torrent');
+      form.append('retention', retention);
+      form.append('storage_mode', retention === 'temporary' || options.storage !== 'file' ? 'memory' : 'disk');
+      if (retention === 'persisted') {
+        // A multipart form takes one part per list value.
+        for (const [name, value] of Object.entries(this.libraryMembers(options, hasLibrary))) {
+          for (const part of Array.isArray(value) ? value : [value]) form.append(name, String(part));
+        }
+      }
+      return form;
+    }, options);
   }
 
   public static async captureTorrentRecovery(instance: TorstInstance, hash: string): Promise<TorrentRecoverySource> {

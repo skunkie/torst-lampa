@@ -39,6 +39,14 @@ export interface TorrentFile {
   path: string
 }
 
+export interface LibraryDetails {
+  description?: string,
+  genres?: string[],
+  imdbId?: string,
+  kind?: 'movie' | 'series',
+  year?: number
+}
+
 export interface Torrent {
   file_count?: number,
   files: TorrentFile[],
@@ -59,6 +67,7 @@ export interface TorrentsResponse {
 
 export interface TorrentAdd {
   hash?: string,
+  library?: LibraryDetails,
   magnet?: string,
   poster?: string,
   retention?: TorrentRetention,
