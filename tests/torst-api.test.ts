@@ -390,6 +390,22 @@ describe('Torst API contract', () => {
     assert.deepEqual(patch, { kind: 'series', retention: 'persisted', storage_mode: 'memory', title: 'Caminandes', year: 2015 });
   });
 
+  it('maps the media type and episode Torst reports for each file', async () => {
+    globalThis.fetch = async input => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
+      if (path === `${TORRENT_PATH}/files`) {
+        return json({ items: [
+          { ...FILE, episode: { number: 2, season: 1 }, media_type: 'video/x-matroska' },
+          { episode: null, id: 'fil_notes', media_type: 'text/plain', path: ['Sintel', 'notes.txt'], size_bytes: 10 },
+        ], links: {} });
+      }
+      return json(RESOURCE);
+    };
+    const { files } = await TorstApi.getTorrent(INSTANCE, HASH);
+    assert.deepEqual(files.map(file => [file.mediaType, file.torstEpisode]), [['video/x-matroska', { number: 2, season: 1 }], ['text/plain', null]]);
+  });
+
   it('streams with a playback token limited to the torrent', async () => {
     const instance: TorstInstance = { ...INSTANCE, accessToken: 'tpa_secret', accessTokenExpiresAtMs: Infinity, authType: 'bearer', id: 'scoped', password: 'secret' };
     globalThis.fetch = async (input, options) => {

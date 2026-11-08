@@ -57,6 +57,7 @@ export async function playSingleVideoFile(
     size: sizeString,
     title: cleanTitle,
     torrent_hash: torrent.hash,
+    torstEpisode: singleFile.torstEpisode,
     torstFileId: singleFile.fileId,
   };
 
@@ -134,6 +135,7 @@ export async function displayFileList(
       size: Lampa.Utils.bytesToSize(file.length),
       title: cleanTitle,
       torrent_hash: torrent.hash,
+      torstEpisode: file.torstEpisode,
       torstFileId: file.fileId,
     };
   });

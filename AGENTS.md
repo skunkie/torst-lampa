@@ -88,6 +88,7 @@ src/
    - Use per-file `POST .../preloads`, then read or delete the returned preload resource. Stream through a file's `/content` resource.
    - Configuration changes use `/configuration`, `application/merge-patch+json`, and the resource's current ETag in `If-Match`. Settings patches need the same precondition.
    - Target the current Torst development contract. Do not add backward compatibility or migration paths for older API shapes or TorrPlay state.
+   - A file's Torst `media_type` decides whether it is a video, as it does for Up Next; the extension list only judges files without one. Torst's `episode` fills in a file's season and episode only when the name parser finds no episode and the card is not a movie card, and it never changes the timeline hash that local progress is keyed by.
    - Never call legacy TorrPlay, TorrServer, or qBittorrent endpoints on a Torst instance.
 
 2. **Multi-Instance Pool with Latency Preference**:

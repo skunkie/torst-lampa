@@ -66,7 +66,9 @@ interface TorstTorrent {
 }
 
 interface TorstFile {
+  episode?: { number: number, season: number } | null,
   id: string,
+  media_type?: string,
   path: string[],
   size_bytes: number
 }
@@ -240,6 +242,20 @@ export class TorstApi {
     return items;
   }
 
+  private static adaptFile(file: TorstFile): TorrentFile {
+    const episode = file.episode;
+    return {
+      fileId: file.id,
+      length: file.size_bytes,
+      ...(typeof file.media_type === 'string' ? { mediaType: file.media_type } : {}),
+      name: file.path[file.path.length - 1],
+      path: file.path.join('/'),
+      torstEpisode: episode && Number.isInteger(episode.season) && Number.isInteger(episode.number)
+        ? { number: episode.number, season: episode.season }
+        : null,
+    };
+  }
+
   private static rememberTorrent(instance: TorstInstance, resource: TorstTorrent): Torrent {
     const hash = resource.info_hashes.find(info => info.algorithm === 'sha1')?.value || resource.id;
     const previous = this.torrents.get(this.cacheKey(instance, hash));
@@ -408,12 +424,7 @@ export class TorstApi {
     const torrent = this.rememberTorrent(instance, data);
     if (data.file_count !== null) {
       const files = await this.collectPages<TorstFile>(instance, `${path}/files?page_size=200`);
-      torrent.files = files.map(file => ({
-        fileId: file.id,
-        length: file.size_bytes,
-        name: file.path[file.path.length - 1],
-        path: file.path.join('/'),
-      }));
+      torrent.files = files.map(file => this.adaptFile(file));
     }
     const token = torrent.poster ? await AuthManager.getPlaybackToken(instance) : '';
     return {
@@ -593,7 +604,7 @@ export class TorstApi {
     return entries.map(entry => {
       const torrent = this.rememberTorrent(instance, entry.torrent);
       return {
-        file: { fileId: entry.file.id, length: entry.file.size_bytes, name: entry.file.path[entry.file.path.length - 1], path: entry.file.path.join('/') },
+        file: this.adaptFile(entry.file),
         id: entry.id,
         progress: entry.progress ? { ...entry.progress } : null,
         reason: entry.reason,

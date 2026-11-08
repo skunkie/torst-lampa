@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: MIT
 
-import { ParsedFileInfo } from '../types/torst';
+import { ParsedFileInfo, TorstEpisode } from '../types/torst';
+import { resolveCardKind } from './media-context';
 
 export const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'avi', 'mov', 'm4v', 'ts', 'm2ts', 'webm', 'flv', 'vob'];
 
@@ -62,10 +63,12 @@ export function resolveFileIndex(
 }
 
 /**
- * Keeps only the video files of a torrent, in the natural order a file picker lists them.
+ * Keeps only the video files of a torrent, in the natural order a file picker lists them. Torst's
+ * media type decides, as it does for up next; a file without one is judged by its extension.
  */
-export function selectVideoFiles<T extends { name?: string, path?: string }>(files: T[] | undefined): T[] {
+export function selectVideoFiles<T extends { mediaType?: string, name?: string, path?: string }>(files: T[] | undefined): T[] {
   return sortTorrentFiles((files || []).filter(file => {
+    if (file.mediaType !== undefined) return file.mediaType.startsWith('video/');
     const extension = (file.path || file.name || '').split('.').pop()?.toLowerCase() || '';
     return VIDEO_EXTENSIONS.includes(extension);
   }));
@@ -114,6 +117,35 @@ export function sortTorrentFiles<T extends { name?: string, path?: string }>(fil
  * with Lampa's movie and TV show cards, watch history, and in-player playlist resumes.
  */
 export function resolveFileInfo(
+  file: { name?: string, path?: string, torstEpisode?: TorstEpisode | null },
+  movie?: LampaMovie,
+  torrentHash?: string,
+  playlist?: LampaPlaylistItem[]
+): ParsedFileInfo {
+  const info = parseFileInfo(file, movie, torrentHash, playlist);
+  // A file opened from a movie card stays part of that movie, keeping its catalog progress,
+  // even when its name carries an episode pattern.
+  return resolveCardKind(movie) === 'movie' ? info : withTorstEpisode(info, file.torstEpisode);
+}
+
+/**
+ * Fills in the season and episode Torst numbers a file with when the name parser finds no
+ * episode. The timeline hash is left alone, since existing local progress is keyed by it.
+ * Without an episode, the parser's season is 0 or 1 by default, so Torst's season, read from
+ * the same pattern as its episode, wins unless the parser found a higher one in the name or
+ * folder.
+ */
+function withTorstEpisode(info: ParsedFileInfo, torstEpisode?: TorstEpisode | null): ParsedFileInfo {
+  if (!torstEpisode || info.episode !== null) return info;
+  return {
+    ...info,
+    episode: torstEpisode.number,
+    season: info.season !== null && info.season > 1 ? info.season : torstEpisode.season,
+    serial: true,
+  };
+}
+
+function parseFileInfo(
   file: { name?: string, path?: string },
   movie?: LampaMovie,
   torrentHash?: string,

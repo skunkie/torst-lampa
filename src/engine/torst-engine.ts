@@ -517,6 +517,7 @@ export class TorstEngine {
         size: Lampa.Utils.bytesToSize(file.length),
         title: cleanTitle,
         torrent_hash: readyTorrent.hash,
+        torstEpisode: file.torstEpisode,
         torstFileId: file.fileId,
       };
     });

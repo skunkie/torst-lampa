@@ -35,8 +35,15 @@ export interface TorstSettings {
 export interface TorrentFile {
   fileId?: string,
   length: number,
+  mediaType?: string,
   name: string,
-  path: string
+  path: string,
+  torstEpisode?: TorstEpisode | null
+}
+
+export interface TorstEpisode {
+  number: number,
+  season: number
 }
 
 export interface LibraryDetails {

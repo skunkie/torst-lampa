@@ -191,6 +191,7 @@ declare global {
     size?: string,
     title?: string,
     torrent_hash?: string,
+    torstEpisode?: { number: number, season: number } | null,
     torstFileId?: string
   }
 
