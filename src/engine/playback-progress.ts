@@ -14,13 +14,16 @@ interface ProgressBinding {
   hasEstimatedCompletion: boolean,
   instance: TorstInstance,
   instanceUrl: string,
+  isServerStateKnown: boolean,
   isViewed: boolean,
+  movie: LampaMovie,
   pending?: { isEstimate: boolean, progress: ProgressUpdate },
   profileId: string,
   revision: number,
   saving?: Promise<void>,
   titleKey?: string,
-  torrentHash: string
+  torrentHash: string,
+  unseenResumeSeconds?: number
 }
 
 interface PlaybackTimeline {
@@ -136,7 +139,7 @@ export class PlaybackProgress {
   private static startSaving(binding: ProgressBinding): void {
     binding.saving = this.save(binding).finally(() => {
       binding.saving = undefined;
-      if (binding.pending && this.isCurrent(binding)) this.startSaving(binding);
+      if (binding.pending && binding.isServerStateKnown && this.isCurrent(binding)) this.startSaving(binding);
     });
   }
 
@@ -145,10 +148,51 @@ export class PlaybackProgress {
       && instance.url === binding.instanceUrl && instance.profileId === binding.profileId);
   }
 
+  // A write replaces the server's viewed mark, so it must not be sent before that mark is known.
+  private static async loadServerState(binding: ProgressBinding): Promise<boolean> {
+    const progress = await TorstApi.getTorrentProgress(binding.instance, binding.profileId, binding.torrentHash);
+    const titles = binding.titleKey
+      ? await this.loadTitleProgress(binding.instance, binding.profileId, binding.movie, () => this.isCurrent(binding))
+      : [];
+    if (!this.isCurrent(binding)) return false;
+    for (const candidate of this.bindings.values()) {
+      if (candidate.isServerStateKnown || candidate.instance !== binding.instance || candidate.profileId !== binding.profileId
+        || candidate.torrentHash !== binding.torrentHash) continue;
+      const saved = this.resolveProgress(progress, titles, candidate.fileId, candidate.titleKey);
+      candidate.isViewed ||= saved?.viewed || false;
+      // Playback started without this resume point, so the viewer never had the chance to use it.
+      if (saved && !saved.viewed && saved.position_seconds > 0) candidate.unseenResumeSeconds = saved.position_seconds;
+      candidate.isServerStateKnown = true;
+    }
+    return binding.isServerStateKnown;
+  }
+
+  private static reportSaveFailure(): void {
+    if (this.hasReportedFailure) return;
+    this.hasReportedFailure = true;
+    Lampa.Noty?.show(translate('torst_progress_save_error', 'Could not save progress to Torst'));
+  }
+
   private static async save(binding: ProgressBinding): Promise<void> {
     while (binding.pending && this.isCurrent(binding)) {
+      if (!binding.isServerStateKnown) {
+        const isKnown = await this.loadServerState(binding).catch(() => false);
+        if (!isKnown) {
+          // The write stays pending, and the next player report tries again.
+          if (this.isCurrent(binding)) this.reportSaveFailure();
+          return;
+        }
+        if (binding.pending) {
+          binding.pending.progress.viewed = binding.isViewed || binding.hasEstimatedCompletion;
+        }
+        continue;
+      }
       const { isEstimate, progress } = binding.pending;
       binding.pending = undefined;
+      if (binding.unseenResumeSeconds !== undefined) {
+        if (!progress.viewed && progress.position_seconds < binding.unseenResumeSeconds) continue;
+        binding.unseenResumeSeconds = undefined;
+      }
       try {
         const saved = await TorstApi.saveFileProgress(binding.instance, binding.profileId, binding.torrentHash, binding.fileId, progress);
         if (!isEstimate) binding.isViewed ||= saved.viewed;
@@ -157,10 +201,7 @@ export class PlaybackProgress {
           if (!isEstimate) binding.isViewed ||= title.viewed;
         }
       } catch {
-        if (!this.hasReportedFailure) {
-          this.hasReportedFailure = true;
-          Lampa.Noty?.show(translate('torst_progress_save_error', 'Could not save progress to Torst'));
-        }
+        this.reportSaveFailure();
       }
     }
   }
@@ -178,34 +219,40 @@ export class PlaybackProgress {
     for (const item of playlist) {
       if (item.torstFileId) this.applyTimeline(this.timelineHash(instance, item.torstFileId, resolveFileInfo(item, movie, torrentHash, playlist).hash));
     }
+    let progress: FileProgress[] | undefined;
+    let titles: TitleProgress[] = [];
     try {
-      const progress = await TorstApi.getTorrentProgress(instance, profileId, torrentHash);
+      progress = await TorstApi.getTorrentProgress(instance, profileId, torrentHash);
       if (!isCurrent()) return;
-      const titles = await this.loadTitleProgress(instance, profileId, movie, isCurrent);
-      if (!isCurrent()) return;
-      for (const item of playlist) {
-        if (!item.torstFileId) continue;
-        const fileInfo = resolveFileInfo(item, movie, torrentHash, playlist);
-        const timelineHash = this.timelineHash(instance, item.torstFileId, fileInfo.hash);
-        const titleKey = resolveTitleProgressKey(movie, fileInfo);
-        const saved = this.resolveProgress(progress, titles, item.torstFileId, titleKey);
-        this.applyTimeline(timelineHash, saved);
-        this.bindings.set(String(timelineHash), {
-          fileId: item.torstFileId,
-          hasEstimatedCompletion: false,
-          instance,
-          instanceUrl,
-          isViewed: saved?.viewed || false,
-          profileId,
-          revision: 0,
-          titleKey,
-          torrentHash,
-        });
-      }
+      titles = await this.loadTitleProgress(instance, profileId, movie, isCurrent);
     } catch {
       if (isCurrent()) {
+        // The same outage would otherwise be reported again by the first deferred write.
+        this.hasReportedFailure = true;
         Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
       }
+    }
+    if (!isCurrent()) return;
+    for (const item of playlist) {
+      if (!item.torstFileId) continue;
+      const fileInfo = resolveFileInfo(item, movie, torrentHash, playlist);
+      const timelineHash = this.timelineHash(instance, item.torstFileId, fileInfo.hash);
+      const titleKey = resolveTitleProgressKey(movie, fileInfo);
+      const saved = progress ? this.resolveProgress(progress, titles, item.torstFileId, titleKey) : undefined;
+      if (progress) this.applyTimeline(timelineHash, saved);
+      this.bindings.set(String(timelineHash), {
+        fileId: item.torstFileId,
+        hasEstimatedCompletion: false,
+        instance,
+        instanceUrl,
+        isServerStateKnown: progress !== undefined,
+        isViewed: saved?.viewed || false,
+        movie,
+        profileId,
+        revision: 0,
+        titleKey,
+        torrentHash,
+      });
     }
   }
 

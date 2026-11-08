@@ -111,6 +111,61 @@ describe('server playback progress', () => {
     assert.equal(notices.length, 2);
   });
 
+  it('saves progress after a failed load once the viewed mark is known, keeping it set', async () => {
+    let isOffline = true;
+    mock.method(TorstApi, 'getTorrentProgress', async () => {
+      if (isOffline) throw new Error('offline');
+      return [{ ...saved, viewed: true }];
+    });
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    report({ duration: 400, time: 120 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0, 'a write must wait until the viewed mark is known');
+    isOffline = false;
+    report({ duration: 400, time: 150 });
+    await PlaybackProgress.flush();
+    assert.deepEqual((TorstApi.saveFileProgress as any).mock.calls.map((call: any) => call.arguments[4]), [
+      { duration_seconds: 400, position_seconds: 150, viewed: true },
+    ]);
+  });
+
+  it('keeps a resume point the viewer never saw until playback passes it', async () => {
+    let isOffline = true;
+    mock.method(TorstApi, 'getTorrentProgress', async () => {
+      if (isOffline) throw new Error('offline');
+      return [saved];
+    });
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    isOffline = false;
+    report({ duration: 400, time: 50 });
+    await PlaybackProgress.flush();
+    assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0, 'an earlier position must not replace the unseen resume point');
+    report({ duration: 400, time: 120 });
+    await PlaybackProgress.flush();
+    report({ duration: 400, time: 60 });
+    await PlaybackProgress.flush();
+    assert.deepEqual((TorstApi.saveFileProgress as any).mock.calls.map((call: any) => call.arguments[4].position_seconds), [120, 60]);
+  });
+
+  it('applies the loaded viewed mark to a report received while the deferred load is in flight', async () => {
+    let loadCount = 0;
+    let finishLoad: (progress: FileProgress[]) => void = () => {};
+    mock.method(TorstApi, 'getTorrentProgress', () => {
+      loadCount++;
+      if (loadCount === 1) return Promise.reject(new Error('offline'));
+      return new Promise<FileProgress[]>(resolve => { finishLoad = resolve; });
+    });
+    await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
+    report({ duration: 400, time: 120 });
+    report({ duration: 400, time: 130 });
+    finishLoad([{ ...saved, viewed: true }]);
+    await PlaybackProgress.flush();
+    assert.equal(loadCount, 2);
+    assert.deepEqual((TorstApi.saveFileProgress as any).mock.calls.map((call: any) => call.arguments[4]), [
+      { duration_seconds: 400, position_seconds: 130, viewed: true },
+    ]);
+  });
+
   it('saves only reported positions and marks completion at ninety percent', async () => {
     await PlaybackProgress.prepare(instance, 'torrent', playlist, {});
     assert.equal((TorstApi.saveFileProgress as any).mock.callCount(), 0);
