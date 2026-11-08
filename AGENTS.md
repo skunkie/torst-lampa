@@ -111,7 +111,7 @@ src/
 5. **Authentication & Token Management**:
    - Support no authentication or password sign-in. Torst has no username, Basic authentication, or OAuth endpoint.
    - Create an access token through `POST /api/v1/access-tokens` with `name` and `password`; use its `secret` as the bearer credential. Request a one-day lifetime, share concurrent sign-ins, respect `expires_at`, and retry once after a 401 without invalidating a newer token.
-   - Issue streaming and poster tokens through `POST /api/v1/playback-tokens`, appending `?token=...` to media URLs.
+   - Issue streaming and poster tokens through `POST /api/v1/playback-tokens`, appending `?token=...` to media URLs. Content URLs, which reach players and watch history, use a token limited to their torrent (`torrent_id`); poster listings and profile avatars use the shared token.
    - Keep tokens in memory and passwords obfuscated in storage.
 
 6. **Lampa Settings & Instance Configuration**:

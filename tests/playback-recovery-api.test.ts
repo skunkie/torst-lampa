@@ -44,6 +44,10 @@ describe('Torst playback recovery API', () => {
       let uploaded = false;
       globalThis.fetch = async (input, options) => {
         const url = new URL(String(input));
+        if (url.pathname === '/api/v1/playback-tokens') {
+          assert.deepEqual(JSON.parse(String(options?.body)), { torrent_id: 'trr_new' });
+          return json({ expires_at: '2999-01-01T00:00:00Z', token: 'torrent-secret', torrent_id: 'trr_new' }, 201);
+        }
         if (options?.method === 'POST') {
           assert.ok(options.body instanceof FormData);
           assert.equal(options.body.get('retention'), retention);
@@ -64,7 +68,7 @@ describe('Torst playback recovery API', () => {
       assert.equal(torrent.files[1].fileId, 'fil_one');
       const content = new URL(await TorstApi.getRecoveredStreamUrl(instance, torrent, 'fil_one'));
       assert.equal(content.pathname, '/api/v1/torrents/trr_new/files/fil_one/content');
-      assert.equal(content.searchParams.get('token'), 'playback-secret');
+      assert.equal(content.searchParams.get('token'), 'torrent-secret');
       assert.equal(content.searchParams.get('download'), 'false');
     });
   }

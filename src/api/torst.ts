@@ -438,7 +438,7 @@ export class TorstApi {
       throw new TorstApiError('Invalid Torst content link', 0);
     }
     const url = new URL(`${instance.url.replace(/\/+$/, '')}${path}`);
-    const token = await AuthManager.getPlaybackToken(instance);
+    const token = await AuthManager.getPlaybackToken(instance, torrent.id);
     if (token) url.searchParams.set('token', token);
     return url.toString();
   }
@@ -564,13 +564,13 @@ export class TorstApi {
     await this.patchResource(instance, '/api/v1/settings', settings);
   }
 
-  private static async fileResource(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<{ file: TorrentFile, path: string }> {
+  private static async fileResource(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<{ file: TorrentFile, path: string, torrentId: string }> {
     let torrent = await this.findTorrent(instance, hash);
     if (!torrent.files.length) torrent = await this.getTorrent(instance, hash);
     const file = identifier.fileId ? torrent.files.find(item => item.fileId === identifier.fileId)
       : identifier.index !== undefined ? torrent.files[identifier.index] : torrent.files.find(item => item.path === identifier.path);
     if (!file?.fileId) throw new TorstApiError('Torst file is not available', 404);
-    return { file, path: `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/files/${encodeURIComponent(file.fileId)}` };
+    return { file, path: `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/files/${encodeURIComponent(file.fileId)}`, torrentId: torrent.id as string };
   }
 
   public static async startPreload(instance: TorstInstance, hash: string, request: PreloadRequest): Promise<PreloadResponse> {
@@ -694,8 +694,8 @@ export class TorstApi {
   }
 
   public static async getStreamUrl(instance: TorstInstance, hash: string, identifier: { fileId?: string, index?: number, path?: string }): Promise<string> {
-    const { path } = await this.fileResource(instance, hash, identifier);
-    const token = await AuthManager.getPlaybackToken(instance);
+    const { path, torrentId } = await this.fileResource(instance, hash, identifier);
+    const token = await AuthManager.getPlaybackToken(instance, torrentId);
     return `${instance.url.replace(/\/+$/, '')}${path}/content${token ? `?token=${encodeURIComponent(token)}` : ''}`;
   }
 

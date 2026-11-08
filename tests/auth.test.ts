@@ -214,4 +214,27 @@ describe('Torst authentication', () => {
     assert.ok((instance.playbackTokenExpiresAtMs || 0) < expiresAt);
   });
 
+  it('issues a playback token for one torrent, cached apart from the shared token', async () => {
+    const instance = { ...createInstance(), accessToken: 'tpa_secret', accessTokenExpiresAtMs: Infinity };
+    const bodies: unknown[] = [];
+    globalThis.fetch = async (input, options) => {
+      assert.equal(String(input), `${instance.url}/api/v1/playback-tokens`);
+      const body = JSON.parse(String(options?.body));
+      bodies.push(body);
+      return new Response(JSON.stringify({ expires_at: '2999-01-01T00:00:00Z', token: `tpp_${body.torrent_id || 'all'}`, torrent_id: body.torrent_id || null }), { status: 201 });
+    };
+    const [first, concurrent] = await Promise.all([AuthManager.getPlaybackToken(instance, 'trr_one'), AuthManager.getPlaybackToken(instance, 'trr_one')]);
+    assert.equal(first, 'tpp_trr_one');
+    assert.equal(concurrent, 'tpp_trr_one');
+    assert.equal(await AuthManager.getPlaybackToken(instance, 'trr_two'), 'tpp_trr_two');
+    assert.equal(await AuthManager.getPlaybackToken(instance), 'tpp_all');
+    assert.equal(await AuthManager.getPlaybackToken(instance, 'trr_one'), 'tpp_trr_one');
+    assert.deepEqual(bodies, [{ torrent_id: 'trr_one' }, { torrent_id: 'trr_two' }, {}]);
+    assert.equal(instance.playbackToken, 'tpp_all');
+    AuthManager.invalidateTokens(instance);
+    instance.accessToken = 'tpa_secret';
+    instance.accessTokenExpiresAtMs = Infinity;
+    await AuthManager.getPlaybackToken(instance, 'trr_one');
+    assert.equal(bodies.length, 4);
+  });
 });

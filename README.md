@@ -56,7 +56,7 @@ Torst is unreleased and in active development. The plugin targets its current AP
   - Magnet links create torrents directly; torrent file links are downloaded by the client and uploaded as multipart data.
 - **Authentication**:
   - Use no authentication when Torst has no password, or select **Bearer** and enter the Torst password. There is no username or Basic authentication.
-  - The plugin signs in through `POST /api/v1/access-tokens` with a one-day token lifetime and issues playback tokens through `POST /api/v1/playback-tokens` for content and poster URLs.
+  - The plugin signs in through `POST /api/v1/access-tokens` with a one-day token lifetime and issues playback tokens through `POST /api/v1/playback-tokens` for content and poster URLs. Each content URL gets a token limited to its own torrent, so a URL handed to a player or kept in watch history cannot open the rest of the library.
 - **Universal TV & Device Compatibility**: Distributed as a standalone JavaScript bundle for Android TV, Tizen, WebOS, and desktop browsers, with no external runtime dependencies.
 
 ---

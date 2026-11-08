@@ -11,6 +11,13 @@ interface PendingTokenRequest {
   promise: Promise<string>
 }
 
+interface ScopedPlaybackToken {
+  expiresAtMs: number,
+  token: string
+}
+
+const SCOPED_PLAYBACK_TOKEN_LIMIT = 64;
+
 export class AuthenticationError extends Error {
   public status?: number;
 
@@ -25,11 +32,15 @@ export class AuthManager {
   private static accessRequests = new WeakMap<TorstInstance, PendingTokenRequest>();
   private static generations = new WeakMap<TorstInstance, number>();
   private static playbackRequests = new WeakMap<TorstInstance, PendingTokenRequest>();
+  private static scopedPlaybackRequests = new WeakMap<TorstInstance, Map<string, PendingTokenRequest>>();
+  private static scopedPlaybackTokens = new WeakMap<TorstInstance, Map<string, ScopedPlaybackToken>>();
 
   public static invalidateTokens(instance: TorstInstance): void {
     this.generations.set(instance, (this.generations.get(instance) || 0) + 1);
     this.accessRequests.delete(instance);
     this.playbackRequests.delete(instance);
+    this.scopedPlaybackRequests.delete(instance);
+    this.scopedPlaybackTokens.delete(instance);
     delete instance.accessToken;
     delete instance.accessTokenExpiresAtMs;
     delete instance.playbackToken;
@@ -38,6 +49,7 @@ export class AuthManager {
 
   public static rejectAccessToken(instance: TorstInstance, authorization?: string): void {
     if (!instance.accessToken || authorization !== `Bearer ${instance.accessToken}`) return;
+    this.scopedPlaybackTokens.delete(instance);
     delete instance.accessToken;
     delete instance.accessTokenExpiresAtMs;
     delete instance.playbackToken;
@@ -60,23 +72,28 @@ export class AuthManager {
     return expiresAtMs - Math.min(60000, (expiresAtMs - Date.now()) / 2);
   }
 
-  private static async shareRequest(instance: TorstInstance, requests: WeakMap<TorstInstance, PendingTokenRequest>, request: () => Promise<string>): Promise<string> {
+  private static async shareRequest<K>(
+    instance: TorstInstance,
+    requests: { delete(key: K): unknown, get(key: K): PendingTokenRequest | undefined, set(key: K, value: PendingTokenRequest): unknown },
+    key: K,
+    request: () => Promise<string>
+  ): Promise<string> {
     const generation = this.generations.get(instance) || 0;
-    const pending = requests.get(instance);
+    const pending = requests.get(key);
     if (pending && pending.generation === generation && this.hasSameAuthentication(instance, pending.instance)) {
       return pending.promise;
     }
     const entry = { generation, instance: { ...instance }, promise: request() };
-    requests.set(instance, entry);
+    requests.set(key, entry);
     try {
       return await entry.promise;
     } finally {
-      if (requests.get(instance) === entry) requests.delete(instance);
+      if (requests.get(key) === entry) requests.delete(key);
     }
   }
 
   public static async loginBearer(instance: TorstInstance): Promise<string> {
-    return this.shareRequest(instance, this.accessRequests, () => this.requestAccessToken(instance));
+    return this.shareRequest(instance, this.accessRequests, instance, () => this.requestAccessToken(instance));
   }
 
   private static async requestAccessToken(instance: TorstInstance): Promise<string> {
@@ -116,28 +133,63 @@ export class AuthManager {
     return headers;
   }
 
-  public static async getPlaybackToken(instance: TorstInstance): Promise<string> {
+  /**
+   * Issues a token for media URLs. Without `torrentId` it allows every torrent and profile
+   * avatars; with one, only that torrent's content and poster, so a URL handed to a player
+   * cannot reach the rest of the library.
+   */
+  public static async getPlaybackToken(instance: TorstInstance, torrentId?: string): Promise<string> {
     if (instance.authType === 'none') return '';
+    if (torrentId) return this.getScopedPlaybackToken(instance, torrentId);
     if (instance.playbackToken && instance.playbackTokenExpiresAtMs && Date.now() < instance.playbackTokenExpiresAtMs) {
       return instance.playbackToken;
     }
-    return this.shareRequest(instance, this.playbackRequests, () => this.requestPlaybackToken(instance));
+    return this.shareRequest(instance, this.playbackRequests, instance, async () => {
+      const { expiresAtMs, token } = await this.requestPlaybackToken(instance);
+      instance.playbackToken = token;
+      instance.playbackTokenExpiresAtMs = expiresAtMs;
+      return token;
+    });
   }
 
-  private static async requestPlaybackToken(instance: TorstInstance, shouldRetry = true): Promise<string> {
+  private static async getScopedPlaybackToken(instance: TorstInstance, torrentId: string): Promise<string> {
+    const cached = this.scopedPlaybackTokens.get(instance)?.get(torrentId);
+    if (cached && Date.now() < cached.expiresAtMs) return cached.token;
+    let requests = this.scopedPlaybackRequests.get(instance);
+    if (!requests) {
+      requests = new Map();
+      this.scopedPlaybackRequests.set(instance, requests);
+    }
+    const generation = this.generations.get(instance) || 0;
+    return this.shareRequest(instance, requests, torrentId, async () => {
+      const issued = await this.requestPlaybackToken(instance, torrentId);
+      if ((this.generations.get(instance) || 0) !== generation) return issued.token;
+      let tokens = this.scopedPlaybackTokens.get(instance);
+      if (!tokens) {
+        tokens = new Map();
+        this.scopedPlaybackTokens.set(instance, tokens);
+      }
+      tokens.delete(torrentId);
+      tokens.set(torrentId, issued);
+      while (tokens.size > SCOPED_PLAYBACK_TOKEN_LIMIT) tokens.delete(tokens.keys().next().value as string);
+      return issued.token;
+    });
+  }
+
+  private static async requestPlaybackToken(instance: TorstInstance, torrentId?: string, shouldRetry = true): Promise<ScopedPlaybackToken> {
     const original = { ...instance };
     const generation = this.generations.get(instance) || 0;
     const authHeaders = await this.getAuthHeaders(instance);
     this.ensureAuthenticationUnchanged(instance, original, generation);
     const response = await requestHttp(`${instance.url.replace(/\/+$/, '')}/api/v1/playback-tokens`, {
-      body: '{}',
+      body: torrentId ? JSON.stringify({ torrent_id: torrentId }) : '{}',
       headers: { ...authHeaders, 'Content-Type': 'application/json' },
       method: 'POST',
     });
     this.ensureAuthenticationUnchanged(instance, original, generation);
     if (response.status === 401 && shouldRetry) {
       this.rejectAccessToken(instance, authHeaders['Authorization']);
-      return this.requestPlaybackToken(instance, false);
+      return this.requestPlaybackToken(instance, torrentId, false);
     }
     if (!response.ok) {
       throw new AuthenticationError(`Failed to obtain playback token (${response.status}): ${response.statusText || 'Unauthorized'}`, response.status);
@@ -149,8 +201,6 @@ export class AuthManager {
     if (!(expiresAtMs > Date.now())) {
       throw new AuthenticationError('Torst returned an invalid playback token');
     }
-    instance.playbackToken = token.token;
-    instance.playbackTokenExpiresAtMs = this.expirationWithBuffer(expiresAtMs);
-    return token.token;
+    return { expiresAtMs: this.expirationWithBuffer(expiresAtMs), token: token.token };
   }
 }

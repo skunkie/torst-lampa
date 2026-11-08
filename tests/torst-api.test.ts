@@ -319,6 +319,21 @@ describe('Torst API contract', () => {
     assert.equal(torrent.storage, 'file');
   });
 
+  it('streams with a playback token limited to the torrent', async () => {
+    const instance: TorstInstance = { ...INSTANCE, accessToken: 'tpa_secret', accessTokenExpiresAtMs: Infinity, authType: 'bearer', id: 'scoped', password: 'secret' };
+    globalThis.fetch = async (input, options) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/v1/playback-tokens') {
+        assert.deepEqual(JSON.parse(String(options?.body)), { torrent_id: RESOURCE.id });
+        return json({ expires_at: '2999-01-01T00:00:00Z', token: 'tpp_scoped', torrent_id: RESOURCE.id }, 201);
+      }
+      if (path === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
+      if (path === `${TORRENT_PATH}/files`) return json({ items: [FILE], links: {} });
+      return json(RESOURCE);
+    };
+    assert.equal(await TorstApi.getStreamUrl(instance, HASH, { index: 0 }), `${instance.url}${FILE_PATH}/content?token=tpp_scoped`);
+  });
+
   it('reuses an existing persisted torrent for a temporary request without downgrading it', async () => {
     const methods: string[] = [];
     globalThis.fetch = async (_input, options) => {
