@@ -1827,6 +1827,26 @@ describe('Torst playback orchestration', () => {
     assert.equal(notices[0], getTestTranslation('torst_noty_added_library', { title: 'Sintel' }));
   });
 
+  it('saves to the library with the chosen disk storage type', async () => {
+    storage.set('torst_storage_type', 'file');
+    const add = mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
+      assert.equal(request.storage, 'file');
+      return torrent;
+    });
+    await TorstEngine.saveToLibrary({ MagnetUri: `magnet:?xt=urn:btih:${hash}`, Title: 'Sintel' });
+    assert.equal(add.mock.callCount(), 1);
+  });
+
+  it('saves a torrent link to the library in memory when the storage type is asked each time', async () => {
+    storage.set('torst_storage_type', 'ask');
+    const upload = mock.method(TorstApi, 'resolveTorrent', async (_instance: TorstInstance, _url: string, options?: TorrentAdd) => {
+      assert.equal(options?.storage, 'memory');
+      return torrent;
+    });
+    await TorstEngine.saveToLibrary({ Link: 'https://indexer.test/sintel.torrent' });
+    assert.equal(upload.mock.callCount(), 1);
+  });
+
   it('plays a persistent magnet after creation and preserves playlist item identity', async () => {
     storage.set(SAVE_TO_LIBRARY_STORAGE_KEY, 'true');
     storage.set('torst_storage_type', 'file');

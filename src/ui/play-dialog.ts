@@ -9,6 +9,14 @@ export const SAVE_TO_LIBRARY_STORAGE_KEY = 'torst_save_to_library';
 export const STORAGE_TYPE_STORAGE_KEY = 'torst_storage_type';
 
 export class PlayDialog {
+  /**
+   * The storage type for a torrent saved without the options dialog: disk only when the user
+   * chose it, since an "ask" setting has no answer to give outside the dialog.
+   */
+  public static resolveSavedStorage(): TorrentStorage {
+    return String(Lampa.Storage.get<unknown>(STORAGE_TYPE_STORAGE_KEY, 'memory')) === 'file' ? 'file' : 'memory';
+  }
+
   public static async resolveOptions(title?: string): Promise<PlayOptions | null> {
     const rawStorage = Lampa.Storage.get<unknown>(STORAGE_TYPE_STORAGE_KEY, 'memory');
     const rawSaveToLibrary = Lampa.Storage.get<unknown>(SAVE_TO_LIBRARY_STORAGE_KEY, 'false');

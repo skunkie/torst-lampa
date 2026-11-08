@@ -243,6 +243,7 @@ export class TorstEngine {
       resolvedMovie?.name ||
       'Torrent';
     const poster = resolvePosterUrl(torrentItem, resolvedMovie);
+    const storage = PlayDialog.resolveSavedStorage();
 
     if (!torrentHash && !magnetUri && !torrentLink) {
       if (Lampa.Noty) {
@@ -257,12 +258,13 @@ export class TorstEngine {
       const instance = await InstanceManager.getBestInstance();
       const outcome = await this.withFailover(instance, async i => {
         const resolved = torrentLink
-          ? await TorstApi.resolveTorrent(i, torrentLink, { poster, retention: 'persisted', title })
+          ? await TorstApi.resolveTorrent(i, torrentLink, { poster, retention: 'persisted', storage, title })
           : undefined;
         return resolved || TorstApi.addTorrent(i, {
           hash: torrentHash,
           magnet: magnetUri,
           poster,
+          storage,
           title,
         });
       });
