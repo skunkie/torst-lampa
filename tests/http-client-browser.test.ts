@@ -33,25 +33,35 @@ async function stopServer(server: Server): Promise<void> {
 }
 
 for (const canSendExplicitMethods of [true, false]) {
-  it(`starts another preload while the previous one is active (${canSendExplicitMethods ? 'explicit methods' : 'GET/POST bridge'})`, async t => {
+  it(`reuses a torrent on repeat playback when Android omits conflict details (${canSendExplicitMethods ? 'explicit methods' : 'GET/POST bridge'})`, async t => {
     const mutations: string[] = [];
     const activePreloads = new Set<string>();
     let preloadCount = 0;
+    let torrentCreationCount = 0;
+    let torrentLookupCount = 0;
+    const torrent = {
+      file_count: 1,
+      id: 'trr_one',
+      info_hashes: [{ algorithm: 'sha1', value: 'a'.repeat(40) }],
+      name: 'Sintel',
+      observed_state: 'downloading',
+      retention: 'persisted',
+      size_bytes: 1024,
+      storage_mode: 'memory',
+    };
     const api = createServer((request, response) => {
       const requestPath = new URL(request.url || '/', 'http://torst.test').pathname;
       const sendJson = (value: unknown) => response.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify(value));
       if (request.method === 'OPTIONS') response.writeHead(405).end();
       else if (requestPath === '/readyz') response.end('ready');
-      else if (request.method === 'GET' && requestPath === '/api/v1/torrents/trr_one') sendJson({
-        file_count: 1,
-        id: 'trr_one',
-        info_hashes: [{ algorithm: 'sha1', value: 'a'.repeat(40) }],
-        name: 'Sintel',
-        observed_state: 'downloading',
-        retention: 'persisted',
-        size_bytes: 1024,
-        storage_mode: 'memory',
-      });
+      else if (request.method === 'GET' && requestPath === '/api/v1/torrents/trr_one') sendJson(torrent);
+      else if (request.method === 'GET' && requestPath === '/api/v1/torrents') {
+        torrentLookupCount++;
+        const query = new URL(request.url || '/', 'http://torst.test').searchParams;
+        assert.deepEqual(query.getAll('info_hash'), ['a'.repeat(40)]);
+        assert.equal(query.get('retention'), 'any');
+        sendJson({ items: [torrent], links: {} });
+      }
       else if (request.method === 'GET' && requestPath.includes('/preloads/')) {
         sendJson({ completed_bytes: 16, id: requestPath.split('/').pop(), state: 'ready', target_bytes: 16 });
       }
@@ -59,6 +69,10 @@ for (const canSendExplicitMethods of [true, false]) {
       else {
         mutations.push(request.method || '');
         if (request.method === 'DELETE') response.writeHead(activePreloads.delete(requestPath) ? 204 : 404).end();
+        else if (request.method === 'POST' && requestPath === '/api/v1/torrents') {
+          if (++torrentCreationCount === 1) sendJson(torrent);
+          else response.writeHead(409, { 'Content-Type': 'application/problem+json' }).end(JSON.stringify({ torrent: '/api/v1/torrents/trr_one', type: 'tag:skunkie.github.io,2026:torrplay/problems/duplicate-torrent' }));
+        }
         else if (request.method === 'POST' && requestPath.endsWith('/preloads')) {
           if (activePreloads.size >= 4) { response.writeHead(409).end(); return; }
           const id = `prl_${++preloadCount}`;
@@ -94,7 +108,7 @@ for (const canSendExplicitMethods of [true, false]) {
               const method = canSendExplicitMethods ? params.type : body ? 'POST' : 'GET';
               fetch('/native', { method: 'POST', body: JSON.stringify({ body, headers: params.headers, method, url }) })
                 .then(response => response.json())
-                .then(response => response.status >= 400 ? failure(response) : success(response.body))
+                .then(response => response.status >= 400 ? failure({ message: 'Invalid response from server: ' + response.status, status: response.status }) : success(response.body))
                 .catch(() => failure({ status: 0 }));
             }
             silent(url, success, failure, body, params) {
@@ -110,8 +124,10 @@ for (const canSendExplicitMethods of [true, false]) {
           catch { isBrowserBlocked = true; }
           globalThis.Lampa = { Platform: { is: name => name === 'android' }, Reguest: createRequestClass(canSendExplicitMethods) };
           const instance = { authType: 'none', id: 'one', name: 'One', ...(canSendExplicitMethods ? { profileId: 'prf_one' } : {}), url: apiOrigin };
+          await TorstApi.addTorrent(instance, { hash: 'a'.repeat(40), retention: 'temporary' });
           await TorstApi.startPreload(instance, 'trr_one', { file_index: 0 });
           const progress = canSendExplicitMethods ? await TorstApi.saveFileProgress(instance, 'prf_one', 'trr_one', 'fil_one', { duration_seconds: 400, position_seconds: 140, viewed: false }) : undefined;
+          await TorstApi.addTorrent(instance, { hash: 'a'.repeat(40), retention: 'temporary' });
           const nextPreload = await TorstApi.startPreload(instance, 'trr_one', { file_index: 0 });
           globalThis.Lampa.Reguest = createRequestClass(false);
           let isLegacyBlocked = false;
@@ -157,7 +173,9 @@ for (const canSendExplicitMethods of [true, false]) {
       const result = output.match(/<pre id="result">([^<]+)<\/pre>/)?.[1];
       assert.ok(result, 'Chrome must finish the cross-origin transport checks');
       assert.deepEqual(JSON.parse(result), { isBrowserBlocked: true, isLegacyBlocked: true, positionSeconds: canSendExplicitMethods ? 140 : null, preloadStatus: 'ready' });
-      assert.deepEqual(mutations.slice().sort(), canSendExplicitMethods ? ['DELETE', 'POST', 'POST', 'PUT'] : ['POST', 'POST']);
+      assert.deepEqual(mutations.slice().sort(), canSendExplicitMethods ? ['DELETE', 'POST', 'POST', 'POST', 'POST', 'PUT'] : ['POST', 'POST', 'POST', 'POST']);
+      assert.equal(torrentCreationCount, 2);
+      assert.equal(torrentLookupCount, 1);
       assert.deepEqual([...activePreloads], canSendExplicitMethods
         ? ['/api/v1/torrents/trr_one/files/fil_one/preloads/prl_2']
         : ['/api/v1/torrents/trr_one/files/fil_one/preloads/prl_1', '/api/v1/torrents/trr_one/files/fil_one/preloads/prl_2']);

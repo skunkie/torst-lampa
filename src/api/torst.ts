@@ -137,8 +137,12 @@ export function extractHashFromMagnet(magnetUri: string): string | null {
   return null;
 }
 
+const DUPLICATE_TORRENT_PROBLEM_TYPE = 'tag:skunkie.github.io,2026:torrplay/problems/duplicate-torrent';
+
 // Torst accepts metainfo uploads of up to 33 MiB.
 const METAINFO_MAX_BYTES = 33 * 1024 * 1024;
+
+const VALIDATION_FAILED_PROBLEM_TYPE = 'tag:skunkie.github.io,2026:torrplay/problems/validation-failed';
 
 export class TorstApi {
   private static pages = new Map<string, { data: ResourcePage<unknown>, etag?: string }>();
@@ -290,7 +294,7 @@ export class TorstApi {
       retention,
       storage_mode: retention === 'temporary' || torrentRequest.storage !== 'file' ? 'memory' : 'disk',
       ...(retention === 'persisted' ? this.libraryMembers(torrentRequest, hasLibrary) : {}),
-    }), torrentRequest);
+    }), torrentRequest, extractHashFromMagnet(magnet) || undefined);
   }
 
   /**
@@ -311,10 +315,10 @@ export class TorstApi {
   }
 
   private static isLibraryRejection(error: unknown): boolean {
-    return error instanceof TorstApiError && error.status === 422 && Boolean(error.problemType?.endsWith('/validation-failed'));
+    return error instanceof TorstApiError && error.status === 422 && error.problemType === VALIDATION_FAILED_PROBLEM_TYPE;
   }
 
-  private static async createTorrent(instance: TorstInstance, buildBody: (hasLibrary: boolean) => string | FormData, options: TorrentAdd): Promise<Torrent> {
+  private static async createTorrent(instance: TorstInstance, buildBody: (hasLibrary: boolean) => string | FormData, options: TorrentAdd, infoHash?: string): Promise<Torrent> {
     let resource: TorstTorrent;
     const create = async (hasLibrary: boolean) => {
       const body = buildBody(hasLibrary);
@@ -333,8 +337,18 @@ export class TorstApi {
         resource = await create(false);
       }
     } catch (error) {
-      if (!(error instanceof TorstApiError) || error.status !== 409 || !error.resource) throw error;
-      resource = (await this.request<TorstTorrent>(instance, error.resource)).data;
+      if (!(error instanceof TorstApiError) || error.status !== 409) throw error;
+      if (error.problemType !== undefined && error.problemType !== DUPLICATE_TORRENT_PROBLEM_TYPE) throw error;
+      let resourcePath = error.resource;
+      if (!resourcePath) {
+        if (!infoHash) throw error;
+        // Android's HTTP bridge can report the status without the duplicate resource link.
+        const { torrents } = await this.getTorrents(instance, { hashes: [infoHash], retention: 'any', shouldRevalidate: false });
+        const duplicate = torrents.find(torrent => torrent.hash.toLowerCase() === infoHash);
+        if (!duplicate?.id) throw error;
+        resourcePath = `/api/v1/torrents/${encodeURIComponent(duplicate.id)}`;
+      }
+      resource = (await this.request<TorstTorrent>(instance, resourcePath)).data;
       if (options.retention !== 'temporary' && resource.retention === 'temporary') {
         const path = `/api/v1/torrents/${encodeURIComponent(resource.id)}/configuration`;
         const promotion = { retention: 'persisted', storage_mode: options.storage === 'file' ? 'disk' : 'memory' };

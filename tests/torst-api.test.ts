@@ -93,12 +93,139 @@ describe('Torst API contract', () => {
     globalThis.fetch = async (input, options) => {
       paths.push(String(input));
       return options?.method === 'POST'
-        ? json({ detail: 'Already tracked', torrent: TORRENT_PATH }, 409)
+        ? json({ detail: 'Already tracked', torrent: TORRENT_PATH, type: 'tag:skunkie.github.io,2026:torrplay/problems/duplicate-torrent' }, 409)
         : json(RESOURCE);
     };
     assert.equal((await TorstApi.addTorrent(INSTANCE, { hash: HASH })).hash, HASH);
     assert.deepEqual(paths, [`${INSTANCE.url}/api/v1/torrents`, `${INSTANCE.url}${TORRENT_PATH}`]);
   });
+
+  it('retries playback after canceling a preload when Android omits the duplicate response body', async () => {
+    let creationCount = 0;
+    const methods: string[] = [];
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(url: string, success: (body: string) => void, failure: (error: unknown) => void, _body: unknown, params: any) {
+          const resource = new URL(url);
+          methods.push(`${params.type} ${resource.pathname}`);
+          if (resource.pathname === '/readyz') { failure({ status: 405 }); return; }
+          if (params.type === 'DELETE') { success(''); return; }
+          if (params.type === 'POST' && resource.pathname === '/api/v1/torrents') {
+            if (++creationCount === 1) success(JSON.stringify({ ...RESOURCE, retention: 'temporary' }));
+            else failure({ message: 'Invalid response from server: 409 Conflict', status: 409 });
+            return;
+          }
+          if (resource.pathname === '/api/v1/torrents') {
+            assert.deepEqual(resource.searchParams.getAll('info_hash'), [HASH]);
+            assert.equal(resource.searchParams.get('retention'), 'any');
+            success(JSON.stringify({ items: [{ ...RESOURCE, retention: 'temporary' }], links: {} }));
+          } else if (resource.pathname.endsWith('/files')) success(JSON.stringify({ items: [FILE], links: {} }));
+          else if (resource.pathname.endsWith('/preloads')) success(JSON.stringify({ completed_bytes: 1024, id: `prl_${creationCount}`, state: 'ready', target_bytes: 1024 }));
+          else success(JSON.stringify({ ...RESOURCE, retention: 'temporary' }));
+        }
+        public silent() { assert.fail('Native Android transport must handle this flow'); }
+      },
+    };
+    await TorstApi.addTorrent(INSTANCE, { hash: HASH, retention: 'temporary' });
+    const first = await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 });
+    await TorstApi.cancelPreload(INSTANCE, HASH, first.preloadId);
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, retention: 'temporary' });
+    assert.equal(torrent.id, RESOURCE.id);
+    assert.equal((await TorstApi.startPreload(INSTANCE, HASH, { file_index: 0 })).preloadId, 'prl_2');
+    assert.equal(creationCount, 2);
+    assert.equal(methods.filter(method => method === `DELETE ${FILE_PATH}/preloads/prl_1`).length, 1);
+    assert.equal(methods.filter(method => method === `POST ${FILE_PATH}/preloads`).length, 2);
+  });
+
+  it('resolves a bodyless conflict from a magnet through fresh paginated temporary-torrent listings', async () => {
+    const paths: string[] = [];
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      paths.push(`${options?.method || 'GET'} ${url.pathname}`);
+      if (options?.method === 'POST') return new Response(null, { status: 409 });
+      if (url.pathname === '/api/v1/torrents') {
+        assert.equal(new Headers(options?.headers).get('If-None-Match'), null);
+        if (!url.searchParams.has('cursor')) {
+          assert.deepEqual(url.searchParams.getAll('info_hash'), [HASH]);
+          assert.equal(url.searchParams.get('retention'), 'any');
+          return json({ items: [], links: { next: '/api/v1/torrents?cursor=next' } });
+        }
+        return json({ items: [{ ...RESOURCE, retention: 'temporary' }], links: {} });
+      }
+      assert.equal(url.pathname, TORRENT_PATH);
+      return json({ ...RESOURCE, retention: 'temporary' });
+    };
+    const torrent = await TorstApi.addTorrent(INSTANCE, { magnet: `magnet:?xt=urn:btih:${HASH.toUpperCase()}`, retention: 'temporary' });
+    assert.equal(torrent.id, RESOURCE.id);
+    assert.equal(torrent.retention, 'temporary');
+    assert.deepEqual(paths, ['POST /api/v1/torrents', 'GET /api/v1/torrents', 'GET /api/v1/torrents', `GET ${TORRENT_PATH}`]);
+  });
+
+  it('recovers a conflict using the trimmed magnet actually sent rather than a conflicting hash hint', async () => {
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      if (options?.method === 'POST') {
+        assert.equal(JSON.parse(String(options.body)).magnet_uri, `magnet:?xt=urn:btih:${HASH}`);
+        return new Response(null, { status: 409 });
+      }
+      if (url.pathname === '/api/v1/torrents') {
+        assert.deepEqual(url.searchParams.getAll('info_hash'), [HASH]);
+        return json({ items: [RESOURCE], links: {} });
+      }
+      return json(RESOURCE);
+    };
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: 'a'.repeat(40), magnet: `  magnet:?xt=urn:btih:${HASH}  ` });
+    assert.equal(torrent.hash, HASH);
+  });
+
+  it('does not identify uploaded metainfo from an unrelated hash or magnet hint', async () => {
+    let calls = 0;
+    globalThis.fetch = async (input, options) => {
+      calls++;
+      const url = new URL(String(input));
+      if (url.hostname === 'indexer.test') return new Response(new Blob(['metainfo'], { type: 'application/x-bittorrent' }));
+      if (options?.method === 'POST') {
+        assert.ok(options.body instanceof FormData);
+        return new Response(null, { status: 409 });
+      }
+      if (url.pathname === '/api/v1/torrents') return json({ items: [RESOURCE], links: {} });
+      return json(RESOURCE);
+    };
+    await assert.rejects(TorstApi.resolveTorrent(INSTANCE, 'http://indexer.test/sintel.torrent', { hash: HASH, magnet: `magnet:?xt=urn:btih:${HASH}` }), (error: unknown) => error instanceof TorstApiError && error.status === 409);
+    assert.equal(calls, 2);
+  });
+
+  for (const matches of [[], [{ ...RESOURCE, info_hashes: [{ algorithm: 'sha1', value: 'a'.repeat(40) }] }]]) {
+    it(`preserves the original creation conflict when lookup finds ${matches.length ? 'an unrelated torrent' : 'no torrent'}`, async () => {
+      let creationCount = 0;
+      globalThis.fetch = async (_input, options) => {
+        if (options?.method === 'POST') {
+          creationCount++;
+          return new Response(null, { status: 409 });
+        }
+        return json({ items: matches, links: {} });
+      };
+      await assert.rejects(TorstApi.addTorrent(INSTANCE, { hash: HASH }), (error: unknown) => error instanceof TorstApiError && error.status === 409);
+      assert.equal(creationCount, 1);
+    });
+  }
+
+  for (const problemType of ['https://other.test/problems/duplicate-torrent', 'tag:skunkie.github.io,2026:torrplay/problems/lifecycle-conflict', '']) {
+    for (const hasResource of [false, true]) {
+      it(`rejects an explicit non-duplicate problem type ${JSON.stringify(problemType)} ${hasResource ? 'with' : 'without'} a resource link`, async () => {
+        let calls = 0;
+        globalThis.fetch = async (input, options) => {
+          calls++;
+          if (options?.method === 'POST') return json({ torrent: hasResource ? TORRENT_PATH : undefined, type: problemType }, 409);
+          return new URL(String(input)).pathname === '/api/v1/torrents' ? json({ items: [RESOURCE], links: {} }) : json(RESOURCE);
+        };
+        await assert.rejects(TorstApi.addTorrent(INSTANCE, { hash: HASH }), (error: unknown) => error instanceof TorstApiError && error.status === 409 && error.problemType === problemType);
+        assert.equal(calls, 1);
+      });
+    }
+  }
 
   it('rejects duplicate links outside this API before sending credentials', async () => {
     let calls = 0;
@@ -436,9 +563,19 @@ describe('Torst API contract', () => {
     let calls = 0;
     globalThis.fetch = async () => {
       calls++;
-      return json({ detail: 'All temporary torrents are streaming' }, 409);
+      return json({ detail: 'All temporary torrents are streaming', type: 'tag:skunkie.github.io,2026:torrplay/problems/lifecycle-conflict' }, 409);
     };
     await assert.rejects(TorstApi.addTorrent(INSTANCE, { hash: HASH, retention: 'temporary' }), (error: unknown) => error instanceof TorstApiError && error.status === 409);
+    assert.equal(calls, 1);
+  });
+
+  it('does not retry catalog details for an unrelated problem URI ending in validation-failed', async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return json({ type: 'https://other.test/problems/validation-failed' }, 422);
+    };
+    await assert.rejects(TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { kind: 'movie' } }), (error: unknown) => error instanceof TorstApiError && error.status === 422);
     assert.equal(calls, 1);
   });
 
