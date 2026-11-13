@@ -21,6 +21,10 @@ declare global {
     url?: string
   }
 
+  interface LampaAndroidHttpBridge {
+    supportsHttpBodyEncoding?(encoding: string): boolean
+  }
+
   interface LampaApiSeasonEpisode {
     air_date?: string,
     episode_number: number,
@@ -473,6 +477,7 @@ interface LampaNamespace {
 declare global {
   interface Window {
     $: LampaJQuery,
+    AndroidJS?: LampaAndroidHttpBridge,
     appready?: boolean,
     jQuery: any,
     Lampa: LampaNamespace,
@@ -481,6 +486,7 @@ declare global {
   }
 
   const $: LampaJQuery;
+  const AndroidJS: LampaAndroidHttpBridge | undefined;
   const jQuery: any;
   const Lampa: LampaNamespace;
   const __PLUGIN_VERSION__: string | undefined;

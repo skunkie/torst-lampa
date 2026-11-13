@@ -16,18 +16,174 @@ function createAbortError(): Error {
 describe('HTTP Client (requestHttp)', () => {
   const originalFetch = globalThis.fetch;
   const originalLampa = (globalThis as any).Lampa;
+  const originalAndroidBridge = (globalThis as any).AndroidJS;
 
   beforeEach(() => {
     delete (globalThis as any).Lampa;
+    delete (globalThis as any).AndroidJS;
   });
 
   afterEach(() => {
+    if (originalAndroidBridge === undefined) delete (globalThis as any).AndroidJS;
+    else (globalThis as any).AndroidJS = originalAndroidBridge;
     globalThis.fetch = originalFetch;
     if (originalLampa) {
       (globalThis as any).Lampa = originalLampa;
     } else {
       delete (globalThis as any).Lampa;
     }
+  });
+
+  it('downloads exact binary bytes and media types through a capable Android bridge', async () => {
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: (encoding: string) => encoding === 'base64' };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, _failure: unknown, body: unknown, params: any) {
+          assert.equal(params.dataType, 'base64');
+          assert.equal(params.returnHeaders, true);
+          assert.equal(body, false);
+          success(JSON.stringify({ body: 'AID/DQo=', encoding: 'base64', headers: { 'content-type': 'image/png' } }));
+        }
+        public silent() { assert.fail('Binary bytes must not go through ajax'); }
+      },
+    };
+    globalThis.fetch = async () => { throw new Error('Browser transport must not be used'); };
+    const response = await requestHttp('http://images.test/sintel.png', { responseType: 'blob' });
+    const blob = await response.blob();
+    assert.equal(blob.type, 'image/png');
+    assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), new Uint8Array([0, 128, 255, 13, 10]));
+  });
+
+  it('uploads binary bodies as Base64 only after confirming native method support', async () => {
+    const methods: string[] = [];
+    const bytes = new Uint8Array(16385).map((_byte, index) => index % 256);
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => true };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, failure: (error: unknown) => void, body: unknown, params: any) {
+          methods.push(params.type);
+          if (params.type === 'OPTIONS') {
+            assert.equal(body, false);
+            assert.equal(params.bodyEncoding, undefined);
+            assert.deepEqual(params.headers, {});
+            failure({ status: 405 });
+          } else {
+            assert.equal(params.bodyEncoding, 'base64');
+            assert.equal(params.headers['Content-Type'], 'image/png');
+            assert.deepEqual(new Uint8Array(Buffer.from(String(body), 'base64')), bytes);
+            success('');
+          }
+        }
+        public silent() { assert.fail('Binary bodies must not go through ajax'); }
+      },
+    };
+    globalThis.fetch = async () => { throw new Error('Browser transport must not be used'); };
+    const response = await requestHttp('http://binary.test/api/v1/torrents/trr_one/poster', { body: new Blob([bytes], { type: 'image/png' }), method: 'PUT' });
+    assert.equal(response.status, 204);
+    assert.deepEqual(methods, ['OPTIONS', 'PUT']);
+  });
+
+  it('falls back to a binary browser response if a native binary envelope is invalid', async () => {
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => true };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void) { success(JSON.stringify({ body: 'not an encoded image' })); }
+        public silent() { assert.fail('Ajax must not interpret image bytes as text'); }
+      },
+    };
+    const bytes = new Uint8Array([0, 128, 255]);
+    globalThis.fetch = async () => new Response(bytes, { headers: { 'Content-Type': 'image/png' } });
+    const response = await requestHttp('http://images.test/sintel.png', { responseType: 'blob' });
+    assert.deepEqual(new Uint8Array(await (await response.blob()).arrayBuffer()), bytes);
+  });
+
+  it('preserves the browser Blob body when an APK does not advertise binary support', async () => {
+    const image = new Blob([new Uint8Array([128, 255])], { type: 'image/png' });
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => false };
+    (globalThis as any).Lampa = { Platform: { is: () => true }, Reguest: class { constructor() { assert.fail('A text-only bridge must not receive image data'); } } };
+    globalThis.fetch = async (_input, options) => {
+      assert.equal(options?.body, image);
+      return new Response(null, { status: 201 });
+    };
+    assert.equal((await requestHttp('http://binary-old.test/api/v1/torrents/trr_one/poster', { body: image, method: 'PUT' })).status, 201);
+  });
+
+  it('preserves a nonempty POST marker for older bridges when a string body is empty', async () => {
+    (globalThis as any).Lampa = {
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, _failure: unknown, body: unknown) {
+          assert.equal(body, '{}');
+          success('{}');
+        }
+      },
+    };
+    assert.equal((await requestHttp('http://legacy.test/api/v1/resource', { body: '', method: 'POST' })).ok, true);
+  });
+
+  it('falls back with the original binary body when the native bridge ignores explicit methods', async () => {
+    const blob = new Blob([new Uint8Array([128, 255])], { type: 'image/png' });
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => true };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void) { success('ready'); }
+        public silent() { assert.fail('Ajax must not receive an encoded binary body'); }
+      },
+    };
+    globalThis.fetch = async (_input, options) => {
+      assert.equal(options?.body, blob);
+      return new Response(null, { status: 201 });
+    };
+    assert.equal((await requestHttp('http://binary-legacy.test/api/v1/torrents/trr_one/poster', { body: blob, method: 'PUT' })).status, 201);
+  });
+
+  it('does not repeat a native binary upload after a connection failure', async () => {
+    let mutationCount = 0;
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => true };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, _success: unknown, failure: (error: unknown) => void, _body: unknown, params: any) {
+          if (params.type === 'OPTIONS') failure({ status: 405 });
+          else { mutationCount++; failure({ status: 0 }); }
+        }
+      },
+    };
+    globalThis.fetch = async () => { throw new Error('An upload must not be repeated'); };
+    await assert.rejects(requestHttp('http://binary-uncertain.test/api/v1/torrents/trr_one/poster', { body: new Blob(['image']), method: 'PUT' }), NetworkError);
+    assert.equal(mutationCount, 1);
+  });
+
+  it('does not upload binary bytes if cancellation happens while encoding them', async () => {
+    const controller = new AbortController();
+    let finish!: (bytes: ArrayBuffer) => void;
+    class DelayedBlob extends Blob {
+      public override arrayBuffer(): Promise<ArrayBuffer> { return new Promise(resolve => { finish = resolve; }); }
+    }
+    const methods: string[] = [];
+    (globalThis as any).AndroidJS = { supportsHttpBodyEncoding: () => true };
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, _success: unknown, failure: (error: unknown) => void, _body: unknown, params: any) { methods.push(params.type); failure({ status: 405 }); }
+      },
+    };
+    const upload = requestHttp('http://binary-abort.test/api/v1/torrents/trr_one/poster', { body: new DelayedBlob(['image']), method: 'PUT', signal: controller.signal });
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    finish(new ArrayBuffer(0));
+    await assert.rejects(upload, (error: Error) => error.name === 'AbortError');
+    assert.deepEqual(methods, ['OPTIONS']);
   });
 
   it('preserves binary downloads and their media type', async () => {
