@@ -201,7 +201,7 @@ describe('Torst library toolbar', () => {
 
   it('forgets a detached card when the library becomes empty', () => {
     component.renderTorrents([{ files: [], hash: 'one', name: 'One', retention: 'persisted', storage: 'memory', total_size: 1 }], instance);
-    const card = (component as any).renderedCards.get('one')[0];
+    const card = (component as any).contentGrid[0].children[0];
     (component as any).lastFocusedElement = card;
     focused = card;
     component.renderEmptyState('Empty', 'Torst', true);
@@ -294,7 +294,7 @@ describe('Torst library toolbar', () => {
         if (order === 'render-first') component.start();
         assert.equal(focused, button);
         assert.equal(scroll.mock.callCount(), 0, 'focusing the toolbar must not center the multi-row grid');
-        const card = (component as any).renderedCards.get('torrent-6');
+        const card = (component as any).contentGrid[0].children[6].wrapper;
         card.events['hover:focus']({ currentTarget: card[0] });
         assert.equal(scroll.mock.callCount(), 1);
         assert.equal(scroll.mock.calls[0].arguments[0], card, 'focusing a card must still scroll it into view');
