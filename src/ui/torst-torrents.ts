@@ -58,9 +58,7 @@ export class TorstTorrentsComponent {
   private lastRenderedSignature: string | null = null;
   private needsReload = false;
   private needsToolbarFocusRestore = false;
-  private pendingWatchedTorrentHash: string | null = null;
   private pollIntervalId: ReturnType<typeof setInterval> | null = null;
-  private renderedCards = new Map<string, LampaDomElement>();
   private renderedTorrents: Torrent[] = [];
   private rootElement: LampaDomElement;
   private scrollView: LampaScrollView;
@@ -554,7 +552,6 @@ export class TorstTorrentsComponent {
     if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = null;
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = null;
-    this.renderedCards = new Map();
     this.renderedTorrents = [];
     if (typeof this.rootElement.addClass === 'function') {
       this.rootElement.addClass('torst-torrents--empty');
@@ -608,9 +605,8 @@ export class TorstTorrentsComponent {
     }
   }
 
-  public renderTorrents(listedTorrents: Torrent[], instance: TorstInstance, silent = false): void {
+  public renderTorrents(torrents: Torrent[], instance: TorstInstance, silent = false): void {
     this.updateToolbar(instance);
-    const torrents = this.keepWatchedTorrentFirst(listedTorrents);
     const signature = TorstTorrentsComponent.buildTorrentsSignature(torrents);
     // Nothing on screen would change, so leave the live card elements in place rather than
     // detaching the one the navigator is steering by. The instance has to match too: the cards
@@ -624,7 +620,6 @@ export class TorstTorrentsComponent {
     const previousFocusIndex = this.renderedTorrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
     this.lastRenderedSignature = signature;
     this.lastRenderedInstanceId = instance.id;
-    this.renderedCards = new Map();
     this.renderedTorrents = torrents;
     this.emptyState = null;
     if (typeof this.rootElement.removeClass === 'function') {
@@ -699,7 +694,6 @@ export class TorstTorrentsComponent {
         if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = card[0];
       }
 
-      this.renderedCards.set(torrent.hash, card);
       this.contentGrid.append(card);
     });
 
@@ -746,9 +740,7 @@ export class TorstTorrentsComponent {
       undefined,
       sourceInstance,
       resolvedReturnController
-    ).then(isHandedOff => {
-      if (isHandedOff && !this.isDestroyed) this.moveWatchedTorrentFirst(torrent.hash);
-    }).catch((err: unknown) => {
+    ).catch((err: unknown) => {
       console.error('[Torst] Playback failed:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
       if (typeof Lampa !== 'undefined') {
@@ -761,45 +753,6 @@ export class TorstTorrentsComponent {
         }
       }
     });
-  }
-
-  private moveWatchedTorrentFirst(torrentHash: string): void {
-    const watchedTorrent = this.renderedTorrents.find(torrent => torrent.hash === torrentHash);
-    const card = this.renderedCards.get(torrentHash);
-    if (!watchedTorrent || !card || !isPersistedTorrent(watchedTorrent)) return;
-
-    this.pendingWatchedTorrentHash = torrentHash;
-    const reorderedTorrents = TorstTorrentsComponent.placeFirstAmongSaved(this.renderedTorrents, watchedTorrent);
-    if (reorderedTorrents !== this.renderedTorrents) {
-      this.renderedTorrents = reorderedTorrents;
-      this.lastRenderedSignature = TorstTorrentsComponent.buildTorrentsSignature(reorderedTorrents);
-      const nextCard = this.renderedCards.get(reorderedTorrents[reorderedTorrents.indexOf(watchedTorrent) + 1].hash);
-      if (nextCard) nextCard.before(card);
-    }
-
-    this.lastFocusedElement = card[0];
-    this.lastFocusedTorrentHash = torrentHash;
-    this.scrollView.update(card, true);
-  }
-
-  /** Torst lists by creation time, so the current view keeps its last played torrent first. */
-  private keepWatchedTorrentFirst(torrents: Torrent[]): Torrent[] {
-    if (!this.pendingWatchedTorrentHash) return torrents;
-    const watchedTorrent = torrents.find(torrent => torrent.hash === this.pendingWatchedTorrentHash);
-    if (!watchedTorrent || !isPersistedTorrent(watchedTorrent)) {
-      this.pendingWatchedTorrentHash = null;
-      return torrents;
-    }
-    return TorstTorrentsComponent.placeFirstAmongSaved(torrents, watchedTorrent);
-  }
-
-  /** Returns `torrents` itself when `watchedTorrent` already leads the saved torrents. */
-  private static placeFirstAmongSaved(torrents: Torrent[], watchedTorrent: Torrent): Torrent[] {
-    const firstSavedIndex = torrents.findIndex(torrent => isPersistedTorrent(torrent));
-    if (torrents[firstSavedIndex] === watchedTorrent) return torrents;
-    const reorderedTorrents = torrents.filter(torrent => torrent !== watchedTorrent);
-    reorderedTorrents.splice(firstSavedIndex, 0, watchedTorrent);
-    return reorderedTorrents;
   }
 
   private openTorrentSafely(torrent: Torrent): void {

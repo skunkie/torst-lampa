@@ -4028,8 +4028,8 @@ describe('UI & Settings Integration', () => {
     component.destroy();
   });
 
-  describe('watched torrent order', () => {
-    const buildGridDom = () => {
+  describe('library order and focus', () => {
+    const buildGridDom = (markup = '') => {
       const node: any = {
         children: [] as any[],
         classes: new Set<string>(),
@@ -4059,6 +4059,7 @@ describe('UI & Settings Integration', () => {
         empty: () => { node.children.length = 0; return el; },
         find: () => el,
         handlers,
+        markup,
         on: (events: string, callback: any) => {
           events.split(' ').forEach(name => handlers.set(name, callback));
           return el;
@@ -4077,7 +4078,7 @@ describe('UI & Settings Integration', () => {
     beforeEach(() => {
       focusedElement = null;
       scrolledTo = [];
-      (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildGridDom());
+      (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildGridDom(tag));
       (globalThis as any).Lampa.Scroll = class {
         append(_e: any) {}
         clear() {}
@@ -4110,10 +4111,9 @@ describe('UI & Settings Integration', () => {
       storage: 'memory',
       total_size: sizeBytes,
     });
-    const cardHashes = (component: any) => component.contentGrid[0].children.map((child: any) => {
-      for (const [hash, card] of component.renderedCards) if (card[0] === child) return hash;
-      return undefined;
-    });
+    const cardTitles = (component: any) => component.contentGrid[0].children.map((child: any) =>
+      child.wrapper.markup.match(/<div class="card__title">(.*?)<\/div>/)?.[1]
+    );
 
     const playFrom = async (component: any, played: any, isHandedOff: boolean) => {
       const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
@@ -4126,47 +4126,32 @@ describe('UI & Settings Integration', () => {
       }
     };
 
-    it('moves a played saved torrent to the top of the saved ones and scrolls to it', async () => {
+    it('preserves library order, focus, and scroll after playback and refresh', async () => {
       const component: any = new TorstTorrentsComponent();
       const torrents = [torrent('loaded', false), torrent('first', true), torrent('played', true)];
       component.renderTorrents(torrents, instance, false);
-      const playedCard = component.renderedCards.get('played');
+      const firstCard = component.contentGrid[0].children[1].wrapper;
+      firstCard.handlers.get('hover:focus')({ currentTarget: firstCard[0] });
+      focusedElement = firstCard[0];
+      const cardsBeforePlayback = component.contentGrid[0].children.slice();
       scrolledTo = [];
 
       await playFrom(component, torrents[2], true);
-
-      assert.deepEqual(cardHashes(component), ['loaded', 'played', 'first'], 'the view moves a played persisted torrent ahead of the other persisted entries');
-      assert.deepEqual(scrolledTo, [playedCard[0]], 'the view must follow the moved card');
-      assert.equal(component.lastFocusedElement, playedCard[0]);
-      assert.equal(component.lastFocusedTorrentHash, 'played');
-
-      // The listing that follows already matches the reordered grid.
-      const cardsBeforeRefresh = component.contentGrid[0].children.slice();
-      component.renderTorrents([torrents[0], torrents[2], torrents[1]], instance, true);
-      assert.deepEqual(component.contentGrid[0].children, cardsBeforeRefresh, 'a refresh in the new order must not rebuild the grid');
-
-      component.destroy();
-    });
-
-    it('keeps the last played torrent first across Torst creation-order refreshes', async () => {
-      const component: any = new TorstTorrentsComponent();
-      component.renderTorrents([torrent('first', true), torrent('played', true)], instance, false);
-      await playFrom(component, torrent('played', true), true);
-      component.renderTorrents([torrent('first', true), { ...torrent('played', true), files: [] }], instance, true);
-      assert.deepEqual(cardHashes(component), ['played', 'first']);
-      component.renderTorrents([torrent('first', true)], instance, true);
-      assert.deepEqual(cardHashes(component), ['first']);
-      component.destroy();
-    });
-
-    it('updates the local order on repeat playback without server view timestamps', async () => {
-      const component: any = new TorstTorrentsComponent();
-      const torrents = [torrent('first', true), torrent('played', true)];
-      component.renderTorrents(torrents, instance, false);
       await playFrom(component, torrents[1], true);
-      assert.deepEqual(cardHashes(component), ['played', 'first']);
-      await playFrom(component, torrents[0], true);
-      assert.deepEqual(cardHashes(component), ['first', 'played']);
+
+      assert.deepEqual(cardTitles(component), ['loaded', 'first', 'played']);
+      assert.deepEqual(scrolledTo, []);
+      assert.equal(component.lastFocusedElement, firstCard[0]);
+      assert.equal(component.lastFocusedTorrentHash, 'first');
+      assert.equal(focusedElement, firstCard[0]);
+
+      component.renderTorrents(torrents, instance, true);
+      assert.deepEqual(component.contentGrid[0].children, cardsBeforePlayback);
+      component.renderTorrents([torrents[0], { ...torrents[1], total_size: 1 }, torrents[2]], instance, true);
+      assert.deepEqual(cardTitles(component), ['loaded', 'first', 'played']);
+      assert.equal(focusedElement, component.contentGrid[0].children[1].wrapper[0]);
+      assert.deepEqual(scrolledTo, []);
+
       component.destroy();
     });
 
@@ -4179,7 +4164,7 @@ describe('UI & Settings Integration', () => {
       await playFrom(component, torrents[1], false);
       await playFrom(component, torrents[2], true);
 
-      assert.deepEqual(cardHashes(component), ['first', 'played', 'loaded']);
+      assert.deepEqual(cardTitles(component), ['first', 'played', 'loaded']);
       assert.deepEqual(scrolledTo, []);
 
       component.destroy();
@@ -4188,7 +4173,7 @@ describe('UI & Settings Integration', () => {
     it('scrolls to the focused card when a silent refresh moves it', () => {
       const component: any = new TorstTorrentsComponent();
       component.renderTorrents([torrent('first', true), torrent('watched', true)], instance, false);
-      const watchedCard = component.renderedCards.get('watched');
+      const watchedCard = component.contentGrid[0].children[1].wrapper;
       watchedCard.handlers.get('hover:focus')({ currentTarget: watchedCard[0] });
       focusedElement = watchedCard[0];
 
@@ -4198,7 +4183,7 @@ describe('UI & Settings Integration', () => {
       assert.deepEqual(scrolledTo, []);
 
       component.renderTorrents([torrent('watched', true), torrent('first', true)], instance, true);
-      const movedCard = component.renderedCards.get('watched');
+      const movedCard = component.contentGrid[0].children[0].wrapper;
       assert.equal(focusedElement, movedCard[0]);
       assert.deepEqual(scrolledTo, [movedCard[0]], 'the view must follow the card under the cursor');
 
