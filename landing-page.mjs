@@ -9,6 +9,7 @@ import { DEFAULT_REPOSITORY } from './build-metadata.mjs';
 
 const PLACEHOLDERS = {
   BRAND_BADGE: '{{BRAND_BADGE}}',
+  BRAND_ICON_URL: '{{BRAND_ICON_URL}}',
   CHANNEL_BANNER: '{{CHANNEL_BANNER}}',
   CHANNEL_MOBILE_LINK: '{{CHANNEL_MOBILE_LINK}}',
   CHANNEL_NAV_LINK: '{{CHANNEL_NAV_LINK}}',
@@ -43,6 +44,8 @@ export function generateLandingPage(
   const template = readFileSync(new URL('index.html', sourceDirectory), 'utf8');
   const styles = readFileSync(new URL('styles.css', sourceDirectory), 'utf8').trim();
   const script = readFileSync(new URL('script.js', sourceDirectory), 'utf8').trim();
+  const brandIcon = readFileSync(new URL('logo.svg', sourceDirectory), 'utf8');
+  const brandIconUrl = `data:image/svg+xml,${encodeURIComponent(brandIcon)}`;
 
   const isDev = channel === 'dev';
 
@@ -71,6 +74,7 @@ export function generateLandingPage(
   html = replaceRequired(html, PLACEHOLDERS.SCRIPT, script);
   html = replaceRequired(html, PLACEHOLDERS.PLUGIN_VERSION, escapeHtml(pluginVersion));
   html = replaceRequired(html, PLACEHOLDERS.BRAND_BADGE, brandBadge);
+  html = replaceRequired(html, PLACEHOLDERS.BRAND_ICON_URL, brandIconUrl);
   html = replaceRequired(html, PLACEHOLDERS.CHANNEL_NAV_LINK, channelNavLink);
   html = replaceRequired(html, PLACEHOLDERS.CHANNEL_MOBILE_LINK, channelMobileLink);
   html = replaceRequired(html, PLACEHOLDERS.CHANNEL_BANNER, channelBanner);

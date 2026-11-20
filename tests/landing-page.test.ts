@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -11,6 +11,8 @@ import { runInNewContext } from 'node:vm';
 
 import { generateLandingPage } from '../landing-page.mjs';
 import { assertLandingPageChannel, getLandingPageMarkup } from './support/landing-page';
+
+const BRAND_ICON_FILE = new URL('../landing/logo.svg', import.meta.url);
 
 function createLandingPageHarness(channel: 'production' | 'dev' = 'production', language = 'en', repository?: string) {
   const html = generateLandingPage('1.2.3', undefined, channel, repository);
@@ -385,6 +387,19 @@ describe('Landing Page', () => {
     assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/);
   });
 
+  it('embeds the Torst logo as both the favicon and navbar image in each channel', () => {
+    const logo = readFileSync(BRAND_ICON_FILE, 'utf8');
+    for (const channel of ['production', 'dev'] as const) {
+      const html = generateLandingPage('1.2.3', undefined, channel);
+      const favicon = html.match(/<link rel="icon" type="image\/svg\+xml" href="data:image\/svg\+xml,([^"]+)"/)?.[1];
+      const navbarLogo = html.match(/<img class="brand-logo" src="data:image\/svg\+xml,([^"]+)"/)?.[1];
+      assert.ok(favicon);
+      assert.ok(navbarLogo);
+      assert.equal(decodeURIComponent(favicon), logo);
+      assert.equal(navbarLogo, favicon);
+    }
+  });
+
   it('links to the default repository', () => {
     const html = generateLandingPage('1.2.3');
 
@@ -412,6 +427,7 @@ describe('Landing Page', () => {
       writeFileSync(join(directory, 'index.html'), '{{LANDING_STYLES}}{{PLUGIN_VERSION}}');
       writeFileSync(join(directory, 'styles.css'), 'body {}');
       writeFileSync(join(directory, 'script.js'), 'void 0;');
+      copyFileSync(BRAND_ICON_FILE, join(directory, 'logo.svg'));
 
       assert.throws(
         () => generateLandingPage('1.0.0', new URL(`file://${directory}/`)),

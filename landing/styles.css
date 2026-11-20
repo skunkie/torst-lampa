@@ -151,7 +151,11 @@ svg {
 
 .brand-logo {
   flex-shrink: 0;
-  color: var(--accent);
+  color-scheme: dark;
+}
+
+html[data-theme="light"] .brand-logo {
+  color-scheme: light;
 }
 
 .brand-badge {
