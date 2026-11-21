@@ -1292,15 +1292,17 @@ describe('TorstEngine', () => {
     }
   });
 
-  it('uses the torrent\'s own poster and title instead of an unrelated active movie when playing from the library browser', async () => {
-    let playedItem: any = null;
+  it('uses only the library torrent metadata when playing without a catalog card', async () => {
+    const play = mock.fn<(item: LampaPlayerItem) => void>();
+    let historyWrites = 0;
     const testHash = '0123456789abcdef0123456789abcdef01234567';
+    const torrentId = 'opaque-torrent-id';
+    const poster = `http://localhost:8080/api/v1/torrents/${torrentId}/poster?token=playback-token`;
 
-    (globalThis as any).Lampa.Favorite = { add: () => {} };
-    (globalThis as any).Lampa.Loading = { setProgress: () => {}, start: () => {}, stop: () => {} };
+    (globalThis as any).Lampa.Favorite = { add: () => { historyWrites++; } };
     (globalThis as any).Lampa.Player = {
       callback: () => {},
-      play: (item: any) => { playedItem = item; },
+      play,
       playlist: () => {},
     };
     // Simulate the user having some unrelated movie open elsewhere in the app —
@@ -1310,40 +1312,32 @@ describe('TorstEngine', () => {
     };
     (globalThis as any).Lampa.Activity.active = () => unrelatedActivity;
 
-    globalThis.fetch = async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes('/api/v1/torrents')) {
-        return new Response(JSON.stringify({
-          files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
-          hash: testHash,
-          name: 'My Saved Torrent',
-          poster: 'https://example.com/my-torrent-poster.jpg',
-          retention: 'temporary' as const, storage: 'memory',
-          title: 'My Saved Torrent',
-          total_size: 1000,
-        }), {
-          headers: { 'Content-Type': 'application/json' },
-          status: 201,
-        });
-      }
-      return new Response(null, { status: 200 });
-    };
+    mock.method(InstanceManager, 'getBestInstance', async () => InstanceManager.getInstances()[0]);
+    const preload = mock.method(PreloadModal, 'waitUntilReady', async () => true);
 
-    // No movie argument passed — matches how the library torrents browser calls this.
-    await TorstEngine.startTorrentPlayback({
-      files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
-      hash: testHash,
-      name: 'My Saved Torrent',
-      poster: 'https://example.com/my-torrent-poster.jpg',
-      retention: 'temporary' as const, storage: 'memory',
-      title: 'My Saved Torrent',
-      total_size: 1000,
-    });
+    for (const torrentPoster of [poster, undefined]) {
+      await TorstEngine.startTorrentPlayback({
+        files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
+        hash: testHash,
+        id: torrentId,
+        name: 'My Saved Torrent',
+        poster: torrentPoster,
+        retention: 'persisted',
+        storage: 'memory',
+        title: 'My Saved Torrent',
+        total_size: 1000,
+      });
 
-    assert.ok(playedItem);
-    assert.equal(playedItem.card.title, 'My Saved Torrent');
-    assert.equal(playedItem.card.img, 'https://example.com/my-torrent-poster.jpg');
-    assert.notEqual(playedItem.card.title, 'Unrelated Movie');
+      assert.equal(play.mock.callCount(), 1);
+      const playedItem = play.mock.calls[0].arguments[0];
+      assert.ok(playedItem?.card);
+      assert.equal(playedItem.card.title, 'My Saved Torrent');
+      assert.equal(playedItem.card.img, torrentPoster ?? '');
+      assert.equal(playedItem.card.id, undefined);
+      play.mock.resetCalls();
+    }
+    assert.deepEqual(preload.mock.calls.map(call => call.arguments[3]?.img), [poster, '']);
+    assert.equal(historyWrites, 0);
   });
 
   it('uses the originating instance when playing an existing library torrent', async () => {

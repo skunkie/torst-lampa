@@ -27,12 +27,9 @@ export async function playSingleVideoFile(
   returnController = 'content'
 ): Promise<void> {
   const resolvedMovie = resolveMovieContext(movie);
-  const poster = resolvePosterUrl(torrent, resolvedMovie);
   const mediaMetadata: LampaMovie = resolvedMovie || {
-    card: torrent,
-    first_title: torrent.title || torrent.name,
-    img: poster || torrent.poster,
-    movie: torrent,
+    img: torrent.poster,
+    name: torrent.name,
     title: torrent.title || torrent.name,
   };
 
@@ -93,16 +90,6 @@ export async function displayFileList(
     return;
   }
 
-  const resolvedMovie = resolveMovieContext(movie);
-  const poster = resolvePosterUrl(torrent, resolvedMovie);
-  const mediaMetadata: LampaMovie = resolvedMovie || {
-    card: torrent,
-    first_title: torrent.title || torrent.name,
-    img: poster || torrent.poster,
-    movie: torrent,
-    title: torrent.title || torrent.name,
-  };
-
   // If single video file, start directly
   if (sortedVideoFiles.length === 1) {
     await playSingleVideoFile(
@@ -115,6 +102,14 @@ export async function displayFileList(
     );
     return;
   }
+
+  const resolvedMovie = resolveMovieContext(movie);
+  const poster = resolvePosterUrl(torrent, resolvedMovie);
+  const mediaMetadata: LampaMovie = resolvedMovie || {
+    img: torrent.poster,
+    name: torrent.name,
+    title: torrent.title || torrent.name,
+  };
 
   const fileInfos = sortedVideoFiles.map(file => resolveFileInfo(file, mediaMetadata, torrent.hash, sortedVideoFiles));
 

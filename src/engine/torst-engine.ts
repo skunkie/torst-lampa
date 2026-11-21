@@ -492,12 +492,9 @@ export class TorstEngine {
     }
 
     const resolvedMovie = movie ? resolveMovieContext(movie) : undefined;
-    const poster = resolvePosterUrl(readyTorrent, resolvedMovie);
     const mediaMetadata: LampaMovie = resolvedMovie || {
-      card: readyTorrent,
-      first_title: readyTorrent.title || readyTorrent.name,
-      img: poster || readyTorrent.poster,
-      movie: readyTorrent,
+      img: readyTorrent.poster,
+      name: readyTorrent.name,
       title: readyTorrent.title || readyTorrent.name,
     };
 
