@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 TorrPlay
+#
+# SPDX-License-Identifier: MIT
+
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/torrplay/torst-lampa#readme
+    about: Installation, settings, and how the plugin works.
+  - name: Torst server issues
+    url: https://github.com/torrplay/torst/issues
+    about: Problems in the Torst server itself rather than in the Lampa plugin.
