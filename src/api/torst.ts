@@ -184,7 +184,7 @@ export class TorstApi {
   private static async request<T>(
     instance: TorstInstance,
     path: string,
-    options: { body?: string | FormData | Blob, headers?: Record<string, string>, method?: string, needsResponseHeaders?: boolean, responseType?: 'blob', timeoutMs?: number } = {},
+    options: { body?: string | FormData | Blob, headers?: Record<string, string>, method?: string, needsResponseHeaders?: boolean, responseType?: 'blob', shouldUseNativeBinaryResponse?: boolean, timeoutMs?: number } = {},
     shouldRetryAuthentication = true
   ): Promise<{ data: T, etag?: string }> {
     // Only instance-relative API links are followed, so credentials never leave this instance.
@@ -370,7 +370,7 @@ export class TorstApi {
 
   private static async uploadPoster(instance: TorstInstance, torrent: Torrent, url: string): Promise<void> {
     const original = { ...instance };
-    const response = await requestHttp(url, { responseType: 'blob' });
+    const response = await requestHttp(url, { responseType: 'blob', shouldUseNativeBinaryResponse: true });
     if (!response.ok) return;
     const image = await response.blob();
     this.ensureInstanceUnchanged(instance, original);
@@ -562,7 +562,7 @@ export class TorstApi {
   }
 
   public static async getProfileAvatar(instance: TorstInstance, profileId: string): Promise<Blob> {
-    return (await this.request<Blob>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/avatar`, { responseType: 'blob' })).data;
+    return (await this.request<Blob>(instance, `/api/v1/profiles/${encodeURIComponent(profileId)}/avatar`, { responseType: 'blob', shouldUseNativeBinaryResponse: true })).data;
   }
 
   public static async deleteProfile(instance: TorstInstance, profileId: string): Promise<void> {

@@ -25,17 +25,30 @@ describe('Torst playback recovery API', () => {
   beforeEach(() => { TorstApi.resetForTesting(); (globalThis as any).Lampa = {}; });
   afterEach(() => { globalThis.fetch = originalFetch; (globalThis as any).Lampa = originalLampa; });
 
-  it('captures authenticated metainfo without putting access tokens in the URL', async () => {
+  it('captures large Android recovery metainfo without putting access tokens in the URL', async () => {
+    const bytes = new Uint8Array(2 * 1024 * 1024 + 1);
+    bytes[0] = 128;
+    bytes[bytes.length - 1] = 255;
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(url: string, success: (body: string) => void, _failure: unknown, _body: unknown, params: any) {
+          assert.equal(new URL(url).pathname, '/api/v1/torrents');
+          assert.equal(params.dataType, 'text');
+          success(JSON.stringify({ items: [original], links: {} }));
+        }
+      },
+    };
     globalThis.fetch = async (input, options) => {
       const url = new URL(String(input));
       assert.equal(url.searchParams.has('token'), false);
       assert.equal((options?.headers as Record<string, string>).Authorization, 'Bearer api-secret');
-      if (url.pathname === '/api/v1/torrents') return json({ items: [original], links: {} });
       assert.equal(url.pathname, '/api/v1/torrents/trr_old/metainfo');
-      return new Response('private tracker metainfo', { headers: { 'Content-Type': 'application/x-bittorrent' } });
+      return new Response(bytes, { headers: { 'Content-Type': 'application/x-bittorrent' } });
     };
     const captured = await TorstApi.captureTorrentRecovery(instance, hash);
-    assert.equal(await captured.metainfo.text(), 'private tracker metainfo');
+    assert.deepEqual(new Uint8Array(await captured.metainfo.arrayBuffer()), bytes);
     assert.equal(captured.torrent.retention, 'temporary');
   });
 

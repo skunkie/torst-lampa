@@ -898,6 +898,16 @@ describe('Torst API contract', () => {
   });
 
   it('uploads a downloaded torrent within Torst\'s metainfo limit', async () => {
+    (globalThis as any).Lampa = {
+      Platform: { is: () => true },
+      Reguest: class {
+        public timeout() {}
+        public native(_url: string, success: (body: string) => void, _failure: unknown, _body: unknown, params: any) {
+          assert.equal(params.dataType, 'text');
+          success(JSON.stringify({ ...RESOURCE, file_count: null }));
+        }
+      },
+    };
     let uploadedBytes = 0;
     globalThis.fetch = async (input, init) => {
       const url = new URL(String(input));
