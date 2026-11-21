@@ -1,0 +1,60 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import { resolveFileInfo, selectVideoFiles } from '../engine/file-parser';
+import { PlaybackProgress } from '../engine/playback-progress';
+import { ParsedFileInfo, Torrent, TorstInstance } from '../types/torst';
+
+interface TimelineView {
+  duration?: number,
+  hash: number | string,
+  percent?: number,
+  time?: number,
+  updated?: number
+}
+
+export interface FileProgress {
+  fileInfo: ParsedFileInfo,
+  view: TimelineView
+}
+
+/**
+ * Returns the most recently watched video file of a torrent, hashed exactly as
+ * playback records it, or undefined when none of its files has progress.
+ */
+export function findLatestFileProgress(torrent: Pick<Torrent, 'files' | 'hash'>, movie: LampaMovie, instance?: TorstInstance): FileProgress | undefined {
+  if (!Lampa.Timeline) return undefined;
+
+  const sortedFiles = selectVideoFiles(torrent.files);
+  let latest: FileProgress | undefined;
+
+  sortedFiles.forEach(file => {
+    const fileInfo = resolveFileInfo(file, movie, torrent.hash, sortedFiles);
+    const view: TimelineView | undefined = Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, file.fileId, fileInfo.hash));
+    if (!view || !view.percent) return;
+    if (!latest || (view.updated || 0) >= (latest.view.updated || 0)) latest = { fileInfo, view };
+  });
+
+  return latest;
+}
+
+/**
+ * Builds the overlay Lampa's own catalog cards show on focus: the last watched
+ * episode, or how far into a movie the viewer got, above a progress bar.
+ */
+export function buildCardWatchedElement(progress: FileProgress): LampaDomElement {
+  const { fileInfo, view } = progress;
+  const label = fileInfo.serial && fileInfo.episode
+    ? `${Lampa.Lang?.translate('full_episode') || 'Episode'} ${fileInfo.episode}`
+    : `${Lampa.Lang?.translate('title_viewed') || 'Viewed'} ${
+      view.time ? Lampa.Utils.secondsToTimeHuman(view.time) : `${view.percent}%`
+    }`;
+
+  const wrap = Lampa.Template.get('card_watched', {});
+  const item = $('<div class="card-watched__item"></div>');
+  item.append($('<span></span>').text(label));
+  item.append(Lampa.Timeline.render(view));
+  wrap.find('.card-watched__body').append(item);
+  return wrap;
+}

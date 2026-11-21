@@ -1,0 +1,964 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import { isNetworkError } from '../api/http-client';
+import { TorstApi, TorstApiError } from '../api/torst';
+import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
+import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
+import { searchLibraryTorrents } from '../engine/library-search';
+import { isPersistedTorrent, SavedTorrents } from '../engine/saved-torrents';
+import { TorstEngine } from '../engine/torst-engine';
+import { InstanceManager } from '../instances/instance-manager';
+import { translate } from '../lang/translations';
+import { Torrent, TorrentStorage, TorstInstance } from '../types/torst';
+import {
+  buildSavedTorrentCard,
+  describeViewedAction,
+  setSavedTorrentCardViewed,
+  TORST_STORAGE_BADGE,
+  WatchedOverlayScheduler,
+} from './saved-torrent-card';
+import { showSavedTorrentFiles } from './saved-torrent-files';
+import { UpNextUi } from './up-next';
+
+export const TORST_TORRENTS_COMPONENT_ID = 'torst_torrents';
+
+export function getNavigator(): LampaNavigator | null {
+  const globalNavigator = (globalThis as typeof globalThis & { Navigator?: LampaNavigator }).Navigator;
+  if (globalNavigator && typeof globalNavigator.move === 'function') {
+    return globalNavigator;
+  }
+  if (typeof window !== 'undefined' && window.Navigator && typeof window.Navigator.move === 'function') {
+    return window.Navigator;
+  }
+  if (typeof Lampa !== 'undefined' && Lampa.Navigator && typeof Lampa.Navigator.move === 'function') {
+    return Lampa.Navigator;
+  }
+  return null;
+}
+
+export class TorstTorrentsComponent {
+  private static readonly POLL_INTERVAL_MS = 10_000;
+
+  public componentActivity?: LampaComponentActivity;
+  private activeInstance: TorstInstance | null = null;
+  private contentGrid: LampaDomElement;
+  private contextMenuOpen = false;
+  private contextMenuResumesPolling = false;
+  private emptyState: LampaEmptyState | null = null;
+  private fileListRequestId = 0;
+  private isDestroyed = false;
+  private isLoading = false;
+  private isPaused = false;
+  private isPinnedToSearchInstance = false;
+  private lastFocusedElement: HTMLElement | null = null;
+  private lastFocusedTorrentHash: string | null = null;
+  private lastRenderedInstanceId: string | null = null;
+  private lastRenderedSignature: string | null = null;
+  private needsReload = false;
+  private needsToolbarFocusRestore = false;
+  private pollIntervalId: ReturnType<typeof setInterval> | null = null;
+  private renderedTorrents: Torrent[] = [];
+  private rootElement: LampaDomElement;
+  private scrollView: LampaScrollView;
+  private searchInstanceId: string | undefined;
+  private searchQuery: string | undefined;
+  private toolbar: LampaDomElement | null = null;
+  private watchedOverlay = new WatchedOverlayScheduler();
+
+  constructor(componentOptions?: LampaComponentOptions) {
+    TorstTorrentsComponent.injectStyles();
+    this.componentActivity = componentOptions?.activity;
+    this.searchInstanceId = componentOptions?.instanceId;
+    this.searchQuery = componentOptions?.search;
+    this.scrollView = new Lampa.Scroll({
+      mask: false,
+      over: true,
+      step: 250,
+    });
+    this.rootElement = $('<div class="torst-torrents"></div>');
+    this.contentGrid = $('<div class="mapping--grid cols--6"></div>');
+  }
+
+  private updateHeaderTitle(instance: TorstInstance | null): void {
+    if (typeof Lampa === 'undefined' || !Lampa.Head || typeof Lampa.Head.title !== 'function') return;
+    const instanceName = instance ? instance.name || instance.url : '';
+    Lampa.Head.title(instanceName ? `Torst (${instanceName})` : 'Torst');
+  }
+
+  private static injectStyles(): void {
+    if (typeof document === 'undefined') return;
+    const styleId = 'torst-torrents-style';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        .torst-torrents {
+          display: flex;
+          flex-direction: column;
+          width: 100%;
+          height: 100%;
+        }
+        .torst-torrents > .scroll {
+          flex: 1;
+          min-height: 0;
+        }
+        .torst-library-toolbar {
+          display: flex;
+          flex-shrink: 0;
+          padding: 1.5em 1.5em 0;
+        }
+        .torst-torrents--empty,
+        .torst-torrents--empty .scroll {
+          overflow: hidden !important;
+        }
+        .torst-torrents--empty .scroll > .scroll__content > .scroll__body:after {
+          display: none !important;
+        }
+        .torst-torrents .empty {
+          box-sizing: border-box !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: center !important;
+          width: 100% !important;
+          margin: 0 auto !important;
+          text-align: center !important;
+        }
+        .torst-torrents .empty__img {
+          width: 100% !important;
+        }
+        .torst-torrents .empty__title {
+          box-sizing: border-box !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 auto !important;
+          line-height: 1.4 !important;
+          text-align: center !important;
+        }
+        .torst-torrents .empty__descr {
+          box-sizing: border-box !important;
+          display: block !important;
+          width: 100% !important;
+          max-width: 48em !important;
+          padding: 0 1em !important;
+          margin: 0.8em auto 0 !important;
+          line-height: 1.6 !important;
+          text-align: center !important;
+          word-break: break-word !important;
+        }
+        .torst-torrents .empty__footer {
+          display: flex !important;
+          justify-content: center !important;
+          width: 100% !important;
+          margin-top: 2em !important;
+        }
+      `;
+      if (document.head) {
+        document.head.appendChild(style);
+      }
+    }
+  }
+
+  public create(): LampaDomElement | HTMLElement {
+    this.scrollView.minus();
+    this.scrollView.append(this.contentGrid);
+    this.rootElement.append(this.scrollView.render());
+    const instance = InstanceManager.getInstances().find(candidate => candidate.id === this.searchInstanceId)
+      || InstanceManager.getPrimaryInstance();
+    this.updateToolbar(instance);
+    this.load();
+    return this.render();
+  }
+
+  private updateToolbar(instance: TorstInstance | null): void {
+    if (!instance?.profileId) {
+      if (this.toolbar) {
+        this.needsToolbarFocusRestore ||= !!this.focusedToolbarElement();
+        if (this.toolbar[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = null;
+        this.toolbar.remove();
+        this.toolbar = null;
+        this.lastRenderedSignature = null;
+      }
+      return;
+    }
+    if (this.toolbar) return;
+    this.toolbar = $(`<div class="torst-library-toolbar">
+      <div class="simple-button selector torst-library-up-next"><span></span></div>
+    </div>`);
+    this.toolbar.find('.torst-library-up-next span').text(translate('torst_up_next_title', 'Up Next'));
+    this.toolbar.find('.torst-library-up-next').on('hover:enter', () => {
+      void this.openUpNext();
+    });
+    this.toolbar.find('.selector').on('hover:focus', (event: LampaDomEvent) => {
+      this.lastFocusedElement = event.currentTarget || event.target || null;
+      this.watchedOverlay.cancel();
+    });
+    this.rootElement.prepend(this.toolbar);
+    this.lastRenderedSignature = null;
+  }
+
+  private async openUpNext(): Promise<void> {
+    const activity = Lampa.Activity?.active?.();
+    const isCurrent = () => !this.isDestroyed && (activity === undefined || Lampa.Activity?.active?.() === activity);
+    try {
+      const instances = InstanceManager.getInstances();
+      const instance = instances.find(candidate => candidate.id === (this.searchInstanceId || this.activeInstance?.id))
+        || await InstanceManager.getBestInstance();
+      if (!isCurrent() || !instance.profileId) return;
+      await UpNextUi.show(instance, () => {
+        if (isCurrent()) {
+          Lampa.Controller.toggle('content');
+        }
+      });
+    } catch (error) {
+      if (isCurrent()) Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', { msg: error instanceof Error ? error.message : String(error) }));
+    }
+  }
+
+  private controllerRoot(): LampaDomElement {
+    return this.toolbar ? this.rootElement : this.scrollView.render(true);
+  }
+
+  private updateScrollForFocus(element: HTMLElement | false | null): void {
+    // The toolbar sits outside the scroll view, including when it receives initial focus.
+    if (this.toolbar && (!element || this.toolbar[0]?.contains?.(element))) return;
+    this.scrollView.update(element ? $(element) : this.contentGrid, true);
+  }
+
+  private canFocusLibrary(): boolean {
+    if (this.isDestroyed || this.isPaused) return false;
+    const controllerName = typeof Lampa !== 'undefined' ? Lampa.Controller?.enabled?.()?.name : undefined;
+    return !controllerName || controllerName === 'content';
+  }
+
+  private focusedToolbarElement(): HTMLElement | null {
+    const focused = getNavigator()?.getFocusedElement?.();
+    const toolbar = this.toolbar?.[0];
+    return focused && toolbar?.contains?.(focused) ? focused : null;
+  }
+
+  public async load(silent = false): Promise<void> {
+    if (this.isDestroyed || this.isLoading) return;
+    // Rebuilding the grid replaces every card element, which detaches the card the open context
+    // menu acts on and the element focus is restored to when it closes. Skip background
+    // refreshes until the menu is closed; polling resumes from there.
+    if (silent && this.contextMenuOpen) return;
+    this.isLoading = true;
+
+    if (!silent && this.componentActivity) {
+      this.componentActivity.loader(true);
+    }
+
+    // A view expanded from a search row stays on the library that produced the row.
+    const searchInstance = this.searchInstanceId
+      ? InstanceManager.getInstances().find(instance => instance.id === this.searchInstanceId)
+      : undefined;
+    this.isPinnedToSearchInstance = Boolean(searchInstance);
+
+    try {
+      this.activeInstance = searchInstance || await InstanceManager.getBestInstance();
+      if (this.isDestroyed) return;
+      this.updateToolbar(this.activeInstance);
+      this.updateHeaderTitle(this.activeInstance);
+      const searchQuery = this.searchQuery;
+      const [torrents, settings] = await Promise.all([
+        searchQuery === undefined
+          ? TorstApi.getTorrents(this.activeInstance).then(response => response.torrents || [])
+          : searchLibraryTorrents(this.activeInstance, searchQuery),
+        TorstApi.getSettings(this.activeInstance).catch(() => null),
+      ]);
+      if (this.isDestroyed) return;
+      if (settings) {
+        let changed = false;
+        if (typeof settings.background_downloads_enabled === 'boolean') {
+          this.activeInstance.enableDownloader = settings.background_downloads_enabled;
+          changed = true;
+        }
+        if (changed) {
+          InstanceManager.updateInstance(this.activeInstance);
+        }
+      }
+
+      if (this.isRoutedInstance(this.activeInstance)) {
+        SavedTorrents.syncFromListing(this.activeInstance.id, torrents);
+      }
+
+      // The context menu may have opened while this request was in flight.
+      if (silent && this.contextMenuOpen) {
+        this.isLoading = false;
+        return;
+      }
+
+      if (torrents.length === 0) {
+        this.renderNoTorrentsState(silent);
+      } else {
+        this.renderTorrents(torrents, this.activeInstance, silent);
+      }
+    } catch (err: unknown) {
+      if (this.isDestroyed) return;
+      // Once the pinned instance stops answering, the search row it backed is stale anyway, so
+      // the view falls back to regular instance selection instead of failing on every refresh.
+      const isUnreachable = isNetworkError(err) || (err instanceof TorstApiError && err.status >= 500);
+      if (searchInstance && isUnreachable) {
+        this.searchInstanceId = undefined;
+        this.isPinnedToSearchInstance = false;
+        this.isLoading = false;
+        return this.load(silent);
+      }
+
+      if (silent) {
+        // A background refresh failure is likely transient (e.g. a brief network blip) — leave
+        // whatever is currently rendered alone rather than replacing it with an error screen,
+        // and let the next poll tick retry.
+        this.isLoading = false;
+        return;
+      }
+
+      this.updateHeaderTitle(null);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (errorMessage.includes('unreachable') || errorMessage.includes('offline')) {
+        this.renderEmptyState(
+          translate(
+            'torst_empty_unreachable',
+            'All configured Torst instances are unreachable.<br>Please check instance status in Settings → Torst → Manage Instance Pool.'
+          ),
+          translate('torst_empty_unreachable_title', 'Torst: Instances Unreachable'),
+          silent
+        );
+      } else if (errorMessage.includes('No Torst instances')) {
+        this.renderEmptyState(
+          translate(
+            'torst_empty_no_instances',
+            'No Torst instances are configured.<br>Please add an instance in Settings → Torst → Manage Instance Pool.'
+          ),
+          translate('torst_empty_no_instances_title', 'Torst: No Instances Configured'),
+          silent
+        );
+      } else {
+        this.renderEmptyState(
+          translate(
+            'torst_empty_conn_error',
+            `Unable to load library torrents: ${errorMessage}<br>Please check your instance connection.`,
+            { msg: errorMessage }
+          ),
+          translate('torst_empty_conn_error_title', 'Torst: Connection Error'),
+          silent
+        );
+      }
+    }
+
+    this.isLoading = false;
+    if (!silent && this.componentActivity) {
+      this.componentActivity.loader(false);
+      if (this.canFocusLibrary()) this.componentActivity.toggle();
+    }
+  }
+
+  /**
+   * The saved-torrent cache describes the library requests are routed to; a view pinned to a
+   * different instance must not overwrite it with that instance's contents.
+   */
+  private isRoutedInstance(instance: TorstInstance): boolean {
+    if (instance.id === InstanceManager.getPrimaryInstance()?.id) return true;
+    return !this.isPinnedToSearchInstance && instance.id === this.activeInstance?.id;
+  }
+
+  private renderNoTorrentsState(silent = false): void {
+    const query = Lampa.Utils.clearHtmlTags(this.searchQuery?.trim() || '');
+    this.renderEmptyState(
+      query
+        ? translate('torst_empty_search', 'No saved torrents match “{query}”', { query })
+        : translate('torst_empty_library', 'No torrents found in Torst library'),
+      'Torst',
+      silent
+    );
+  }
+
+  public start(): void {
+    if (this.isDestroyed) return;
+    this.isPaused = false;
+    this.clearContextMenuState();
+    Lampa.Controller.add('content', {
+      back: () => {
+        Lampa.Activity.backward();
+      },
+      down: () => {
+        const navigator = getNavigator();
+        if (navigator) {
+          if (navigator.canmove ? navigator.canmove('down') : true) {
+            navigator.move('down');
+          }
+        }
+      },
+      left: () => {
+        const navigator = getNavigator();
+        if (navigator && navigator.canmove && navigator.canmove('left')) {
+          navigator.move('left');
+        } else {
+          Lampa.Controller.toggle('menu');
+        }
+      },
+      right: () => {
+        const navigator = getNavigator();
+        if (navigator && navigator.move) {
+          navigator.move('right');
+        }
+      },
+      toggle: () => {
+        this.isPaused = false;
+        this.updateScrollForFocus(this.lastFocusedElement);
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(this.lastFocusedElement || false, this.controllerRoot());
+        if (this.needsReload) {
+          this.needsReload = false;
+          this.load(true).finally(() => this.startPolling());
+        }
+      },
+      up: () => {
+        const navigator = getNavigator();
+        if (navigator && navigator.canmove && navigator.canmove('up')) {
+          navigator.move('up');
+        } else {
+          Lampa.Controller.toggle('head');
+        }
+      },
+    });
+    if (this.needsReload) {
+      this.needsReload = false;
+      this.lastFocusedElement = null;
+      Lampa.Controller.toggle('content');
+      this.load().finally(() => this.startPolling());
+      return;
+    }
+    Lampa.Controller.toggle('content');
+    this.startPolling();
+  }
+
+  public pause(): void {
+    this.isPaused = true;
+    this.fileListRequestId++;
+    this.clearContextMenuState();
+    this.stopPolling();
+    this.needsReload = true;
+  }
+
+  public stop(): void {
+    this.isPaused = true;
+    this.fileListRequestId++;
+    this.clearContextMenuState();
+    this.stopPolling();
+    this.needsReload = true;
+  }
+
+  /**
+   * Drops the context menu bookkeeping so a menu left open across a lifecycle transition
+   * cannot suspend background refreshes for good.
+   */
+  private clearContextMenuState(): void {
+    this.contextMenuOpen = false;
+    this.contextMenuResumesPolling = false;
+  }
+
+  private startPolling(): void {
+    if (this.isDestroyed || this.isPaused) return;
+    this.stopPolling();
+    this.pollIntervalId = setInterval(() => {
+      this.load(true);
+    }, TorstTorrentsComponent.POLL_INTERVAL_MS);
+  }
+
+  private stopPolling(): void {
+    if (this.pollIntervalId !== null) {
+      clearInterval(this.pollIntervalId);
+      this.pollIntervalId = null;
+    }
+  }
+
+  public render(shouldReturnDomElement?: boolean): LampaDomElement | HTMLElement {
+    return shouldReturnDomElement ? this.rootElement[0] : this.rootElement;
+  }
+
+  // Detached elements have no usable geometry for the D-pad navigator.
+  private ownsNavigatorFocus(): boolean {
+    const gridElement = this.contentGrid[0];
+    const emptyElement = this.emptyState?.render()[0];
+    const contentElements = [gridElement, emptyElement];
+
+    const navigator = getNavigator();
+    if (navigator && typeof navigator.getFocusedElement === 'function') {
+      const focusedElement = navigator.getFocusedElement();
+      if (!focusedElement) return false;
+      return contentElements.some(element => element?.contains?.(focusedElement));
+    }
+
+    // Not every navigator build exposes the focused element, so fall back to the marker class
+    // it puts on whatever currently holds the cursor.
+    return !!gridElement?.querySelector?.('.card.focus') || !!emptyElement?.querySelector?.('.selector.focus');
+  }
+
+  /**
+   * Re-registers the rebuilt cards with the navigator and marks the replacement of the card
+   * that held the cursor, without recomputing scroll layout or re-triggering hover:focus —
+   * either of those would move the visible scroll position under the user.
+   */
+  private restoreNavigatorFocus(replacementCard: HTMLElement | false): void {
+    const hasController = typeof Lampa !== 'undefined' && !!Lampa.Controller;
+    if (hasController) {
+      Lampa.Controller.collectionSet(this.controllerRoot());
+    }
+
+    const navigator = getNavigator();
+    if (replacementCard && navigator && typeof navigator.focused === 'function') {
+      navigator.focused(replacementCard);
+      if (typeof $ === 'function') {
+        $(replacementCard).addClass('focus');
+      }
+      return;
+    }
+
+    if (hasController) {
+      Lampa.Controller.collectionFocus(replacementCard || false, this.controllerRoot());
+    }
+  }
+
+  private static buildTorrentsSignature(torrents: Torrent[]): string {
+    const viewedList: string[] = (typeof Lampa !== 'undefined' && Lampa.Storage?.get('torrents_view', [])) || [];
+    return torrents
+      .map(torrent => [
+        torrent.hash,
+        torrent.title || torrent.name || '',
+        torrent.storage || '',
+        torrent.poster || '',
+        String(torrent.total_size || 0),
+        String(torrent.file_count ?? (torrent.files ? torrent.files.length : 0)),
+        viewedList.includes(torrent.hash) ? '1' : '0',
+      ].join('\u0001'))
+      .join('\u0002');
+  }
+
+  private static buildEmptyStateSignature(title: string, description: string): string {
+    return ['\u0003empty', title, description].join('\u0001');
+  }
+
+  public renderEmptyState(description: string, title = 'Torst', silent = false): void {
+    const signature = TorstTorrentsComponent.buildEmptyStateSignature(title, description);
+    if (silent && signature === this.lastRenderedSignature) return;
+
+    const focusedToolbar = this.focusedToolbarElement();
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar || this.needsToolbarFocusRestore);
+    this.needsToolbarFocusRestore = false;
+    if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = null;
+    this.lastRenderedSignature = signature;
+    this.lastRenderedInstanceId = null;
+    this.renderedTorrents = [];
+    if (typeof this.rootElement.addClass === 'function') {
+      this.rootElement.addClass('torst-torrents--empty');
+    }
+    if (!silent) {
+      if (typeof this.scrollView.clear === 'function') {
+        this.scrollView.clear();
+      }
+      if (typeof this.scrollView.nopadding === 'function') {
+        this.scrollView.nopadding();
+      }
+      if (typeof this.scrollView.reset === 'function') {
+        this.scrollView.reset();
+      }
+    }
+    if (this.emptyState) {
+      this.emptyState.render().remove();
+      this.emptyState.destroy?.();
+    }
+    this.contentGrid.empty();
+
+    const emptyState = new Lampa.Empty({
+      descr: description,
+      title,
+    });
+    this.emptyState = emptyState;
+    const emptyElement = emptyState.render();
+
+    if (typeof this.scrollView.append === 'function') {
+      this.scrollView.append(emptyElement);
+    } else {
+      this.contentGrid.append(emptyElement);
+    }
+
+    // See the matching note in renderTorrents — a silent background refresh must never touch
+    // scroll layout or focus; the content controller's own toggle callback handles that when
+    // this component genuinely regains control.
+    if (!silent && this.canFocusLibrary()) {
+      if (typeof Lampa !== 'undefined' && Lampa.Controller) {
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(false, this.controllerRoot());
+      }
+    } else if (ownedNavigatorFocus && this.canFocusLibrary()) {
+      this.restoreNavigatorFocus(focusedToolbar || false);
+    }
+    if (typeof Lampa !== 'undefined' && Lampa.Layer && typeof Lampa.Layer.update === 'function') {
+      Lampa.Layer.update();
+    }
+    if (!silent && this.componentActivity && this.canFocusLibrary()) {
+      this.componentActivity.toggle();
+    }
+  }
+
+  public renderTorrents(torrents: Torrent[], instance: TorstInstance, silent = false): void {
+    this.updateToolbar(instance);
+    const signature = TorstTorrentsComponent.buildTorrentsSignature(torrents);
+    // Nothing on screen would change, so leave the live card elements in place rather than
+    // detaching the one the navigator is steering by. The instance has to match too: the cards
+    // close over it, so skipping a rebuild after a failover would leave every card acting on
+    // the instance that was just replaced.
+    if (silent && signature === this.lastRenderedSignature && instance.id === this.lastRenderedInstanceId) return;
+
+    const focusedToolbar = this.focusedToolbarElement();
+    const ownedNavigatorFocus = silent && (this.ownsNavigatorFocus() || !!focusedToolbar || this.needsToolbarFocusRestore);
+    this.needsToolbarFocusRestore = false;
+    const previousFocusIndex = this.renderedTorrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
+    this.lastRenderedSignature = signature;
+    this.lastRenderedInstanceId = instance.id;
+    this.renderedTorrents = torrents;
+    this.emptyState = null;
+    if (typeof this.rootElement.removeClass === 'function') {
+      this.rootElement.removeClass('torst-torrents--empty');
+    }
+    if (typeof this.scrollView.clear === 'function') {
+      this.scrollView.clear();
+    }
+    const scrollRender = this.scrollView.render();
+    if (scrollRender && typeof scrollRender.removeClass === 'function') {
+      scrollRender.removeClass('scroll--nopadding');
+    } else if (typeof $ !== 'undefined') {
+      $(scrollRender).removeClass('scroll--nopadding');
+    }
+
+    this.contentGrid.empty();
+    if (typeof this.contentGrid.addClass === 'function') {
+      this.contentGrid.addClass('mapping--grid cols--6');
+    }
+    if (typeof this.scrollView.append === 'function') {
+      this.scrollView.append(this.contentGrid);
+    }
+    if (typeof Lampa !== 'undefined' && Lampa.Layer && typeof Lampa.Layer.update === 'function') {
+      Lampa.Layer.update();
+    }
+
+    let elementToFocus: HTMLElement | false = false;
+
+    torrents.forEach(torrent => {
+      const card = buildSavedTorrentCard(torrent, isTorrentViewed(torrent.hash));
+
+      card.on('hover:focus', (event: LampaDomEvent) => {
+        const targetElement = event.currentTarget || event.target;
+        if (!targetElement) return;
+        this.lastFocusedElement = targetElement;
+        this.lastFocusedTorrentHash = torrent.hash;
+        this.scrollView.update($(targetElement), true);
+        if (torrent.poster) {
+          Lampa.Background.change(torrent.poster);
+        }
+        this.watchedOverlay.schedule(card, torrent, instance);
+      });
+
+      card.on('hover:hover hover:touch', (event: LampaDomEvent) => {
+        const targetElement = event.currentTarget || event.target;
+        if (!targetElement) return;
+        this.lastFocusedElement = targetElement;
+        this.lastFocusedTorrentHash = torrent.hash;
+        const navigator = getNavigator();
+        if (navigator && navigator.focused) {
+          navigator.focused(targetElement);
+        }
+      });
+
+      card.on('hover:enter', () => {
+        this.openTorrentSafely(torrent);
+      });
+
+      card.on('hover:long', () => {
+        this.openContextMenu(torrent, instance, card);
+      });
+
+      card.on('contextmenu', (event: LampaDomEvent) => {
+        if (event && typeof event.preventDefault === 'function') {
+          event.preventDefault();
+        }
+        this.openContextMenu(torrent, instance, card);
+      });
+
+      if (this.lastFocusedTorrentHash && torrent.hash === this.lastFocusedTorrentHash) {
+        elementToFocus = card[0];
+        if (!this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) this.lastFocusedElement = card[0];
+      }
+
+      this.contentGrid.append(card);
+    });
+
+    const rebuiltFocusCard = elementToFocus;
+    if (this.toolbar?.[0]?.contains?.(this.lastFocusedElement)) elementToFocus = this.lastFocusedElement || false;
+
+    if (!elementToFocus && this.lastFocusedElement) {
+      elementToFocus = this.lastFocusedElement;
+    }
+
+    // Rebuilding the scroll view's layout moves the on-screen scroll position, so a silent
+    // background refresh must never touch it. The content controller's own toggle callback
+    // recomputes layout and restores focus once this component genuinely regains control.
+    if (!silent && this.canFocusLibrary()) {
+      this.updateScrollForFocus(elementToFocus);
+      if (typeof Lampa !== 'undefined' && Lampa.Controller) {
+        Lampa.Controller.collectionSet(this.controllerRoot());
+        Lampa.Controller.collectionFocus(elementToFocus || false, this.controllerRoot());
+      }
+    } else if (ownedNavigatorFocus && this.canFocusLibrary()) {
+      this.restoreNavigatorFocus(focusedToolbar || rebuiltFocusCard);
+      // The card under the cursor moved, so follow it rather than leave the cursor out of view.
+      const focusIndex = torrents.findIndex(torrent => torrent.hash === this.lastFocusedTorrentHash);
+      if (!focusedToolbar && rebuiltFocusCard && focusIndex !== previousFocusIndex) {
+        this.scrollView.update($(rebuiltFocusCard), true);
+      }
+    }
+    if (!silent && this.componentActivity && this.canFocusLibrary()) {
+      this.componentActivity.toggle();
+    }
+  }
+
+  private playTorrentFileSafely(
+    torrent: Torrent,
+    fileIndex: number,
+    sourceInstance?: TorstInstance,
+    returnController?: string
+  ): void {
+    const resolvedReturnController = returnController || Lampa.Controller?.enabled?.().name || 'content';
+
+    TorstEngine.startTorrentPlayback(
+      torrent,
+      fileIndex,
+      undefined,
+      sourceInstance,
+      resolvedReturnController
+    ).catch((err: unknown) => {
+      console.error('[Torst] Playback failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (typeof Lampa !== 'undefined') {
+        if (Lampa.Loading) Lampa.Loading.stop();
+        if (!this.isDestroyed && Lampa.Controller) Lampa.Controller.toggle(resolvedReturnController);
+        if (Lampa.Noty) {
+          Lampa.Noty.show(
+            translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
+          );
+        }
+      }
+    });
+  }
+
+  private openTorrentSafely(torrent: Torrent): void {
+    void this.openTorrent(torrent).catch((err: unknown) => {
+      console.error('[Torst] Failed to open torrent:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (Lampa.Noty) {
+        Lampa.Noty.show(
+          translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
+        );
+      }
+    });
+  }
+
+  public async openTorrent(torrent: Torrent): Promise<void> {
+    const fileListRequestId = ++this.fileListRequestId;
+    const sourceInstance = this.activeInstance || undefined;
+    if (!torrent.files?.length && sourceInstance) {
+      torrent = await TorstApi.getTorrent(sourceInstance, torrent.hash);
+      if (fileListRequestId !== this.fileListRequestId || this.isDestroyed) return;
+    }
+    const torrentFiles = torrent.files || [];
+    const sortedFiles = selectVideoFiles(torrentFiles);
+
+    if (torrentFiles.length > 0 && sortedFiles.length === 0) {
+      if (Lampa.Noty) {
+        Lampa.Noty.show(translate('torst_noty_no_video', 'No video files found in torrent'));
+      }
+      return;
+    }
+
+    if (sortedFiles.length <= 1) {
+      const singleFileIndex = sortedFiles.length > 0
+        ? resolveFileIndex(torrentFiles, sortedFiles[0])
+        : -1;
+      this.playTorrentFileSafely(torrent, Math.max(singleFileIndex, 0), sourceInstance);
+      return;
+    }
+
+    const returnController = Lampa.Controller?.enabled?.().name || 'content';
+    await showSavedTorrentFiles({
+      instance: sourceInstance,
+      isStale: () => fileListRequestId !== this.fileListRequestId,
+      onBack: () => {
+        Lampa.Modal.close();
+        Lampa.Controller.toggle(returnController);
+      },
+      onSelect: fileIndex => {
+        // Deliberately do not close the modal here: Lampa's own native torrent
+        // file list leaves its modal open underneath the player and refocuses
+        // it on exit via Controller.toggle('modal') instead of recreating it.
+        this.playTorrentFileSafely(torrent, fileIndex, sourceInstance, 'modal');
+      },
+      torrent,
+      videoFiles: sortedFiles,
+    });
+  }
+
+  public async openContextMenu(torrent: Torrent, instance: TorstInstance, cardElement: LampaDomElement): Promise<void> {
+    // A card binds this to both a long press and a context menu event, so a single gesture can
+    // enter here twice. Only the first entry sees the real polling state; a later one would
+    // record a stopped poller and leave refreshes suspended after the menu closes.
+    if (!this.contextMenuOpen) {
+      // Only a component that was polling before the menu opened should poll again after it closes.
+      this.contextMenuResumesPolling = this.pollIntervalId !== null;
+    }
+    this.contextMenuOpen = true;
+    this.stopPolling();
+
+    if (instance && (typeof instance.enableDownloader !== 'boolean')) {
+      try {
+        const instanceSettings = await TorstApi.getSettings(instance);
+        if (instanceSettings) {
+          let changed = false;
+          if (typeof instanceSettings.background_downloads_enabled === 'boolean') {
+            instance.enableDownloader = instanceSettings.background_downloads_enabled;
+            changed = true;
+          }
+          if (changed) {
+            InstanceManager.updateInstance(instance);
+          }
+        }
+      } catch {} // Best-effort settings prefetch — failure is non-fatal; context menu opens with defaults.
+    }
+
+    const hasKnownStorage = torrent.storage === 'memory' || torrent.storage === 'file';
+    const isPersisted = isPersistedTorrent(torrent);
+
+    const items: Array<{ action: string, subtitle?: string, title: string }> = [];
+
+    items.push(describeViewedAction(isTorrentViewed(torrent.hash)));
+
+    if (isPersisted && hasKnownStorage) {
+      const isFile = torrent.storage === 'file';
+      items.push({
+        action: 'switch-storage',
+        subtitle: isFile
+          ? translate('torst_menu_switch_ram_descr', 'Currently stored on disk')
+          : translate('torst_menu_switch_disk_descr', 'Currently stored in RAM'),
+        title: isFile
+          ? translate('torst_menu_switch_ram', 'Switch to RAM')
+          : translate('torst_menu_switch_disk', 'Switch to Disk'),
+      });
+    }
+
+    items.push({
+      action: 'delete',
+      subtitle: translate('torst_menu_delete_descr', 'Remove torrent and its downloaded data'),
+      title: translate('torst_menu_delete', 'Delete from Torst'),
+    });
+
+    const menuTitle = typeof Lampa !== 'undefined' && Lampa.Lang?.translate
+      ? Lampa.Lang.translate('title_action')
+      : 'Action';
+
+    Lampa.Select.show({
+      items,
+      onBack: () => {
+        this.returnToContent();
+      },
+      onSelect: async (selectedItem: LampaSelectItem) => {
+        this.contextMenuOpen = false;
+
+        if (selectedItem.action === 'mark' || selectedItem.action === 'unmark') {
+          const isViewed = selectedItem.action === 'mark';
+          setTorrentViewed(torrent.hash, isViewed);
+          setSavedTorrentCardViewed(cardElement, isViewed);
+          this.returnToContent();
+        } else if (selectedItem.action === 'switch-storage') {
+          const nextStorage: TorrentStorage = torrent.storage === 'memory' ? 'file' : 'memory';
+          try {
+            await TorstApi.updateTorrent(instance, torrent.hash, { storage: nextStorage });
+            torrent.storage = nextStorage;
+            if (cardElement && typeof cardElement.find === 'function') {
+              if (nextStorage === 'file') {
+                const cardType = cardElement.find('.card__type--storage');
+                if (!cardType || cardType.length === 0) {
+                  const cardView = cardElement.find('.card__view');
+                  if (cardView && typeof cardView.append === 'function') {
+                    cardView.append(TORST_STORAGE_BADGE);
+                  }
+                }
+              } else {
+                const cardType = cardElement.find('.card__type--storage');
+                if (cardType && typeof cardType.remove === 'function') {
+                  cardType.remove();
+                }
+              }
+            }
+            const storageLabel = nextStorage === 'file'
+              ? translate('torst_storage_type_disk', 'Disk')
+              : translate('torst_storage_type_ram', 'RAM');
+            Lampa.Noty.show(translate('torst_noty_storage_switched', `Storage switched to ${storageLabel}`, { storage: storageLabel }));
+          } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            Lampa.Noty.show(translate('torst_noty_storage_switch_failed', `Failed to switch storage: ${errorMessage}`, { msg: errorMessage }));
+          }
+          this.returnToContent();
+        } else if (selectedItem.action === 'delete') {
+          try {
+            await TorstApi.deleteTorrent(instance, torrent.hash);
+            if (this.isRoutedInstance(instance)) SavedTorrents.markUnsaved(torrent.hash, instance.id);
+            if (cardElement && typeof cardElement.remove === 'function') {
+              cardElement.remove();
+            }
+            Lampa.Noty.show(translate('torst_noty_deleted_from_tp', 'Torrent deleted from Torst'));
+            if (this.contentGrid.find('.card').length === 0) {
+              this.renderNoTorrentsState();
+            }
+          } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            Lampa.Noty.show(translate('torst_noty_delete_failed', `Failed to delete: ${errorMessage}`, { msg: errorMessage }));
+          }
+          this.returnToContent();
+        }
+      },
+      title: menuTitle,
+    });
+  }
+
+  /**
+   * Hands focus back to the torrent grid after a context menu closes and resumes polling.
+   */
+  private returnToContent(): void {
+    if (this.isDestroyed) return;
+    const shouldResumePolling = this.contextMenuResumesPolling;
+    this.clearContextMenuState();
+    if (typeof Lampa !== 'undefined' && Lampa.Controller) {
+      Lampa.Controller.toggle('content');
+    }
+    if (shouldResumePolling) {
+      this.startPolling();
+    }
+  }
+
+  public destroy(): void {
+    this.isDestroyed = true;
+    this.isLoading = false;
+    this.fileListRequestId++;
+    this.clearContextMenuState();
+    this.stopPolling();
+    this.watchedOverlay.cancel();
+    if (this.emptyState && typeof this.emptyState.destroy === 'function') {
+      this.emptyState.destroy();
+    }
+    this.scrollView.destroy();
+    this.rootElement.remove();
+  }
+}

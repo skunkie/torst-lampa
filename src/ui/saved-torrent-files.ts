@@ -1,0 +1,91 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import { collectSeasonNumbers, fetchSeasonEpisodes, resolveEpisodePreview } from '../engine/episode-preview';
+import { resolveFileIndex, resolveFileInfo } from '../engine/file-parser';
+import { resolveMovieContext, resolvePosterUrl } from '../engine/media-context';
+import { PlaybackProgress } from '../engine/playback-progress';
+import { translate } from '../lang/translations';
+import { Torrent, TorrentFile, TorstInstance } from '../types/torst';
+import { buildFileListItemElement } from './file-list-item';
+
+interface SavedTorrentFileListParams {
+  instance?: TorstInstance,
+  isStale?: () => boolean,
+  onBack: () => void,
+  onSelect: (fileIndex: number) => void,
+  torrent: Torrent,
+  videoFiles: TorrentFile[]
+}
+
+/**
+ * Opens the file list of a torrent saved in the Torst library, laid out like Lampa's own
+ * torrent file list: episode stills, names and air dates where TMDB knows the episode, the
+ * file size and type, and watched progress. The modal stays open while a file plays, so the
+ * player can hand focus back to it.
+ */
+export async function showSavedTorrentFiles(params: SavedTorrentFileListParams): Promise<void> {
+  const { instance, isStale, onBack, onSelect, torrent, videoFiles } = params;
+  const activity = Lampa.Activity?.active?.();
+  const instanceUrl = instance?.url;
+  const profileId = instance?.profileId;
+  const torrentFiles = torrent.files || [];
+  const movieContext = resolveMovieContext({
+    original_name: torrent.name,
+    original_title: torrent.name,
+    title: torrent.title || torrent.name,
+  });
+  const fileInfos = videoFiles.map(file => resolveFileInfo(file, movieContext, torrent.hash, videoFiles));
+  // Playback hashes progress against the torrent itself, whose lack of a catalog card makes
+  // Lampa key it by file path, so the file list reads it back the same way.
+  const timelineMovie = torrent as unknown as LampaMovie;
+
+  const seasonsData = await fetchSeasonEpisodes(movieContext, collectSeasonNumbers(fileInfos));
+  if (instance?.profileId) await PlaybackProgress.hydrate(instance, torrent).catch(() => {
+    Lampa.Noty?.show(translate('torst_progress_load_error', 'Could not load progress from Torst'));
+  });
+  if (isStale?.() || instance?.url !== instanceUrl || instance?.profileId !== profileId
+    || (activity !== undefined && Lampa.Activity?.active?.() !== activity)) return;
+
+  const fallbackImage = resolvePosterUrl(torrent, movieContext);
+  const fileListElement = $('<div class="torrent-files"></div>');
+
+  videoFiles.forEach((file, fallbackIndex) => {
+    const resolvedFileIndex = resolveFileIndex(torrentFiles, file);
+    const fileIndex = resolvedFileIndex >= 0 ? resolvedFileIndex : fallbackIndex;
+    const fullName = file.name || file.path || '';
+    const extensionPosition = fullName.lastIndexOf('.');
+    const title = Lampa.Utils.clearHtmlTags(
+      extensionPosition > 0 ? fullName.slice(0, extensionPosition) : fullName
+    );
+    const extension = extensionPosition > 0 ? fullName.slice(extensionPosition + 1) : '';
+    const formattedSize = file.length > 0 ? Lampa.Utils.bytesToSize(file.length) : '';
+    const fileInfo = fileInfos[fallbackIndex];
+    const preview = resolveEpisodePreview(fileInfo, seasonsData, fallbackImage);
+    const timeline = Lampa.Timeline
+      ? Lampa.Timeline.view(PlaybackProgress.timelineHash(instance, file.fileId, resolveFileInfo(file, timelineMovie, torrent.hash, videoFiles).hash))
+      : undefined;
+
+    const fileItemElement = buildFileListItemElement({
+      exe: extension,
+      fileInfo,
+      preview,
+      size: formattedSize,
+      timeline,
+      title,
+    });
+    fileItemElement.on('hover:enter', () => onSelect(fileIndex));
+    fileListElement.append(fileItemElement);
+  });
+
+  Lampa.Modal.open({
+    html: fileListElement,
+    mask: true,
+    onBack,
+    size: 'large',
+    title: Lampa.Lang?.translate ? Lampa.Lang.translate('title_files') : 'Files',
+  });
+  // Modal.open updates lazy row visibility after its initial focus attempt.
+  Lampa.Controller?.collectionFocus?.(false, fileListElement);
+}

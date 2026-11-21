@@ -1,0 +1,352 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import { isNetworkError } from '../api/http-client';
+import { TorstApi, TorstApiError } from '../api/torst';
+import { isTorrentViewed, setTorrentViewed } from '../engine/engine-utils';
+import { resolveFileIndex, selectVideoFiles } from '../engine/file-parser';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY, searchLibraryTorrents } from '../engine/library-search';
+import { PlaybackFocus } from '../engine/playback-focus';
+import { TorstEngine } from '../engine/torst-engine';
+import { InstanceManager } from '../instances/instance-manager';
+import { translate } from '../lang/translations';
+import { Torrent } from '../types/torst';
+import { decodeSearchQuery } from '../utils/search-query';
+import { readTriggerSetting } from '../utils/trigger-setting';
+import { generateUuid } from '../utils/uuid';
+import {
+  buildSavedTorrentCard,
+  describeViewedAction,
+  SavedTorrentSummary,
+  setSavedTorrentCardViewed,
+  summarizeSavedTorrent,
+  WatchedOverlayScheduler,
+} from './saved-torrent-card';
+import { showSavedTorrentFiles } from './saved-torrent-files';
+import { TORST_ENABLED_STORAGE_KEY } from './settings';
+import { TORST_TORRENTS_COMPONENT_ID } from './torst-torrents';
+
+// Lampa offers a row's "More" view once its results span more than one page of this size.
+const RESULTS_PER_PAGE = 20;
+
+interface LibrarySearchItem {
+  instanceId: string,
+  libraryScopeId: string,
+  params?: { createInstance: (item: LibrarySearchItem) => SavedTorrentSearchCard },
+  torrent: SavedTorrentSummary,
+  torrentHash: string
+}
+
+interface LibrarySearchRow {
+  instanceId: string,
+  query: string,
+  results: LibrarySearchItem[],
+  title: string,
+  total: number,
+  total_pages: number
+}
+
+/** The tab list of an open global search, as its `sources` event hands it over. */
+interface GlobalSearchTabs {
+  enable(result: unknown): void,
+  listener: { follow(event: 'create', callback: (created: { result: unknown, source: unknown }) => void): void },
+  tabs(): HTMLElement
+}
+
+interface LibrarySearchSource {
+  onCancel: () => void,
+  onMore: (params: { data: LibrarySearchRow, query?: string }, close: () => void) => void,
+  onRecall: (rows: LibrarySearchRow[]) => void,
+  onSelect: (params: { element: LibrarySearchItem, line: { toggle: () => void } }) => void,
+  params: { lazy: boolean },
+  search: (params: { query: string }, onComplete: (rows: LibrarySearchRow[]) => void) => void,
+  title: string
+}
+
+/**
+ * A saved torrent's card in the global search row: the same card as the Torst library,
+ * playing through the row's own selection and offering only the viewed mark on long press,
+ * since storage switching and deletion belong to the library view.
+ */
+class SavedTorrentSearchCard {
+  private card: LampaDomElement | null = null;
+  private onEnter: (() => void) | null = null;
+  private readonly watchedOverlay = new WatchedOverlayScheduler();
+
+  public constructor(private readonly item: LibrarySearchItem) {}
+
+  public use(handlers: { onEnter?: () => void }): void {
+    if (handlers.onEnter) this.onEnter = handlers.onEnter;
+  }
+
+  public create(): void {
+    const { torrent } = this.item;
+    const card = buildSavedTorrentCard(torrent, isTorrentViewed(torrent.hash));
+    card.on('hover:enter', () => this.onEnter?.());
+    card.on('hover:focus', () => {
+      const instance = InstanceManager.getInstances().find(candidate => candidate.id === this.item.instanceId);
+      this.watchedOverlay.schedule(card, torrent, instance);
+    });
+    card.on('hover:long', () => this.showViewedAction());
+    this.card = card;
+  }
+
+  public render(asElement?: boolean): HTMLElement | LampaDomElement | undefined {
+    return asElement ? this.card?.[0] : this.card || undefined;
+  }
+
+  public destroy(): void {
+    this.watchedOverlay.cancel();
+    this.card?.remove();
+    this.card = null;
+  }
+
+  private showViewedAction(): void {
+    const card = this.card;
+    if (!card) return;
+    const { hash } = this.item.torrent;
+    const returnController = Lampa.Controller.enabled?.()?.name || 'items_line';
+    Lampa.Select.show({
+      items: [describeViewedAction(isTorrentViewed(hash))],
+      onBack: () => Lampa.Controller.toggle(returnController),
+      onSelect: (selectedItem: LampaSelectItem & { action?: string }) => {
+        const isViewed = selectedItem.action === 'mark';
+        setTorrentViewed(hash, isViewed);
+        setSavedTorrentCardViewed(card, isViewed);
+        Lampa.Controller.toggle(returnController);
+      },
+      title: Lampa.Lang?.translate ? Lampa.Lang.translate('title_action') : 'Action',
+    });
+  }
+}
+
+export class LibrarySearch {
+  private static cancelSearch: (() => void) | null = null;
+  private static libraryScopeId = '';
+  private static isRegistered = false;
+  private static isSourceActive = false;
+  private static playbackRequestId = 0;
+  private static source: LibrarySearchSource | null = null;
+
+  public static init(): void {
+    if (this.isRegistered || typeof Lampa === 'undefined' || !Lampa.Search || !Lampa.Storage) return;
+    this.isRegistered = true;
+    this.libraryScopeId = generateUuid();
+    this.syncSource();
+    Lampa.Storage.listener?.follow('change', event => {
+      if (event.name === LIBRARY_SEARCH_ENABLED_STORAGE_KEY || event.name === TORST_ENABLED_STORAGE_KEY) {
+        this.syncSource();
+      }
+    });
+    InstanceManager.onSelectionChanged(() => this.invalidateLibraryScope());
+    this.followSearchOpening();
+  }
+
+  /**
+   * Opens global search on this source's tab when it is opened from the Torst library, since
+   * a search started there is most likely after a saved torrent. Lampa builds the tabs between
+   * its `sources` and `open` events and selects the first one itself, so the tab is noted as it
+   * is built and selected once the search is open.
+   */
+  private static followSearchOpening(): void {
+    let pendingTab: { result: unknown, tabIndex: number, tabs: GlobalSearchTabs } | null = null;
+
+    Lampa.Search?.listener?.follow('sources', (event: { sources?: GlobalSearchTabs }) => {
+      pendingTab = null;
+      const tabs = event?.sources;
+      const isFromLibrary = Lampa.Activity?.active?.()?.component === TORST_TORRENTS_COMPONENT_ID;
+      if (!tabs?.listener || !this.isSourceActive || !isFromLibrary) return;
+      let tabIndex = 0;
+      tabs.listener.follow('create', (created: { result: unknown, source: unknown }) => {
+        if (created.source === this.source) pendingTab = { result: created.result, tabIndex, tabs };
+        tabIndex++;
+      });
+    });
+
+    Lampa.Search?.listener?.follow('open', () => {
+      const tab = pendingTab;
+      pendingTab = null;
+      if (!tab) return;
+      tab.tabs.enable(tab.result);
+      // A tab remembers itself as the one to focus when it receives focus, so moving down from
+      // the keyboard lands on it rather than on the first tab.
+      tab.tabs.tabs().querySelectorAll('.search-source')[tab.tabIndex]?.dispatchEvent(new Event('hover:focus'));
+    });
+  }
+
+  private static invalidateLibraryScope(): void {
+    this.libraryScopeId = generateUuid();
+    this.playbackRequestId++;
+    this.cancelSearch?.();
+  }
+
+  private static addCardFactory(item: LibrarySearchItem): void {
+    item.params = { createInstance: candidate => new SavedTorrentSearchCard(candidate) };
+  }
+
+  private static isEnabled(): boolean {
+    return Boolean(Lampa.Storage.get(TORST_ENABLED_STORAGE_KEY, true))
+      && readTriggerSetting(LIBRARY_SEARCH_ENABLED_STORAGE_KEY);
+  }
+
+  private static syncSource(): void {
+    if (this.isEnabled() && !this.isSourceActive) {
+      this.source ||= this.createSource();
+      Lampa.Search?.addSource(this.source);
+      this.isSourceActive = true;
+    } else if (!this.isEnabled() && this.isSourceActive) {
+      this.invalidateLibraryScope();
+      Lampa.Search?.removeSource(this.source);
+      this.isSourceActive = false;
+    }
+  }
+
+  private static createSource(): LibrarySearchSource {
+    const title = translate('torst_library_search_title', 'Torst Library');
+    return {
+      onCancel: () => {
+        this.playbackRequestId++;
+        this.cancelSearch?.();
+      },
+      onMore: (params, close) => {
+        close();
+        Lampa.Activity.push({
+          component: TORST_TORRENTS_COMPONENT_ID,
+          instanceId: params.data.instanceId,
+          search: params.data.query,
+          title,
+          url: '',
+        });
+      },
+      onRecall: rows => {
+        // Rows may come from a failover instance rather than the preferred one; any instance still
+        // in the pool can serve them, since playback goes back to the instance that listed them.
+        const instanceIds = new Set(InstanceManager.getInstances().map(instance => instance.id));
+        rows.forEach(row => {
+          row.results = this.isEnabled()
+            ? row.results.filter(item => item.libraryScopeId === this.libraryScopeId && instanceIds.has(item.instanceId))
+            : [];
+          row.results.forEach(item => this.addCardFactory(item));
+        });
+        const populatedRows = rows.filter(row => row.results.length > 0);
+        rows.splice(0, rows.length, ...populatedRows);
+      },
+      onSelect: params => {
+        const returnController = Lampa.Controller?.enabled?.().name || 'search';
+        const restoreFocus = () => {
+          Lampa.Controller?.toggle(returnController);
+          params.line.toggle();
+        };
+        this.openTorrent(params.element, returnController, restoreFocus).catch(error => {
+          restoreFocus();
+          Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', {
+            msg: error instanceof Error ? error.message : String(error),
+          }));
+        });
+      },
+      // Searched with every query rather than only once the tab is opened, so the tab can show
+      // how many saved torrents match.
+      params: { lazy: false },
+      search: (params, onComplete) => {
+        this.cancelSearch?.();
+        let isSettled = false;
+        const complete = (rows: LibrarySearchRow[]) => {
+          if (isSettled) return;
+          isSettled = true;
+          if (this.cancelSearch === cancel) this.cancelSearch = null;
+          onComplete(rows);
+        };
+        const cancel = () => complete([]);
+        this.cancelSearch = cancel;
+        if (!this.isEnabled()) {
+          cancel();
+          return;
+        }
+        const query = decodeSearchQuery(params.query);
+        InstanceManager.getBestKnownInstance().then(async instance => {
+          if (isSettled) return;
+          let activeInstance = instance;
+          const torrents = await searchLibraryTorrents(instance, query).catch(async error => {
+            const isServerError = error instanceof TorstApiError && error.status >= 500;
+            if (isSettled || (!isServerError && !isNetworkError(error))) throw error;
+            const fallbackInstance = await InstanceManager.failover(instance, () => isSettled);
+            if (isSettled || !fallbackInstance) throw error;
+            activeInstance = fallbackInstance;
+            return searchLibraryTorrents(fallbackInstance, query);
+          });
+          if (isSettled) return;
+          // The whole match list goes in the row: Lampa counts a tab's results by the items it is
+          // handed, and draws the row's cards progressively as it is scrolled.
+          const results: LibrarySearchItem[] = torrents.map(torrent => ({
+            instanceId: activeInstance.id,
+            libraryScopeId: this.libraryScopeId,
+            torrent: summarizeSavedTorrent(torrent),
+            torrentHash: torrent.hash,
+          }));
+          results.forEach(item => this.addCardFactory(item));
+          complete(results.length ? [{
+            instanceId: activeInstance.id,
+            query,
+            results,
+            title,
+            total: torrents.length,
+            total_pages: Math.ceil(torrents.length / RESULTS_PER_PAGE),
+          }] : []);
+        }).catch(() => cancel());
+      },
+      title,
+    };
+  }
+
+  private static async openTorrent(item: LibrarySearchItem, returnController: string, restoreFocus: () => void): Promise<void> {
+    if (!this.isEnabled() || item.libraryScopeId !== this.libraryScopeId) return;
+    const playbackRequestId = ++this.playbackRequestId;
+    const instance = InstanceManager.getInstances().find(candidate => candidate.id === item.instanceId);
+    if (!instance) return;
+    let torrent: Torrent;
+    try {
+      torrent = await TorstApi.getTorrent(instance, item.torrentHash);
+    } catch (error) {
+      if (playbackRequestId !== this.playbackRequestId) return;
+      throw error;
+    }
+    if (playbackRequestId !== this.playbackRequestId || item.libraryScopeId !== this.libraryScopeId) return;
+    const torrentFiles = torrent.files || [];
+    const files = selectVideoFiles(torrentFiles);
+    const playFile = (fileIndex: number, playbackReturnController: string, restorePlaybackFocus: () => void) => {
+      if (!this.isEnabled() || item.libraryScopeId !== this.libraryScopeId) return;
+      void this.playFile(torrent, fileIndex, item.instanceId, playbackReturnController).then(isHandedOff => {
+        if (isHandedOff) PlaybackFocus.setCallback(restorePlaybackFocus);
+        else restorePlaybackFocus();
+      }).catch(error => {
+        restorePlaybackFocus();
+        Lampa.Noty?.show(translate('torst_noty_error', 'Torst: {msg}', {
+          msg: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    };
+    if (files.length <= 1) {
+      playFile(files[0] ? resolveFileIndex(torrentFiles, files[0]) : 0, returnController, restoreFocus);
+      return;
+    }
+    await showSavedTorrentFiles({
+      instance,
+      isStale: () => playbackRequestId !== this.playbackRequestId || item.libraryScopeId !== this.libraryScopeId,
+      onBack: () => {
+        Lampa.Modal.close();
+        restoreFocus();
+      },
+      // The list stays open under the player, which hands focus back to it on exit.
+      onSelect: fileIndex => playFile(fileIndex, 'modal', () => Lampa.Controller.toggle('modal')),
+      torrent,
+      videoFiles: files,
+    });
+  }
+
+  private static async playFile(torrent: Torrent, fileIndex: number, instanceId: string, returnController: string): Promise<boolean> {
+    const instance = InstanceManager.getInstances().find(candidate => candidate.id === instanceId);
+    if (!instance) return false;
+    return TorstEngine.startTorrentPlayback(torrent, fileIndex, undefined, instance, returnController);
+  }
+}

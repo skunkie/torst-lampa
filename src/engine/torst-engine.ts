@@ -1,0 +1,605 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import { AuthenticationError } from '../api/auth';
+import { isNetworkError } from '../api/http-client';
+import { extractHashFromMagnet, normalizeInfoHash, TorstApi, TorstApiError } from '../api/torst';
+import { InstanceManager } from '../instances/instance-manager';
+import { translate } from '../lang/translations';
+import {
+  Torrent,
+  TorrentFile,
+  TorstInstance,
+} from '../types/torst';
+import { PlayDialog } from '../ui/play-dialog';
+import {
+  PLAYBACK_MODE_STORAGE_KEY,
+  TORST_ENABLED_STORAGE_KEY,
+} from '../ui/settings';
+import { closeModalSafely } from './engine-utils';
+import {
+  resolveFileIndex,
+  resolveFileInfo,
+  selectVideoFiles,
+} from './file-parser';
+import { buildLibraryDetails } from './library-details';
+import { resolveMovieContext, resolvePosterUrl } from './media-context';
+import { displayFileList, playSingleVideoFile, playTorrentFile } from './playback-session';
+import { isPersistedTorrent, SavedTorrents } from './saved-torrents';
+
+const METADATA_MAXIMUM_ATTEMPTS = 120;
+
+/**
+ * The catalog card a torrent was opened from, only when the caller passed it: the activity
+ * stack fallback may hold an unrelated title, whose details must not be stored with this torrent.
+ */
+function resolveCatalogCard(movie: LampaMovie | undefined, resolvedMovie: LampaMovie | undefined): LampaMovie | undefined {
+  if (!movie || !resolvedMovie) return undefined;
+  return resolvedMovie === movie || resolvedMovie === movie.card || resolvedMovie === movie.movie ? resolvedMovie : undefined;
+}
+
+export class TorstEngine {
+  private static originalTorrentOpen: ((hash: string, movie?: LampaMovie) => void) | null = null;
+  private static originalTorrentStart: ((torrentItem: LampaTorrentItem, movie?: LampaMovie) => void) | null = null;
+
+  public static isEnabled(): boolean {
+    if (typeof Lampa === 'undefined' || !Lampa.Storage) return true;
+    return Lampa.Storage.get(TORST_ENABLED_STORAGE_KEY, true);
+  }
+
+  public static getPlaybackMode(): 'ask' | 'torst' | 'context' {
+    if (typeof Lampa === 'undefined' || !Lampa.Storage) return 'torst';
+    return Lampa.Storage.get(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+  }
+
+  public static init(): void {
+    if (typeof Lampa === 'undefined' || !Lampa.Torrent) return;
+
+    // Save reference to original Lampa.Torrent.start
+    if (!this.originalTorrentStart && typeof Lampa.Torrent.start === 'function') {
+      this.originalTorrentStart = Lampa.Torrent.start.bind(Lampa.Torrent);
+    }
+
+    // Replace Lampa.Torrent.start with a clean, minimal forwarder to TorstEngine.startPlayback
+    Lampa.Torrent.start = (torrentItem: LampaTorrentItem, movie?: LampaMovie) => {
+      if (!this.isEnabled()) {
+        if (this.originalTorrentStart) {
+          this.originalTorrentStart(torrentItem, movie);
+        }
+        return;
+      }
+
+      const isTorstSession =
+        movie?.torst ||
+        torrentItem?.torst ||
+        (typeof Lampa !== 'undefined' && Lampa.Activity?.active?.()?.torst);
+
+      const mode = isTorstSession ? 'torst' : this.getPlaybackMode();
+
+      if (mode === 'context') {
+        // Manual mode: let default player handle standard click
+        if (this.originalTorrentStart) {
+          this.originalTorrentStart(torrentItem, movie);
+        }
+        return;
+      }
+
+      if (mode === 'ask') {
+        this.promptPlayerChoice(torrentItem, movie);
+        return;
+      }
+
+      // mode === 'torst'
+      this.startPlayback(torrentItem, movie).catch((err: unknown) => {
+        console.error('[Torst] Playback failed:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        if (typeof Lampa !== 'undefined') {
+          closeModalSafely();
+          if (Lampa.Loading) Lampa.Loading.stop();
+          if (Lampa.Noty) {
+            Lampa.Noty.show(
+              translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
+            );
+          }
+        }
+      });
+    };
+
+    // Save reference to original Lampa.Torrent.open if present
+    if (!this.originalTorrentOpen && typeof Lampa.Torrent.open === 'function') {
+      this.originalTorrentOpen = Lampa.Torrent.open.bind(Lampa.Torrent);
+    }
+
+    if (typeof Lampa.Torrent.open === 'function') {
+      Lampa.Torrent.open = (hash: string, movie?: LampaMovie) => {
+        if (!this.isEnabled()) {
+          if (this.originalTorrentOpen) {
+            this.originalTorrentOpen(hash, movie);
+          }
+          return;
+        }
+
+        const isTorstSession =
+          movie?.torst ||
+          (typeof Lampa !== 'undefined' && Lampa.Activity?.active?.()?.torst);
+
+        const mode = isTorstSession ? 'torst' : this.getPlaybackMode();
+
+        if (mode === 'context') {
+          if (this.originalTorrentOpen) {
+            this.originalTorrentOpen(hash, movie);
+          }
+          return;
+        }
+
+        if (mode === 'ask') {
+          this.promptPlayerChoice({ hash }, movie);
+          return;
+        }
+
+        // mode === 'torst'
+        this.startPlayback({ hash }, movie).catch((err: unknown) => {
+          console.error('[Torst] Playback failed:', err);
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          if (typeof Lampa !== 'undefined') {
+            closeModalSafely();
+            if (Lampa.Loading) Lampa.Loading.stop();
+            if (Lampa.Noty) {
+              Lampa.Noty.show(
+                translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
+              );
+            }
+          }
+        });
+      };
+    }
+  }
+
+  /**
+   * Prompts user to choose between Torst and Default player (TorrServer).
+   */
+  public static promptPlayerChoice(torrentItem: LampaTorrentItem, movie?: LampaMovie): void {
+    const title = torrentItem.title || torrentItem.Title || (movie && (movie.title || movie.name)) || 'Torrent';
+    // Captured before the dialog opens, while the caller's controller is still active.
+    const returnController = Lampa.Controller?.enabled?.().name || 'content';
+
+    Lampa.Select.show({
+      items: [
+        {
+          action: 'torst',
+          subtitle: translate('torst_play_via_descr', 'Stream via active Torst instance'),
+          title: 'Torst',
+        },
+        {
+          action: 'default',
+          subtitle: translate('torst_choice_torrserver_descr', 'Stream via TorrServer'),
+          title: translate('torst_choice_torrserver', 'TorrServer'),
+        },
+      ],
+      onBack: () => {
+        if (Lampa.Controller) Lampa.Controller.toggle(returnController);
+      },
+      onSelect: (selectedPlayer: LampaSelectItem) => {
+        if (selectedPlayer.action === 'torst') {
+          this.playTorrentDirect(torrentItem, movie, returnController);
+        } else {
+          if (this.originalTorrentStart) {
+            this.originalTorrentStart(torrentItem, movie);
+          }
+        }
+      },
+      title: translate('torst_play_title', `Play: ${title}`, { title }),
+    });
+  }
+
+  /**
+   * Directly starts torrent playback via Torst.
+   */
+  public static playTorrentDirect(
+    torrentItem: LampaTorrentItem,
+    movie?: LampaMovie,
+    returnController?: string
+  ): void {
+    // Callers that start playback from a menu pass the controller that was active before it
+    // opened, since by now the menu's own controller is the enabled one.
+    const resolvedReturnController = returnController || Lampa.Controller?.enabled?.().name || 'content';
+
+    this.startPlayback(torrentItem, movie, resolvedReturnController).catch((err: unknown) => {
+      console.error('[Torst] Playback failed:', err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (typeof Lampa !== 'undefined') {
+        closeModalSafely();
+        if (Lampa.Loading) Lampa.Loading.stop();
+        if (Lampa.Controller) Lampa.Controller.toggle(resolvedReturnController);
+        if (Lampa.Noty) {
+          Lampa.Noty.show(
+            translate('torst_noty_error', `Torst: ${errorMessage}`, { msg: errorMessage })
+          );
+        }
+      }
+    });
+  }
+
+  /**
+   * Adds torrent to Torst library without immediately starting playback.
+   */
+  public static async saveToLibrary(torrentItem: LampaTorrentItem, movie?: LampaMovie): Promise<void> {
+    const rawSource = (
+      torrentItem?.MagnetUri ||
+      torrentItem?.Link ||
+      torrentItem?.link ||
+      torrentItem?.url ||
+      ''
+    ).trim();
+
+    const isMagnet = rawSource.toLowerCase().startsWith('magnet:');
+    const magnetUri = isMagnet ? rawSource : undefined;
+    const torrentLink = !isMagnet && /^https?:\/\//i.test(rawSource) ? rawSource : undefined;
+    const magnetHash = isMagnet ? extractHashFromMagnet(rawSource) : null;
+    const torrentHash =
+      normalizeInfoHash(torrentItem?.info_hash) ||
+      normalizeInfoHash(torrentItem?.InfoHash) ||
+      magnetHash ||
+      normalizeInfoHash(torrentItem?.hash) ||
+      normalizeInfoHash(torrentItem?.Hash) ||
+      undefined;
+
+    const resolvedMovie = resolveMovieContext(movie);
+    const title =
+      torrentItem?.title ||
+      torrentItem?.Title ||
+      resolvedMovie?.title ||
+      resolvedMovie?.name ||
+      'Torrent';
+    const poster = resolvePosterUrl(torrentItem, resolvedMovie);
+    const library = buildLibraryDetails(resolveCatalogCard(movie, resolvedMovie));
+    const storage = PlayDialog.resolveSavedStorage();
+
+    if (!torrentHash && !magnetUri && !torrentLink) {
+      if (Lampa.Noty) {
+        Lampa.Noty.show(
+          translate('torst_noty_hash_required', 'Torst: Valid magnet link or info hash is required')
+        );
+      }
+      return;
+    }
+
+    try {
+      const instance = await InstanceManager.getBestInstance();
+      const outcome = await this.withFailover(instance, async i => {
+        const resolved = torrentLink
+          ? await TorstApi.resolveTorrent(i, torrentLink, { library, poster, retention: 'persisted', storage, title })
+          : undefined;
+        return resolved || TorstApi.addTorrent(i, {
+          hash: torrentHash,
+          library,
+          magnet: magnetUri,
+          poster,
+          storage,
+          title,
+        });
+      });
+      SavedTorrents.markSaved(torrentHash || outcome.result?.hash, outcome.instance.id);
+      if (Lampa.Noty) {
+        Lampa.Noty.show(
+          translate('torst_noty_added_library', `Torst: "${title}" added to library!`, { title })
+        );
+      }
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (Lampa.Noty) {
+        Lampa.Noty.show(
+          translate('torst_noty_save_error', `Torst Save Error: ${errorMessage}`, { msg: errorMessage })
+        );
+      }
+    }
+  }
+
+  public static async startPlayback(
+    torrentItem: LampaTorrentItem,
+    movie?: LampaMovie,
+    returnController?: string
+  ): Promise<void> {
+    // Callers that start playback from a menu pass the controller that was active before it
+    // opened; capture the rest here, before the options dialog can take the controller over.
+    const resolvedReturnController = returnController || Lampa.Controller?.enabled?.().name || 'content';
+    const rawSource = (
+      torrentItem?.MagnetUri ||
+      torrentItem?.Link ||
+      torrentItem?.link ||
+      torrentItem?.url ||
+      ''
+    ).trim();
+
+    const isMagnet = rawSource.toLowerCase().startsWith('magnet:');
+    const magnetUri = isMagnet ? rawSource : undefined;
+    const torrentLink = !isMagnet && /^https?:\/\//i.test(rawSource) ? rawSource : undefined;
+    const magnetHash = isMagnet ? extractHashFromMagnet(rawSource) : null;
+    const torrentHash =
+      normalizeInfoHash(torrentItem?.info_hash) ||
+      normalizeInfoHash(torrentItem?.InfoHash) ||
+      magnetHash ||
+      normalizeInfoHash(torrentItem?.hash) ||
+      normalizeInfoHash(torrentItem?.Hash) ||
+      undefined;
+
+    const resolvedMovie = resolveMovieContext(movie);
+    const title =
+      torrentItem?.title ||
+      torrentItem?.Title ||
+      resolvedMovie?.title ||
+      resolvedMovie?.name ||
+      'Torrent';
+    const poster = resolvePosterUrl(torrentItem, resolvedMovie);
+    const library = buildLibraryDetails(resolveCatalogCard(movie, resolvedMovie));
+
+    // 1. Resolve storage and library persistence preferences
+    const playOptions = await PlayDialog.resolveOptions(title);
+    if (!playOptions) return; // User canceled dialog
+
+    if (!torrentHash && !magnetUri && !torrentLink) {
+      Lampa.Controller.toggle(resolvedReturnController);
+      if (Lampa.Noty) {
+        Lampa.Noty.show(
+          translate('torst_noty_hash_required', 'Torst: Valid magnet link or info hash is required')
+        );
+      }
+      return;
+    }
+
+    // 2. Resolve best Torst instance
+    let instance = await InstanceManager.getBestInstance();
+    let isCanceled = false;
+
+    // 3. Show a plain loading screen while the torrent is added and its metadata fetched.
+    // Lampa's media loading screen always shows a buffer percentage, which would read as a
+    // preload stuck at 0%; it is reserved for the preload itself.
+    if (typeof Lampa !== 'undefined' && Lampa.Loading) {
+      Lampa.Loading.start(
+        () => {
+          isCanceled = true;
+          Lampa.Loading.stop();
+          Lampa.Controller.toggle(resolvedReturnController);
+        },
+        ''
+      );
+    }
+
+    let torrent: Torrent;
+
+    try {
+      const outcome = await this.withFailover(
+        instance,
+        async i => {
+          const retention = playOptions.saveToLibrary ? 'persisted' : 'temporary';
+          if (torrentLink) {
+            return TorstApi.resolveTorrent(i, torrentLink, {
+              library,
+              poster,
+              retention,
+              storage: playOptions.storage,
+              title,
+            }, () => isCanceled);
+          }
+          if (isCanceled) throw new Error('Playback canceled');
+          return TorstApi.addTorrent(i, {
+            hash: torrentHash,
+            library,
+            magnet: magnetUri,
+            poster,
+            retention,
+            storage: playOptions.storage,
+            title,
+          });
+        },
+        () => isCanceled
+      );
+      instance = outcome.instance;
+      torrent = outcome.result;
+      if (isCanceled) return;
+      if (isPersistedTorrent(torrent)) {
+        SavedTorrents.markSaved(torrentHash || torrent.hash, outcome.instance.id);
+      }
+    } catch (err: unknown) {
+      if (isCanceled) return;
+      if (typeof Lampa !== 'undefined' && Lampa.Loading) {
+        Lampa.Loading.stop();
+      }
+      throw err;
+    }
+
+    if (isCanceled) return;
+
+    // 4. Poll metadata until files list is ready if needed
+    let readyTorrent: Torrent;
+    try {
+      readyTorrent = torrent.files && torrent.files.length > 0
+        ? torrent
+        : await this.waitForFiles(instance, torrent.hash, () => isCanceled);
+    } catch (error) {
+      if (isCanceled) return;
+      Lampa.Loading?.stop();
+      throw error;
+    }
+    if (isCanceled) return;
+
+    const torrentFiles: TorrentFile[] = readyTorrent.files || [];
+    const sortedVideoFiles = selectVideoFiles(torrentFiles);
+
+    if (sortedVideoFiles.length === 0) {
+      if (typeof Lampa !== 'undefined' && Lampa.Loading) {
+        Lampa.Loading.stop();
+      }
+      Lampa.Controller.toggle(resolvedReturnController);
+      if (Lampa.Noty) {
+        Lampa.Noty.show(translate('torst_noty_no_video', 'No video files found in torrent'));
+      }
+      return;
+    }
+
+    // 5. If single video file, launch preload and playback directly without opening any modal
+    if (sortedVideoFiles.length === 1) {
+      if (typeof Lampa !== 'undefined' && Lampa.Loading) {
+        Lampa.Loading.stop();
+      }
+      await playSingleVideoFile(
+        instance,
+        readyTorrent,
+        sortedVideoFiles[0],
+        movie,
+        torrentItem,
+        resolvedReturnController
+      );
+      return;
+    }
+
+    // Multi-file torrent: dismiss loading screen and open file choice modal
+    if (typeof Lampa !== 'undefined' && Lampa.Loading) {
+      Lampa.Loading.stop();
+    }
+    await displayFileList(instance, readyTorrent, movie, torrentItem, resolvedReturnController);
+  }
+
+  /**
+   * Starts playback directly from an existing torrent object and file index.
+   * Resolves to whether the file was handed to the player.
+   */
+  public static async startTorrentPlayback(
+    torrent: Torrent,
+    fileIndex = 0,
+    movie?: LampaMovie,
+    sourceInstance?: TorstInstance,
+    returnController = 'content',
+    signal?: AbortSignal
+  ): Promise<boolean> {
+    if (signal?.aborted) return false;
+    const instance = sourceInstance || await InstanceManager.getBestInstance();
+    if (signal?.aborted) return false;
+    const readyTorrent = torrent.files && torrent.files.length > 0
+      ? torrent
+      : await this.waitForFiles(instance, torrent.hash);
+
+    if (signal?.aborted) return false;
+    const torrentFiles: TorrentFile[] = readyTorrent.files || [];
+    const sortedFiles = selectVideoFiles(torrentFiles);
+
+    if (sortedFiles.length === 0) {
+      if (Lampa.Noty) {
+        Lampa.Noty.show(translate('torst_noty_no_video', 'No video files found in torrent'));
+      }
+      return false;
+    }
+
+    const resolvedMovie = movie ? resolveMovieContext(movie) : undefined;
+    const poster = resolvePosterUrl(readyTorrent, resolvedMovie);
+    const mediaMetadata: LampaMovie = resolvedMovie || {
+      card: readyTorrent,
+      first_title: readyTorrent.title || readyTorrent.name,
+      img: poster || readyTorrent.poster,
+      movie: readyTorrent,
+      title: readyTorrent.title || readyTorrent.name,
+    };
+
+    const playlist = sortedFiles.map((file, playlistIndex) => {
+      const cleanTitle = Lampa.Utils.clearHtmlTags(
+        file.name || file.path.split('/').pop() || `File ${playlistIndex + 1}`
+      );
+      const originalFileIndex = resolveFileIndex(torrentFiles, file);
+      const fileInfo = resolveFileInfo(file, mediaMetadata, readyTorrent.hash, sortedFiles);
+      return {
+        episode: fileInfo.episode,
+        file_index: originalFileIndex >= 0 ? originalFileIndex : playlistIndex,
+        fname: cleanTitle,
+        id: playlistIndex,
+        path: file.path,
+        season: fileInfo.season,
+        size: Lampa.Utils.bytesToSize(file.length),
+        title: cleanTitle,
+        torrent_hash: readyTorrent.hash,
+        torstEpisode: file.torstEpisode,
+        torstFileId: file.fileId,
+      };
+    });
+
+    const selectedPlaylistItem =
+      playlist.find(item => item.file_index === fileIndex) ||
+      playlist[0];
+    const targetFileIndex = selectedPlaylistItem.file_index !== undefined
+      ? selectedPlaylistItem.file_index
+      : fileIndex;
+
+    return playTorrentFile(
+      instance,
+      readyTorrent.hash,
+      targetFileIndex,
+      selectedPlaylistItem,
+      playlist,
+      mediaMetadata,
+      returnController,
+      undefined,
+      signal
+    );
+  }
+
+  /**
+   * Runs `action` against `instance`; on failure, fails over to the next reachable
+   * instance and retries `action` once against it. Rethrows the original error when
+   * `isAborted` reports the caller no longer needs a result, or when no fallback is
+   * reachable.
+   */
+  private static async withFailover<T>(
+    instance: TorstInstance,
+    action: (instance: TorstInstance) => Promise<T>,
+    isAborted?: () => boolean
+  ): Promise<{ instance: TorstInstance, result: T }> {
+    try {
+      return { instance, result: await action(instance) };
+    } catch (error) {
+      if (isAborted?.()) throw error;
+      const isServerError = (error instanceof TorstApiError || error instanceof AuthenticationError)
+        && error.status !== undefined && error.status >= 500;
+      if (!isNetworkError(error) && !isServerError) throw error;
+      const fallback = await InstanceManager.failover(instance);
+      if (!fallback) throw error;
+      if (isAborted?.()) throw error;
+      return { instance: fallback, result: await action(fallback) };
+    }
+  }
+
+  private static async waitForFiles(
+    instance: TorstInstance,
+    torrentHash: string,
+    isAborted: () => boolean = () => false
+  ): Promise<Torrent> {
+    for (let attemptIndex = 0; attemptIndex < METADATA_MAXIMUM_ATTEMPTS; attemptIndex++) {
+      if (isAborted()) throw new Error('Playback canceled');
+      try {
+        const torrentMetadata = await TorstApi.getTorrent(instance, torrentHash);
+        if (isAborted()) throw new Error('Playback canceled');
+        if (torrentMetadata && torrentMetadata.files && torrentMetadata.files.length > 0) {
+          return torrentMetadata;
+        }
+      } catch (error) {
+        if (isAborted()) throw error;
+        const status = error instanceof TorstApiError || error instanceof AuthenticationError ? error.status : undefined;
+        if ((error instanceof AuthenticationError && status === undefined)
+          || (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429)) throw error;
+        if (!isNetworkError(error) && status === undefined) throw error;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    throw new Error('Timed out waiting for torrent metadata');
+  }
+
+  public static resetForTesting(): void {
+    if (this.originalTorrentOpen && typeof Lampa !== 'undefined' && Lampa.Torrent) {
+      Lampa.Torrent.open = this.originalTorrentOpen;
+    }
+    this.originalTorrentOpen = null;
+    if (this.originalTorrentStart && typeof Lampa !== 'undefined' && Lampa.Torrent) {
+      Lampa.Torrent.start = this.originalTorrentStart;
+    }
+    this.originalTorrentStart = null;
+  }
+}

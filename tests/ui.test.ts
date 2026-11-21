@@ -1,0 +1,4509 @@
+// SPDX-FileCopyrightText: 2026 TorrPlay
+//
+// SPDX-License-Identifier: MIT
+
+import assert from 'node:assert/strict';
+import { afterEach, beforeEach, describe, it, mock } from 'node:test';
+
+import { NetworkError } from '../src/api/http-client';
+import { TorstApi } from '../src/api/torst';
+import { LIBRARY_SEARCH_ENABLED_STORAGE_KEY } from '../src/engine/library-search';
+import { SavedTorrents } from '../src/engine/saved-torrents';
+import { TorstEngine } from '../src/engine/torst-engine';
+import { InstanceManager } from '../src/instances/instance-manager';
+import { PROVIDER_SEARCH_ENABLED_STORAGE_KEY, ProviderManager } from '../src/providers/provider-manager';
+import type { TorrentUpdate, TorstInstance } from '../src/types/torst';
+import { CatalogChoice } from '../src/ui/catalog-choice';
+import { InstancePoolUi } from '../src/ui/instance-pool';
+import { SAVE_TO_LIBRARY_STORAGE_KEY } from '../src/ui/play-dialog';
+import { ProfilesUi } from '../src/ui/profiles';
+import {
+  TORST_STORAGE_BADGE,
+  TORST_STORAGE_BADGE_ICON,
+} from '../src/ui/saved-torrent-card';
+import {
+  describeConnectionStatus,
+  PLAYBACK_MODE_STORAGE_KEY,
+  SettingsUi,
+  TORST_ENABLED_STORAGE_KEY,
+  TORST_ICON,
+  TORST_SETTINGS_COMPONENT_ID,
+} from '../src/ui/settings';
+import { SidebarManager } from '../src/ui/sidebar';
+import {
+  getNavigator,
+  TORST_TORRENTS_COMPONENT_ID,
+  TorstTorrentsComponent,
+} from '../src/ui/torst-torrents';
+import { createTorstTorrent } from './support/torst';
+import { createTestLanguage, getTestTranslation } from './support/translations';
+
+const NATIVE_TRANSLATIONS = {
+  title_action: 'native-action-title',
+  title_files: 'native-files-title',
+};
+
+describe('UI & Settings Integration', () => {
+  const originalFetch = globalThis.fetch;
+  const storageMap = new Map<string, any>();
+  const registeredComponents = new Map<string, any>();
+  const registeredParams: any[] = [];
+  const customComponents = new Map<string, any>();
+
+  let lastSelectOptions: any = null;
+  let lastInputOptions: any = null;
+  let lastHeadTitle: string | null = null;
+
+  beforeEach(() => {
+    storageMap.clear();
+    registeredComponents.clear();
+    registeredParams.length = 0;
+    customComponents.clear();
+    lastSelectOptions = null;
+    lastInputOptions = null;
+    lastHeadTitle = null;
+
+    (globalThis as any).Lampa = {
+      Component: {
+        add: (name: string, component: any) => customComponents.set(name, component),
+        get: (name: string) => customComponents.get(name),
+      },
+      Head: {
+        title: (title: string) => {
+          lastHeadTitle = title;
+        },
+      },
+      Input: {
+        edit: (options: any, callback: any) => {
+          lastInputOptions = options;
+          callback('http://192.168.1.200:8080');
+        },
+      },
+      Lang: createTestLanguage('en', NATIVE_TRANSLATIONS),
+      Listener: {
+        follow: () => {},
+      },
+      Noty: {
+        show: () => {},
+      },
+      Select: {
+        close: () => {},
+        show: (options: any) => {
+          lastSelectOptions = options;
+        },
+      },
+      SettingsApi: {
+        addComponent: (component: any) => registeredComponents.set(component.component, component),
+        addParam: (parameter: any) => registeredParams.push(parameter),
+        getParam: (componentId: string) => (
+          registeredParams.filter(parameter => parameter.component === componentId)
+        ),
+      },
+      Storage: {
+        get: (k: string, d: any) => (storageMap.has(k) ? storageMap.get(k) : d),
+        set: (k: string, v: any) => storageMap.set(k, v),
+      },
+      Torserver: {
+        my: (_success: any, _fail: any) => {},
+      },
+    };
+
+    (InstanceManager as any).isInitialized = false;
+    (InstanceManager as any).instances = [];
+    InstanceManager.init();
+    (ProviderManager as any).isInitialized = false;
+    (ProviderManager as any).providers = [];
+    ProviderManager.init();
+  });
+
+  afterEach(() => {
+    mock.restoreAll();
+    TorstApi.resetForTesting();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('registers Torst settings component and pool-only parameters', () => {
+    SettingsUi.init();
+
+    assert.ok(registeredComponents.has(TORST_SETTINGS_COMPONENT_ID));
+    const settingsComponent = registeredComponents.get(TORST_SETTINGS_COMPONENT_ID);
+    assert.equal(settingsComponent.name, 'Torst');
+    assert.equal(settingsComponent.before, 'tmdb');
+    assert.ok(settingsComponent.icon.includes('viewBox="0 0 24 24"'));
+    assert.equal(settingsComponent.icon, TORST_ICON);
+
+    const parameterNames = registeredParams.map(parameter => parameter.param.name);
+    assert.ok(parameterNames.includes(TORST_ENABLED_STORAGE_KEY));
+    assert.ok(parameterNames.includes(LIBRARY_SEARCH_ENABLED_STORAGE_KEY));
+    const librarySearchParam = registeredParams.find(parameter => parameter.param.name === LIBRARY_SEARCH_ENABLED_STORAGE_KEY);
+    assert.equal(librarySearchParam.param.type, 'trigger');
+    assert.equal(librarySearchParam.param.default, false);
+    assert.ok(!parameterNames.includes(PROVIDER_SEARCH_ENABLED_STORAGE_KEY));
+    assert.ok(parameterNames.includes('torst_selection_mode'));
+    assert.ok(parameterNames.includes('torst_instances_btn'));
+    assert.ok(parameterNames.includes('torst_providers_btn'));
+    assert.ok(parameterNames.includes('torst_about_btn'));
+    assert.ok(!parameterNames.includes('torst_ping_btn'));
+    assert.ok(!parameterNames.includes('torst_preload_enabled'));
+    const playbackModeParam = registeredParams.find(parameter => parameter.param.name === PLAYBACK_MODE_STORAGE_KEY);
+    assert.ok(playbackModeParam);
+    assert.equal(playbackModeParam.param.default, 'torst');
+    assert.ok(!parameterNames.includes('torst_file_storage_path'));
+
+    const saveToLibraryParam = registeredParams.find(parameter => parameter.param.name === SAVE_TO_LIBRARY_STORAGE_KEY);
+    assert.ok(saveToLibraryParam);
+    assert.equal(saveToLibraryParam.param.default, 'false');
+    assert.equal(saveToLibraryParam.field.name, getTestTranslation('torst_save_to_library_name'));
+    assert.deepEqual(saveToLibraryParam.param.values, { ask: getTestTranslation('torst_save_to_library_ask'), false: getTestTranslation('torst_save_to_library_false'), true: getTestTranslation('torst_save_to_library_true') });
+
+    // Verify button parameters use onChange without redundant onRender click handlers
+    const buttonParams = registeredParams.filter(parameter => parameter.param.type === 'button');
+    assert.equal(buttonParams.length, 3);
+    for (const buttonParameter of buttonParams) {
+      assert.equal(typeof buttonParameter.onChange, 'function');
+      assert.equal(buttonParameter.onRender, undefined);
+    }
+  });
+
+  it('frames the Torst T with a hollow square and top-right piece for Lampa focus styling', () => {
+    const [frame, ...pieces] = [...TORST_ICON.matchAll(/<rect\b[^>]*\/>/g)].map(([piece]) => (
+      Object.fromEntries([...piece.matchAll(/([\w-]+)="([^"]*)"/g)].map(([, name, value]) => [name, value]))
+    ));
+
+    assert.deepEqual(frame, {
+      height: '22',
+      rx: '3.2',
+      stroke: 'white',
+      'stroke-width': '1.2',
+      width: '22',
+      x: '1',
+      y: '1',
+    });
+    assert.ok(TORST_ICON.includes('<g transform="translate(3.84 3.84) scale(0.68)">'));
+    const positions = [[2.25, 2.25], [9.25, 2.25], [16.25, 2.25], [9.25, 9.25], [9.25, 16.25]];
+    assert.equal(pieces.length, positions.length);
+    for (const [index, piece] of pieces.entries()) {
+      assert.equal(piece.x, String(positions[index][0]));
+      assert.equal(piece.y, String(positions[index][1]));
+      if (index !== 2) {
+        assert.equal(piece.fill, 'white');
+        assert.equal(piece.stroke, undefined);
+      } else {
+        assert.equal(piece.fill, undefined);
+        assert.equal(piece.stroke, 'white');
+      }
+    }
+    assert.ok(TORST_ICON.includes('fill="none"'));
+  });
+
+  it('shows plugin version and build info via the About Plugin button', () => {
+    SettingsUi.init();
+
+    const aboutButton = registeredParams.find(parameter => parameter.param.name === 'torst_about_btn');
+    assert.ok(aboutButton && aboutButton.onChange);
+
+    let toggledController = '';
+    (globalThis as any).Lampa.Controller = {
+      ...((globalThis as any).Lampa.Controller || {}),
+      toggle: (name: string) => { toggledController = name; },
+    };
+
+    aboutButton.onChange();
+    assert.ok(lastSelectOptions);
+    assert.ok(lastSelectOptions.title.includes(getTestTranslation('torst_about_title')));
+
+    const versionItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_version'));
+    assert.ok(versionItem, 'About screen must show the plugin version');
+    assert.equal(typeof versionItem.subtitle, 'string');
+    assert.ok(versionItem.subtitle.length > 0);
+
+    const buildDateItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_build_date'));
+    assert.ok(buildDateItem, 'About screen must show the build date');
+
+    const commitItem = lastSelectOptions.items.find((i: any) => i.title === getTestTranslation('torst_about_build_commit'));
+    assert.ok(commitItem, 'About screen must show the build commit');
+
+    const backAction = lastSelectOptions.items.find((i: any) => i.action === 'back');
+    assert.ok(backAction);
+
+    lastSelectOptions.onSelect(versionItem);
+    assert.equal(toggledController, '', 'selecting an informational row must keep the About screen open');
+
+    lastSelectOptions.onSelect(backAction);
+    assert.equal(toggledController, 'settings_component', 'selecting Back must return focus to the settings component');
+
+    toggledController = '';
+    lastSelectOptions.onBack();
+    assert.equal(toggledController, 'settings_component', 'onBack must return focus to the settings component');
+  });
+
+  for (const change of ['replaced', 'removed']) {
+    it(`returns from profile management using the current pool after the instance was ${change}`, async () => {
+      const instance: TorstInstance = { authType: 'none', enableDownloader: false, id: 'one', name: 'One', url: 'http://one.test' };
+      let instances = [instance];
+      let onBack!: () => void;
+      mock.method(InstanceManager, 'getInstances', () => instances);
+      mock.method(ProfilesUi, 'show', async (_instance: TorstInstance, close: () => void) => { onBack = close; });
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'profile'));
+      await new Promise(resolve => setImmediate(resolve));
+      const current = { ...instance, name: 'Updated Instance', url: 'http://updated.test' };
+      instances = change === 'replaced' ? [current] : [];
+      const openActions = mock.method(InstancePoolUi, 'openInstanceActions', () => {});
+      const openPool = mock.method(InstancePoolUi, 'openPoolManager', () => {});
+      onBack();
+      assert.equal(openActions.mock.callCount(), change === 'replaced' ? 1 : 0);
+      assert.equal(openPool.mock.callCount(), change === 'removed' ? 1 : 0);
+      if (change === 'replaced') assert.equal(openActions.mock.calls[0].arguments[0], current);
+    });
+  }
+
+  it('opens TV-friendly instance pool manager via Lampa.Select', () => {
+    SettingsUi.init();
+
+    const poolButton = registeredParams.find(parameter => parameter.param.name === 'torst_instances_btn');
+    assert.ok(poolButton && poolButton.onChange);
+
+    poolButton.onChange();
+    assert.ok(lastSelectOptions);
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_pool_title', { mode: getTestTranslation('torst_pool_auto_mode') }));
+    assert.ok(lastSelectOptions.items.length >= 4); // Add instance, Test all, at least 1 instance, and Back
+    assert.equal(typeof lastSelectOptions.onBack, 'function');
+
+    const backAction = lastSelectOptions.items.find((i: any) => i.action === 'back');
+    assert.ok(backAction);
+    assert.ok(backAction.title.includes(getTestTranslation('torst_back')));
+
+    const addAction = lastSelectOptions.items.find((i: any) => i.action === 'add');
+    assert.ok(addAction);
+    assert.ok(addAction.title.includes(getTestTranslation('torst_add_instance')));
+
+    const instanceItem = lastSelectOptions.items.find((i: any) => i.action === 'instance');
+    assert.ok(instanceItem);
+
+    instanceItem.data.profileName = 'Alex <img src=x {size} $&';
+    // Open instance actions
+    lastSelectOptions.onSelect(instanceItem);
+    assert.ok(lastSelectOptions);
+    assert.equal(lastSelectOptions.title, instanceItem.data.name);
+    assert.equal(lastSelectOptions.items.find((item: any) => item.action === 'profile').subtitle, 'Alex &lt;img src=x &#123;size} $$&amp;');
+
+    const actionNames = lastSelectOptions.items.map((i: any) => i.action);
+    assert.ok(!actionNames.includes('select'));
+    assert.ok(actionNames.includes('test'));
+    assert.ok(actionNames.includes('edit_name'));
+    assert.ok(actionNames.includes('edit_url'));
+    assert.ok(actionNames.includes('edit_auth'));
+    assert.ok(!actionNames.includes('edit_storage_path'));
+    assert.ok(!actionNames.includes('edit_username'));
+    assert.ok(actionNames.includes('toggle_downloader'));
+    assert.ok(!actionNames.includes('toggle_enabled'));
+    assert.ok(actionNames.includes('delete'));
+    assert.ok(actionNames.includes('back'));
+
+    // Re-open pool menu and test add instance action triggers input
+    poolButton.onChange();
+    const addInstanceBtn = lastSelectOptions.items.find((i: any) => i.action === 'add');
+    assert.ok(addInstanceBtn);
+    lastSelectOptions.onSelect(addInstanceBtn);
+    assert.ok(lastInputOptions);
+    assert.equal(lastInputOptions.title, getTestTranslation('torst_edit_name'));
+  });
+
+  it('displays active instance indicators in the pool list across modes', () => {
+    const instances = InstanceManager.getInstances();
+    const firstInstance = instances[0];
+    const secondInstance: TorstInstance = {
+      authType: 'none',
+      id: 'inst-2',
+      name: 'Second Node',
+      url: 'http://second.local:8080',
+    };
+    InstanceManager.addInstance(secondInstance);
+
+    // 1. Manual mode
+    InstanceManager.setMode('manual');
+    InstanceManager.setSelectedId(firstInstance.id);
+
+    InstancePoolUi.openPoolManager();
+    const firstItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === firstInstance.id);
+    const secondItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === secondInstance.id);
+    assert.ok(firstItem.title.includes(getTestTranslation('torst_active_badge')));
+    assert.equal(firstItem.selected, true);
+    assert.equal(secondItem.title.includes(getTestTranslation('torst_active_badge')), false);
+    assert.equal(secondItem.selected, false);
+
+    // "Change Active Instance" is only offered in manual mode
+    const setActiveAction = lastSelectOptions.items.find((item: any) => item.action === 'set_active');
+    assert.ok(setActiveAction);
+
+    // 2. Auto mode
+    InstanceManager.setMode('auto');
+    firstInstance.status = 'online';
+    firstInstance.latencyMs = 20;
+    secondInstance.status = 'online';
+    secondInstance.latencyMs = 80;
+    InstanceManager.updateInstance(firstInstance);
+    InstanceManager.updateInstance(secondInstance);
+
+    InstancePoolUi.openPoolManager();
+    const autoFirstItem = lastSelectOptions.items.find((item: any) => item.action === 'instance' && item.data.id === firstInstance.id);
+    assert.ok(autoFirstItem.title.includes(getTestTranslation('torst_active_auto_badge')));
+    assert.equal(autoFirstItem.selected, true);
+    assert.ok(!lastSelectOptions.items.some((item: any) => item.action === 'set_active'));
+
+    InstanceManager.removeInstance(secondInstance.id);
+  });
+
+  it('describes connection status from status and latency', () => {
+    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'online' }), getTestTranslation('torst_latency_ms', { latency: 42 }));
+    assert.equal(describeConnectionStatus({ latencyMs: Infinity, status: 'online' }), getTestTranslation('torst_status_unknown'));
+    assert.equal(describeConnectionStatus({ status: 'online' }), getTestTranslation('torst_status_unknown'));
+    assert.equal(describeConnectionStatus({ latencyMs: 42, status: 'offline' }), getTestTranslation('torst_status_offline'));
+    assert.equal(describeConnectionStatus({ status: 'checking' }), getTestTranslation('torst_status_checking'));
+    assert.equal(describeConnectionStatus({}), getTestTranslation('torst_status_unknown'));
+  });
+
+  it('shows the current authentication mode in the instance actions', () => {
+    const instance = InstanceManager.getInstances()[0];
+    const expectedModes: Array<[TorstInstance['authType'], string]> = [
+      ['none', getTestTranslation('torst_current_value', { value: getTestTranslation('torst_auth_none') })],
+      ['bearer', getTestTranslation('torst_current_value', { value: 'Bearer' })],
+    ];
+
+    for (const [authType, expectedSubtitle] of expectedModes) {
+      instance.authType = authType;
+      InstancePoolUi.openInstanceActions(instance);
+      const authItem = lastSelectOptions.items.find((item: any) => item.action === 'edit_auth');
+      assert.equal(authItem.subtitle, expectedSubtitle);
+    }
+  });
+
+  it('omits the authentication tag for instances without authentication', () => {
+    const instance = InstanceManager.getInstances()[0];
+    instance.authType = 'none';
+    instance.status = 'unknown';
+    InstanceManager.updateInstance(instance);
+
+    InstancePoolUi.openPoolManager();
+    const poolItem = lastSelectOptions.items.find((item: any) => item.action === 'instance');
+    assert.equal(poolItem.subtitle, `${instance.url} · ${getTestTranslation('torst_status_unknown')}`);
+  });
+
+  it('shows the authentication mode in English when no translation is available', () => {
+    delete (globalThis as any).Lampa.Lang;
+    const instance = InstanceManager.getInstances()[0];
+    instance.authType = 'bearer';
+    InstanceManager.updateInstance(instance);
+
+    InstancePoolUi.openPoolManager();
+    const poolItem = lastSelectOptions.items.find((item: any) => item.action === 'instance');
+    assert.ok(poolItem.subtitle.endsWith(' · Auth: Bearer'));
+  });
+
+  it('localizes the latency unit and authentication tag in the pool list and the active instance picker', () => {
+    const instance = InstanceManager.getInstances()[0];
+    instance.authType = 'bearer';
+    instance.status = 'online';
+    instance.latencyMs = 20;
+    InstanceManager.updateInstance(instance);
+    (globalThis as any).Lampa.Lang = createTestLanguage('ru');
+
+    try {
+      InstancePoolUi.openPoolManager();
+      const poolItem = lastSelectOptions.items.find((item: any) => item.action === 'instance');
+      const expectedSubtitle = `${instance.url} · ${getTestTranslation('torst_latency_ms', { latency: 20 }, 'ru')} · ${getTestTranslation('torst_auth_tag', { mode: 'Bearer' }, 'ru')}`;
+      assert.equal(poolItem.subtitle, expectedSubtitle);
+
+      InstanceManager.setMode('manual');
+      InstancePoolUi.promptSelectActiveInstance();
+      assert.equal(lastSelectOptions.items[0].subtitle, expectedSubtitle);
+    } finally {
+      delete (globalThis as any).Lampa.Lang;
+    }
+  });
+
+  it('picks the active instance via promptSelectActiveInstance', () => {
+    const instances = InstanceManager.getInstances();
+    const firstInstance = instances[0];
+    const secondInstance: TorstInstance = {
+      authType: 'none',
+      id: 'inst-2',
+      name: 'Second Node',
+      url: 'http://second.local:8080',
+    };
+    InstanceManager.addInstance(secondInstance);
+
+    InstanceManager.setMode('manual');
+    InstanceManager.setSelectedId(firstInstance.id);
+
+    InstancePoolUi.promptSelectActiveInstance();
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_select_active_title'));
+    const activeItem = lastSelectOptions.items.find((item: any) => item.data.id === firstInstance.id);
+    const inactiveItem = lastSelectOptions.items.find((item: any) => item.data.id === secondInstance.id);
+    assert.ok(activeItem.title.includes(getTestTranslation('torst_active_badge')));
+    assert.equal(activeItem.selected, true);
+    assert.equal(inactiveItem.selected, false);
+
+    lastSelectOptions.onSelect(inactiveItem);
+    assert.equal(InstanceManager.getSelectedId(), secondInstance.id);
+
+    InstanceManager.removeInstance(secondInstance.id);
+  });
+
+  it('switching Instance Selection to manual opens the active instance picker', () => {
+    SettingsUi.init();
+
+    const selectionModeParam = registeredParams.find(parameter => parameter.param.name === 'torst_selection_mode');
+    assert.ok(selectionModeParam && selectionModeParam.onChange);
+
+    lastSelectOptions = null;
+    selectionModeParam.onChange('auto');
+    assert.equal(InstanceManager.getMode(), 'auto');
+    assert.equal(lastSelectOptions === null, true);
+
+    selectionModeParam.onChange('manual');
+    assert.equal(InstanceManager.getMode(), 'manual');
+    assert.ok(lastSelectOptions);
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_select_active_title'));
+  });
+
+  it('masks passwords in the native Lampa input', () => {
+    const instance = InstanceManager.getInstances()[0];
+    instance.authType = 'bearer';
+    instance.password = 'secret';
+    (globalThis as any).Lampa.Input.edit = (options: any) => {
+      lastInputOptions = options;
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const passwordAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_password');
+    lastSelectOptions.onSelect(passwordAction);
+
+    assert.equal(lastInputOptions.password, true);
+    assert.equal(lastInputOptions.value, 'secret');
+  });
+
+  for (const action of ['edit_auth', 'edit_password']) {
+    it(`invalidates cached authentication and playback tokens on ${action}`, () => {
+      const instance = InstanceManager.getInstances()[0];
+      Object.assign(instance, {
+        accessToken: 'access-token', accessTokenExpiresAtMs: Date.now() + 60000, authType: 'bearer',
+        enableDownloader: false, password: 'old-password',
+        playbackToken: 'playback', playbackTokenExpiresAtMs: Date.now() + 60000,
+      });
+      (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => callback('new-value');
+
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === action));
+      if (action === 'edit_auth') {
+        lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.auth === 'none'));
+        assert.equal(instance.authType, 'none');
+      } else {
+        assert.equal(instance.password, 'new-value');
+      }
+
+      assert.equal(instance.accessToken, undefined);
+      assert.equal(instance.accessTokenExpiresAtMs, undefined);
+      assert.equal(instance.playbackToken, undefined);
+      assert.equal(instance.playbackTokenExpiresAtMs, undefined);
+    });
+  }
+
+  for (const isEnabled of [true, false]) {
+    it(`reads background downloader state (${isEnabled}) when opening instance actions`, async () => {
+      const instance = InstanceManager.getInstances()[0];
+      delete instance.enableDownloader;
+      const read = mock.method(TorstApi, 'getSettings', async () => ({ background_downloads_enabled: isEnabled }));
+      InstancePoolUi.openInstanceActions(instance);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      assert.equal(instance.enableDownloader, isEnabled);
+      assert.equal(InstanceManager.getInstances()[0].enableDownloader, isEnabled);
+    });
+
+    it(`refreshes background downloader state (${isEnabled}) after an instance health check`, async () => {
+      const instance = InstanceManager.getInstances()[0];
+      instance.enableDownloader = !isEnabled;
+      mock.method(TorstApi, 'checkHealth', async () => ({ isOk: true, latencyMs: 10 }));
+      const read = mock.method(TorstApi, 'getSettings', async () => ({ background_downloads_enabled: isEnabled }));
+      InstancePoolUi.openInstanceActions(instance);
+      lastSelectOptions.onSelect(lastSelectOptions.items.find((item: any) => item.action === 'test'));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      assert.equal(instance.enableDownloader, isEnabled);
+    });
+  }
+
+  it('toggles enable downloader in instance actions and updates Torst instance', async () => {
+    (globalThis as any).Lampa.Lang = createTestLanguage('ru', NATIVE_TRANSLATIONS);
+    const instance = InstanceManager.getInstances()[0];
+    instance.enableDownloader = false;
+    let patchedBody = '';
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/settings') && init?.method === 'PATCH') {
+        assert.equal((init.headers as Record<string, string>)['If-Match'], '"set-test"');
+        assert.equal((init.headers as Record<string, string>)['Content-Type'], 'application/merge-patch+json');
+        patchedBody = String(init.body || '');
+        return new Response(null, { status: 204 });
+      }
+      return new Response('{}', { headers: { ETag: '"set-test"' }, status: 200 });
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const downloaderAction = lastSelectOptions.items.find((item: any) => item.action === 'toggle_downloader');
+    assert.ok(downloaderAction);
+    assert.ok(downloaderAction.subtitle.includes(getTestTranslation('torst_status_disabled', {}, 'ru')));
+    assert.ok(downloaderAction.title.includes(getTestTranslation('torst_enable_downloader', {}, 'ru')));
+
+    // Toggle to enabled
+    lastSelectOptions.onSelect(downloaderAction);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(patchedBody, JSON.stringify({ background_downloads_enabled: true }));
+    assert.equal(instance.enableDownloader, true);
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_enabled', { name: instance.name }, 'ru')));
+
+    // Re-verify menu shows Enabled and title changes to Disable Background Downloader
+    const updatedAction = lastSelectOptions.items.find((item: any) => item.action === 'toggle_downloader');
+    assert.ok(updatedAction);
+    assert.ok(updatedAction.subtitle.includes(getTestTranslation('torst_status_enabled', {}, 'ru')));
+    assert.ok(updatedAction.title.includes(getTestTranslation('torst_disable_downloader', {}, 'ru')));
+
+    // Toggle back to disabled
+    lastSelectOptions.onSelect(updatedAction);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(patchedBody, JSON.stringify({ background_downloads_enabled: false }));
+    assert.equal(instance.enableDownloader, false);
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_downloader_disabled', { name: instance.name }, 'ru')));
+  });
+
+  it('requires confirmation before adding an instance and lets Back cancel', () => {
+    const before = InstanceManager.getInstances().length;
+    const values = ['http://bedroom.local:8080', 'Bedroom'];
+    (globalThis as any).Lampa.Input.edit = (options: any, callback: any) => {
+      lastInputOptions = options;
+      callback(values.shift());
+    };
+
+    InstancePoolUi.promptAddInstance();
+
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_confirm_add_title'));
+    assert.equal(InstanceManager.getInstances().length, before);
+    lastSelectOptions.onBack();
+    assert.equal(InstanceManager.getInstances().length, before);
+  });
+
+  it('rejects invalid instance URLs when adding and editing', () => {
+    const instance = InstanceManager.getInstances()[0];
+    const originalUrl = instance.url;
+    const before = InstanceManager.getInstances().length;
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    // 1. Invalid protocol
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('ftp://invalid.local');
+    };
+
+    InstancePoolUi.promptAddInstance();
+    assert.equal(InstanceManager.getInstances().length, before);
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_valid_url')));
+
+    InstancePoolUi.openInstanceActions(instance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+    assert.equal(instance.url, originalUrl);
+
+    // 2. Empty string
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('');
+    };
+    lastSelectOptions.onSelect(editUrlAction);
+    assert.equal(instance.url, originalUrl);
+
+    // 3. Just whitespace
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('   ');
+    };
+    lastSelectOptions.onSelect(editUrlAction);
+    assert.equal(instance.url, originalUrl);
+
+    // 4. Incomplete scheme http://
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('http://');
+    };
+    lastSelectOptions.onSelect(editUrlAction);
+    assert.equal(instance.url, originalUrl);
+  });
+
+  it('normalizes valid URL on edit, strips trailing slashes, and clears stale benchmarks', () => {
+    const instance = InstanceManager.getInstances()[0];
+    instance.status = 'online';
+    instance.latencyMs = 42;
+    instance.playbackToken = 'old-token';
+    instance.accessToken = 'old-access-token';
+
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('192.168.1.150:8080///');
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+
+    assert.equal(instance.url, 'http://192.168.1.150:8080');
+    assert.equal(instance.status, 'unknown');
+    assert.equal(instance.latencyMs, undefined);
+    assert.equal(instance.playbackToken, undefined);
+    assert.equal(instance.accessToken, undefined);
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_url_updated')));
+  });
+
+  it('allows correcting typos via re-prompting with previous input when URL is invalid', () => {
+    const instance = InstanceManager.getInstances()[0];
+    const originalUrl = instance.url;
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    const inputs = ['http://typo:invalid-port', 'http://fixed.local:8080'];
+    const presentedValues: string[] = [];
+
+    (globalThis as any).Lampa.Input.edit = (options: any, callback: any) => {
+      presentedValues.push(options.value);
+      callback(inputs.shift());
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+
+    assert.equal(presentedValues[0], originalUrl);
+    assert.equal(presentedValues[1], 'http://typo:invalid-port');
+    assert.equal(instance.url, 'http://fixed.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_valid_url')));
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_url_updated')));
+  });
+
+  it('shows warning notification when edited instance is offline or unreachable', async () => {
+    const instance = InstanceManager.getInstances()[0];
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    // Network failure on health check
+    globalThis.fetch = async () => {
+      throw new Error('Connection refused');
+    };
+
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback('http://unreachable-host.local:8080');
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+
+    // Wait for health check promise
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    assert.equal(instance.url, 'http://unreachable-host.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_offline_warning')));
+  });
+
+  it('rejects duplicate URLs when adding or editing an instance', () => {
+    const instances = InstanceManager.getInstances();
+    const firstInstance = instances[0];
+    const secondInstance = {
+      authType: 'none' as const,
+      id: 'second-inst',
+      name: 'Second Instance',
+      url: 'http://second.local:8080',
+    };
+    InstanceManager.addInstance(secondInstance);
+
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    // Try to edit secondInstance to firstInstance.url
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback(firstInstance.url);
+    };
+
+    InstancePoolUi.openInstanceActions(secondInstance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+
+    assert.equal(secondInstance.url, 'http://second.local:8080');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_duplicate_url')));
+
+    // Try to add an instance with already existing URL
+    const beforeCount = InstanceManager.getInstances().length;
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback(firstInstance.url);
+    };
+    InstancePoolUi.promptAddInstance();
+    assert.equal(InstanceManager.getInstances().length, beforeCount);
+
+    InstanceManager.removeInstance(secondInstance.id);
+  });
+
+  it('keeps instance URL unchanged without error when user cancels or submits identical URL', () => {
+    const instance = InstanceManager.getInstances()[0];
+    const originalUrl = instance.url;
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (msg: string) => { notyMessages.push(msg); };
+
+    (globalThis as any).Lampa.Input.edit = (_options: any, callback: any) => {
+      callback(originalUrl);
+    };
+
+    InstancePoolUi.openInstanceActions(instance);
+    const editUrlAction = lastSelectOptions.items.find((item: any) => item.action === 'edit_url');
+    lastSelectOptions.onSelect(editUrlAction);
+
+    assert.equal(instance.url, originalUrl);
+    assert.equal(notyMessages.length, 0);
+  });
+
+  it('requires confirmation before deleting an instance', () => {
+    const removable = {
+      authType: 'none' as const,
+      id: 'removable',
+      name: 'Removable',
+      url: 'http://removable.local:8080',
+    };
+    InstanceManager.addInstance(removable);
+
+    InstancePoolUi.openInstanceActions(removable);
+    const deleteAction = lastSelectOptions.items.find((item: any) => item.action === 'delete');
+    lastSelectOptions.onSelect(deleteAction);
+
+    assert.equal(lastSelectOptions.title, getTestTranslation('torst_confirm_delete_title'));
+    assert.ok(InstanceManager.getInstances().some(instance => instance.id === removable.id));
+    const confirmAction = lastSelectOptions.items.find((item: any) => item.action === 'confirm_delete');
+    lastSelectOptions.onSelect(confirmAction);
+    assert.ok(!InstanceManager.getInstances().some(instance => instance.id === removable.id));
+  });
+
+  it('registers Torst Torrents component', () => {
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+
+    assert.ok(customComponents.has(TORST_TORRENTS_COMPONENT_ID));
+  });
+
+  function makeMenuJqMock(menuItems: Array<{ dataAction?: string, label: string }>) {
+    function makeWrapper(indices: number[]): any {
+      const wrapper: any = {
+        after: (newItemWrapper: any) => {
+          menuItems.splice(indices[0] + 1, 0, newItemWrapper.__item);
+        },
+        append: (newItemWrapper: any) => {
+          menuItems.push(newItemWrapper.__item);
+        },
+        children: () => makeWrapper(menuItems.map((_item, index) => index)),
+        find: (sel: string) => {
+          if (sel.includes('menu__text')) {
+            return { text: () => (indices.length ? menuItems[indices[0]].label : '') };
+          }
+          const match = sel.match(/data-action="([^"]+)"/);
+          const foundIndex = match ? menuItems.findIndex(item => item.dataAction === match[1]) : -1;
+          return makeWrapper(foundIndex === -1 ? [] : [foundIndex]);
+        },
+        first: () => makeWrapper(indices.length ? [indices[0]] : []),
+        length: indices.length,
+        on: () => wrapper,
+      };
+      return wrapper;
+    }
+
+    return (selectorOrHtml: string) => {
+      if (selectorOrHtml.trim().startsWith('<')) {
+        const dataActionMatch = selectorOrHtml.match(/data-action="([^"]+)"/);
+        const labelMatch = selectorOrHtml.match(/menu__text">([^<]*)</);
+        const wrapper = makeWrapper([]);
+        wrapper.__item = { dataAction: dataActionMatch ? dataActionMatch[1] : undefined, label: labelMatch ? labelMatch[1] : '' };
+        return wrapper;
+      }
+      if (selectorOrHtml.includes('torst')) {
+        const foundIndex = menuItems.findIndex(item => item.dataAction === 'torst');
+        return makeWrapper(foundIndex === -1 ? [] : [foundIndex]);
+      }
+      if (selectorOrHtml.includes('menu__list')) {
+        return makeWrapper([0]); // Represents the list container itself (exists = length 1).
+      }
+      return makeWrapper([]);
+    };
+  }
+
+  it('positions the Torst sidebar entry as the second menu item and registers it in Lampa\'s persisted menu order', () => {
+    // Realistic starting state: Lampa's own menu editor has already auto-recorded
+    // the native items into 'menu_sort' from earlier sessions, before Torst
+    // was ever installed.
+    storageMap.set('menu_sort', ['Home', 'Search', 'Torrents']);
+
+    const menuItems = [
+      { dataAction: 'home', label: 'Home' },
+      { dataAction: 'search', label: 'Search' },
+      { dataAction: 'mytorrents', label: 'Torrents' },
+    ];
+    const menuJquery = makeMenuJqMock(menuItems);
+    let sidebarHtml = '';
+    (globalThis as any).$ = (selectorOrHtml: string) => {
+      if (selectorOrHtml.trim().startsWith('<')) sidebarHtml = selectorOrHtml;
+      return menuJquery(selectorOrHtml);
+    };
+
+    let appListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'app') appListener = callback;
+      },
+    };
+
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+    assert.ok(appListener, 'app listener must be registered');
+
+    appListener({ type: 'ready' });
+
+    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torst', 'search', 'mytorrents']);
+    assert.ok(sidebarHtml.includes(`<div class="menu__ico">${TORST_ICON}</div>`));
+
+    // Lampa's own menu editor (interaction/menu/menu.js + editor.js) persists a custom
+    // item order under 'menu_sort' and re-appends anything not already in it to the
+    // end — silently dragging a brand-new item to the bottom regardless of DOM
+    // position. Registering it ourselves, right after the anchor item, prevents that.
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
+  });
+
+  it('moves a Torst entry stored at the bottom of menu_sort back to second place', () => {
+    storageMap.set('menu_sort', ['Home', 'Search', 'Torrents', 'Torst']);
+
+    const menuItems = [
+      { dataAction: 'home', label: 'Home' },
+      { dataAction: 'search', label: 'Search' },
+      { dataAction: 'mytorrents', label: 'Torrents' },
+    ];
+    (globalThis as any).$ = makeMenuJqMock(menuItems);
+
+    let appListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'app') appListener = callback;
+      },
+    };
+
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+    appListener({ type: 'ready' });
+
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
+  });
+
+  it('does not insert prematurely (and permanently at the bottom) when the menu list is not yet populated', () => {
+    // Simulates native items (Home, Search, ...) not having been added to the DOM yet
+    // when the first trigger fires — a real timing race, since Lampa populates them
+    // asynchronously via separate init calls. 'menu_sort' is pre-seeded the same way
+    // as a realistic returning user (Lampa's own menu editor already recorded the
+    // native items in earlier sessions).
+    storageMap.set('menu_sort', ['Home', 'Search', 'Torrents']);
+    const menuItems: Array<{ dataAction?: string, label: string }> = [];
+    (globalThis as any).$ = makeMenuJqMock(menuItems);
+
+    let appListener: any = null;
+    let menuListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'app') appListener = callback;
+        if (event === 'menu') menuListener = callback;
+      },
+    };
+
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+
+    // First trigger: menu list is still empty — must not insert anything, and
+    // critically must NOT append (which would strand it at the bottom forever).
+    appListener({ type: 'ready' });
+    assert.equal(menuItems.length, 0);
+
+    // Native items arrive asynchronously afterward.
+    menuItems.push(
+      { dataAction: 'home', label: 'Home' },
+      { dataAction: 'search', label: 'Search' },
+      { dataAction: 'mytorrents', label: 'Torrents' }
+    );
+
+    // A later retrigger (e.g. the user opening the menu) must now succeed and land
+    // Torst as the second item, not appended at the end.
+    menuListener({ type: 'start' });
+    assert.deepEqual(menuItems.map(item => item.dataAction), ['home', 'torst', 'search', 'mytorrents']);
+    assert.deepEqual(storageMap.get('menu_sort'), ['Home', 'Torst', 'Search', 'Torrents']);
+  });
+
+  it('manages TorstTorrentsComponent lifecycle (create, render, start, pause, stop, destroy)', async () => {
+    let activeController = '';
+    const controllers = new Map<string, any>();
+
+    const createMockElement = (tag: string) => {
+      const children: any[] = [];
+      const el: any = {
+        0: { tagName: tag.startsWith('<') ? 'DIV' : tag.toUpperCase() },
+        addClass: () => el,
+        append: (child: any) => {
+          children.push(child);
+          return el;
+        },
+        attr: (_k: string, _v?: string) => el,
+        children,
+        empty: () => {
+          children.length = 0;
+          return el;
+        },
+        find: (_sel: string) => el,
+        htmlString: tag,
+        on: (_evt: string, _cb: any) => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: (_t?: string) => el,
+      };
+      return el;
+    };
+
+    class MockScroll {
+      public append(_elem: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) {
+        return createMockElement('div');
+      }
+      public reset() {}
+      public update() {}
+    }
+
+    class MockEmpty {
+      public render() {
+        return createMockElement('div');
+      }
+    }
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
+      links: {},
+      total_count: 0,
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
+    (globalThis as any).$ = (tag: string) => createMockElement(tag);
+    (globalThis as any).Lampa.Activity = {
+      backward: () => {},
+    };
+    (globalThis as any).Lampa.Background = {
+      change: () => {},
+    };
+    (globalThis as any).Lampa.Controller = {
+      add: (name: string, ctrl: any) => controllers.set(name, ctrl),
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: activeController }),
+      toggle: (name: string) => {
+        activeController = name;
+      },
+    };
+    (globalThis as any).Lampa.Empty = MockEmpty;
+    (globalThis as any).Lampa.Navigator = {
+      canmove: () => true,
+      move: () => {},
+    };
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value,
+    };
+
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+
+    const ComponentClass = customComponents.get(TORST_TORRENTS_COMPONENT_ID);
+    assert.ok(ComponentClass);
+
+    const component = new ComponentClass();
+    assert.ok(component.contentGrid.htmlString.includes('class="mapping--grid cols--6"'));
+    assert.equal(typeof component.create, 'function');
+    assert.equal(typeof component.render, 'function');
+    assert.equal(typeof component.start, 'function');
+    assert.equal(typeof component.pause, 'function');
+    assert.equal(typeof component.stop, 'function');
+    assert.equal(typeof component.destroy, 'function');
+
+    const domElement = component.create();
+    assert.ok(domElement);
+    // create() fires load() in the background; yield once so it can start, then wait for it to complete.
+    await new Promise(resolve => setImmediate(resolve));
+    while ((component as any).isLoading) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.ok(component.render(true));
+    assert.ok(component.render(false));
+
+    component.start();
+    assert.ok(controllers.has('content'));
+    assert.equal(activeController, 'content');
+
+    // Test getNavigator resolution
+    const originalGlobalNavigator = (globalThis as any).Navigator;
+    try {
+      (globalThis as any).Navigator = { move: () => {} };
+      assert.equal(getNavigator(), (globalThis as any).Navigator);
+
+      delete (globalThis as any).Navigator;
+      (globalThis as any).window = { Navigator: { move: () => {} } };
+      assert.equal(getNavigator(), (globalThis as any).window.Navigator);
+
+      (globalThis as any).window = {};
+      (globalThis as any).Lampa.Navigator = { move: () => {} };
+      assert.equal(getNavigator(), (globalThis as any).Lampa.Navigator);
+    } finally {
+      (globalThis as any).Navigator = originalGlobalNavigator;
+    }
+
+    // Test controller directional callbacks
+    const contentController = controllers.get('content');
+    assert.ok(contentController);
+
+    let isBackwardCalled = false;
+    (globalThis as any).Lampa.Activity.backward = () => {
+      isBackwardCalled = true;
+    };
+    let canMoveLeft = true;
+    let canMoveUp = true;
+    let movedDirection = '';
+    (globalThis as any).Lampa.Navigator = {
+      canmove: (direction: string) => {
+        if (direction === 'left') return canMoveLeft;
+        if (direction === 'up') return canMoveUp;
+        return true;
+      },
+      move: (direction: string) => {
+        movedDirection = direction;
+      },
+    };
+
+    contentController.back();
+    assert.equal(isBackwardCalled, true);
+
+    contentController.right();
+    assert.equal(movedDirection, 'right');
+
+    contentController.down();
+    assert.equal(movedDirection, 'down');
+
+    contentController.left();
+    assert.equal(movedDirection, 'left');
+
+    canMoveLeft = false;
+    contentController.left();
+    assert.equal(activeController, 'menu');
+
+    contentController.up();
+    assert.equal(movedDirection, 'up');
+
+    canMoveUp = false;
+    contentController.up();
+    assert.equal(activeController, 'head');
+
+    contentController.toggle();
+    assert.equal(activeController, 'head');
+
+    component.pause();
+    component.stop();
+    component.destroy();
+  });
+
+  for (const stage of ['selection', 'listing', 'failure']) {
+    it(`does not revive a destroyed library after pending ${stage} work`, async () => {
+      const originalJquery = (globalThis as any).$;
+      (globalThis as any).$ = () => ({ remove: () => {} });
+      (globalThis as any).Lampa.Scroll = class { public destroy() {} };
+      const registerController = mock.fn();
+      const toggleController = mock.fn();
+      (globalThis as any).Lampa.Controller = { add: registerController, toggle: toggleController };
+      const instance = InstanceManager.getInstances()[0];
+      let finish = () => {};
+      const pending = new Promise<any>((resolve, reject) => {
+        finish = () => stage === 'failure'
+          ? reject(new Error('Connection refused'))
+          : resolve(stage === 'selection' ? instance : { torrents: [] });
+      });
+      mock.method(InstanceManager, 'getBestInstance', async () => stage === 'selection' ? pending : instance);
+      const list = mock.method(TorstApi, 'getTorrents', async () => pending);
+      mock.method(TorstApi, 'getSettings', async () => ({}));
+      const sync = mock.method(SavedTorrents, 'syncFromListing', () => {});
+      const interval = mock.method(globalThis, 'setInterval', () => 1 as unknown as ReturnType<typeof setInterval>);
+      const component = new TorstTorrentsComponent();
+      const renderEmpty = mock.method(component, 'renderEmptyState', () => {});
+      const renderTorrents = mock.method(component, 'renderTorrents', () => {});
+      const toggle = mock.fn();
+      component.componentActivity = { loader: () => {}, toggle } as any;
+      const load = mock.method(component, 'load');
+
+      try {
+        component.pause();
+        component.start();
+        await Promise.resolve();
+        component.destroy();
+        finish();
+        await load.mock.calls[0].result;
+        await Promise.resolve();
+        component.start();
+        await component.load();
+
+        assert.equal(renderEmpty.mock.callCount(), 0);
+        assert.equal(renderTorrents.mock.callCount(), 0);
+        assert.equal(sync.mock.callCount(), 0);
+        assert.equal(toggle.mock.callCount(), 0);
+        assert.equal(interval.mock.callCount(), 0);
+        assert.equal(registerController.mock.callCount(), 1);
+        assert.equal(toggleController.mock.callCount(), 1);
+        if (stage === 'selection') assert.equal(list.mock.callCount(), 0);
+      } finally {
+        component.destroy();
+        (globalThis as any).$ = originalJquery;
+        mock.restoreAll();
+      }
+    });
+  }
+
+  it('displays the active instance name and re-resolves it after pausing and resuming', async () => {
+    const createMockElement = (tag: string) => {
+      const children: any[] = [];
+      let textContent = '';
+      const el: any = {
+        0: { tagName: tag.startsWith('<') ? 'DIV' : tag.toUpperCase() },
+        addClass: () => el,
+        append: (child: any) => { children.push(child); return el; },
+        attr: (_k: string, _v?: string) => el,
+        children,
+        empty: () => { children.length = 0; return el; },
+        find: (_sel: string) => el,
+        htmlString: tag,
+        on: (_evt: string, _cb: any) => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: (t?: string) => {
+          if (t === undefined) return textContent;
+          textContent = t;
+          return el;
+        },
+      };
+      return el;
+    };
+
+    const controllers = new Map<string, any>();
+    (globalThis as any).$ = (tag: string) => createMockElement(tag);
+    (globalThis as any).Lampa.Controller = {
+      add: (name: string, ctrl: any) => controllers.set(name, ctrl),
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+      toggle: () => {},
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return createMockElement('div'); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value,
+    };
+    (globalThis as any).Lampa.Empty = class {
+      public render() { return createMockElement('div'); }
+    };
+
+    const instanceA = { authType: 'none', id: 'a', name: 'Instance A', status: 'unknown', url: 'http://a.local:8080' };
+    const instanceB = { authType: 'none', id: 'b', name: 'Instance B', status: 'unknown', url: 'http://b.local:8080' };
+    (InstanceManager as any).instances = [instanceA, instanceB];
+    storageMap.set('torst_selection_mode', 'manual');
+    storageMap.set('torst_selected_instance', 'a');
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),  links: {}, total_count: 0 }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
+    const component = new TorstTorrentsComponent();
+    component.create();
+    await new Promise(resolve => setImmediate(resolve));
+    while ((component as any).isLoading) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(
+      lastHeadTitle,
+      'Torst (Instance A)',
+      'header title must show the initially active instance'
+    );
+
+    // Register the 'content' controller and start polling, matching real activation.
+    component.start();
+    assert.ok((component as any).pollIntervalId !== null, 'polling must be active after start()');
+
+    // Switch the active instance, mirroring what happens when the user changes it in Settings.
+    storageMap.set('torst_selected_instance', 'b');
+
+    // Returning from Settings pauses (rather than stops) the underlying component; without
+    // marking it for reload, resuming would keep showing the previous instance's torrents.
+    component.pause();
+    assert.equal((component as any).needsReload, true, 'pausing must mark the component for reload');
+    assert.equal((component as any).pollIntervalId, null, 'polling must stop while paused');
+
+    // Simulate Lampa re-focusing this screen's already-registered controller on return, without
+    // necessarily calling start() again — this is the path the controller's own toggle callback
+    // (not start()'s needsReload branch) is responsible for.
+    const contentController = controllers.get('content');
+    assert.ok(contentController, 'content controller must have been registered by start()');
+    contentController.toggle();
+    await new Promise(resolve => setImmediate(resolve));
+    while ((component as any).isLoading) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    assert.equal(
+      lastHeadTitle,
+      'Torst (Instance B)',
+      'header title must switch to the newly active instance after resuming'
+    );
+    assert.ok(
+      (component as any).pollIntervalId !== null,
+      'polling must resume after reloading on resume, not just reload once'
+    );
+
+    component.stop();
+    component.destroy();
+  });
+
+  it('renders user-friendly formatted empty states for unreachable instances and connection errors', async () => {
+    let lastEmptyParams: any = null;
+    class MockEmpty {
+      constructor(params?: any) {
+        lastEmptyParams = params;
+      }
+      public render() {
+        return { 0: { tagName: 'DIV' }, append: () => {}, empty: () => {}, remove: () => {} };
+      }
+    }
+    const createMockElement = (tag: string) => {
+      const children: any[] = [];
+      const el: any = {
+        0: { tagName: tag.startsWith('<') ? 'DIV' : tag.toUpperCase() },
+        addClass: () => el,
+        append: (child: any) => {
+          children.push(child);
+          return el;
+        },
+        attr: (_k: string, _v?: string) => el,
+        children,
+        empty: () => {
+          children.length = 0;
+          return el;
+        },
+        find: (_sel: string) => el,
+        htmlString: tag,
+        on: (_evt: string, _cb: any) => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: (_t?: string) => el,
+      };
+      return el;
+    };
+
+    let clearCalls = 0;
+    let nopaddingCalls = 0;
+    let resetCalls = 0;
+
+    class MockScroll {
+      public append(_elem: any) {}
+      public clear() {
+        clearCalls++;
+      }
+      public destroy() {}
+      public minus() {}
+      public nopadding() {
+        nopaddingCalls++;
+      }
+      public render() {
+        return createMockElement('div');
+      }
+      public reset() {
+        resetCalls++;
+      }
+      public update() {}
+    }
+
+    (globalThis as any).$ = (tag: string) => createMockElement(tag);
+    (globalThis as any).Lampa.Empty = MockEmpty;
+    (globalThis as any).Lampa.Scroll = MockScroll;
+
+    const originalGetBest = InstanceManager.getBestInstance;
+    try {
+      // 1. Unreachable instances error
+      InstanceManager.getBestInstance = async () => {
+        throw new Error('All configured Torst instances are unreachable');
+      };
+      const component = new TorstTorrentsComponent();
+      await component.load();
+      assert.ok(lastEmptyParams);
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_unreachable_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_unreachable'));
+      assert.ok(clearCalls > 0, 'scrollView.clear should be called');
+      assert.ok(nopaddingCalls > 0, 'scrollView.nopadding should be called');
+      assert.ok(resetCalls > 0, 'scrollView.reset should be called');
+
+      // 2. No instances configured error
+      InstanceManager.getBestInstance = async () => {
+        throw new Error('No Torst instances configured');
+      };
+      await component.load();
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_no_instances_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_no_instances'));
+
+      // 3. Generic connection error
+      InstanceManager.getBestInstance = async () => {
+        throw new Error('Network timeout (ETIMEDOUT)');
+      };
+      await component.load();
+      assert.equal(lastEmptyParams.title, getTestTranslation('torst_empty_conn_error_title'));
+      assert.equal(lastEmptyParams.descr, getTestTranslation('torst_empty_conn_error', { msg: 'Network timeout (ETIMEDOUT)' }));
+    } finally {
+      InstanceManager.getBestInstance = originalGetBest;
+    }
+  });
+
+  it('renders torrent cards matching native Lampa Torrents card styling', () => {
+    const createMockElement = (tag: any) => {
+      if (tag && typeof tag === 'object') {
+        return tag;
+      }
+      const tagStr = typeof tag === 'string' ? tag : 'div';
+      const children: any[] = [];
+      const events: string[] = [];
+      const el: any = {
+        0: { tagName: tagStr.startsWith('<') ? 'DIV' : tagStr.toUpperCase() },
+        addClass: (_cls: string) => el,
+        append: (child: any) => {
+          children.push(child);
+          return el;
+        },
+        attr: (_k: string, _v?: string) => el,
+        children,
+        empty: () => {
+          children.length = 0;
+          return el;
+        },
+        events,
+        find: (_sel: string) => el,
+        htmlString: tagStr,
+        on: (eventName: string, _callback: any) => {
+          events.push(eventName);
+          return el;
+        },
+        remove: () => el,
+        removeClass: (_cls?: string) => el,
+        text: (_t?: string) => el,
+      };
+      return el;
+    };
+
+    class MockScroll {
+      public append(_elem: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) {
+        return createMockElement('div');
+      }
+      public reset() {}
+      public update() {}
+    }
+
+    class MockEmpty {
+      public render() {
+        return createMockElement('div');
+      }
+    }
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ items: ([]).map(createTorstTorrent),
+      links: {},
+      total_count: 0,
+    }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+
+    (globalThis as any).$ = (tag: string) => createMockElement(tag);
+    (globalThis as any).Lampa.Background = {
+      change: () => {},
+    };
+    let isCollectionFocusCalled = false;
+    let isCollectionSetCalled = false;
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {
+        isCollectionFocusCalled = true;
+      },
+      collectionSet: () => {
+        isCollectionSetCalled = true;
+      },
+    };
+    (globalThis as any).Lampa.Empty = MockEmpty;
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value,
+    };
+
+    (SidebarManager as any).isRegistered = false;
+    SidebarManager.init();
+
+    const ComponentClass = customComponents.get(TORST_TORRENTS_COMPONENT_ID);
+    assert.ok(ComponentClass);
+
+    const component = new ComponentClass();
+    // Avoid triggering async load() which leaks into the next test;
+    // set up the scroll/body the same way create() would, then call renderTorrents() directly.
+    component.scrollView.minus();
+    component.scrollView.append(component.contentGrid);
+    component.rootElement.append(component.scrollView.render());
+
+    const sampleTorrents = [
+      {
+        files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
+        hash: 'abc123456789',
+        name: 'Example Animation (2026)',
+        poster: 'https://example.com/poster.jpg',
+        retention: 'temporary' as const, storage: 'memory',
+        title: 'Example Animation',
+        total_size: 1048576,
+      },
+      {
+        files: [
+          { length: 1048576, name: 'video-1.mp4', path: 'video-1.mp4' },
+          { length: 1048576, name: 'video-2.mp4', path: 'video-2.mp4' },
+        ],
+        hash: 'def987654321',
+        name: 'Example Short (2026)',
+        retention: 'temporary' as const, storage: 'file',
+        total_size: 2097152,
+      },
+      {
+        files: [],
+        hash: 'empty12345678',
+        name: 'Empty Torrent',
+        retention: 'temporary' as const, storage: 'memory',
+        total_size: 0,
+      },
+      {
+        files: [
+          { length: 1048576, name: 'part-1.mkv', path: 'part-1.mkv' },
+          { length: 1048576, name: 'part-2.mkv', path: 'part-2.mkv' },
+          { length: 1048576, name: 'part-3.mkv', path: 'part-3.mkv' },
+        ],
+        hash: 'unknown123456',
+        name: 'Unknown Storage',
+        retention: 'temporary' as const, storage: 'cache',
+        total_size: 3145728,
+      },
+    ];
+
+    component.renderTorrents(sampleTorrents, {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    });
+    assert.equal(component.contentGrid.children.length, 4);
+
+    const firstCardHtml = component.contentGrid.children[0].htmlString;
+    assert.ok(component.contentGrid.children[0].events.includes('hover:enter'));
+    assert.ok(component.contentGrid.children[0].events.includes('hover:long'));
+    assert.ok(component.contentGrid.children[0].events.includes('contextmenu'));
+    assert.ok(!component.contentGrid.children[0].events.some((event: string) => event.includes('click')));
+    assert.ok(firstCardHtml.includes('class="card card--loaded selector layer--visible layer--render"'));
+    assert.ok(!firstCardHtml.includes('card--category'));
+    assert.ok(firstCardHtml.includes('<div class="card__view">'));
+    // Native card starts with img_load.svg spinner; real src is set via imgEl.src = t.poster
+    assert.ok(firstCardHtml.includes('src="./img/img_load.svg"'));
+    assert.ok(firstCardHtml.includes('<div class="card__icons">'));
+    // Memory storage must NOT display the storage badge
+    assert.ok(!firstCardHtml.includes('<div class="card__type">'));
+    assert.ok(!firstCardHtml.includes('MEMORY'));
+    assert.ok(firstCardHtml.includes('<div class="card__title">Example Animation</div>'));
+    assert.ok(firstCardHtml.includes(`<div class="card__age">1 MB · ${getTestTranslation('torst_card_file_count', { count: 1 })}</div>`));
+    assert.ok(!firstCardHtml.includes('style="width: 13.5em'));
+    assert.ok(!firstCardHtml.includes('padding-bottom: 150%'));
+
+    const secondCardHtml = component.contentGrid.children[1].htmlString;
+    assert.ok(secondCardHtml.includes('class="card card--loaded selector layer--visible layer--render"'));
+    // File storage must display the storage badge
+    assert.ok(secondCardHtml.includes(TORST_STORAGE_BADGE));
+    assert.ok(secondCardHtml.includes('data-testid="file-storage-badge"'));
+    assert.ok(secondCardHtml.includes('right: 0.5em'));
+    assert.ok(secondCardHtml.includes('<div class="card__title">Example Short (2026)</div>'));
+    assert.ok(secondCardHtml.includes(`<div class="card__age">2 MB · ${getTestTranslation('torst_card_file_count', { count: 2 })}</div>`));
+
+    const emptyCardHtml = component.contentGrid.children[2].htmlString;
+    // Memory storage must NOT display the storage badge
+    assert.ok(!emptyCardHtml.includes('<div class="card__type">'));
+    assert.ok(emptyCardHtml.includes(`<div class="card__age">${getTestTranslation('torst_card_file_count', { count: 0 })}</div>`));
+
+    const unknownStorageCardHtml = component.contentGrid.children[3].htmlString;
+    assert.ok(!unknownStorageCardHtml.includes('<div class="card__type">'));
+    assert.ok(unknownStorageCardHtml.includes(`<div class="card__age">3 MB · ${getTestTranslation('torst_card_file_count', { count: 3 })}</div>`));
+    assert.ok(!unknownStorageCardHtml.includes('CACHE'));
+
+    assert.equal(isCollectionSetCalled, true);
+    assert.equal(isCollectionFocusCalled, true);
+  });
+
+  it('strips HTML tags from torrent and file titles sourced from tracker metadata', async () => {
+    const createMockElement = (tag: any) => {
+      if (tag && typeof tag === 'object') {
+        return tag;
+      }
+      const tagStr = typeof tag === 'string' ? tag : 'div';
+      const children: any[] = [];
+      const el: any = {
+        0: { tagName: tagStr.startsWith('<') ? 'DIV' : tagStr.toUpperCase() },
+        addClass: (_cls: string) => el,
+        append: (child: any) => {
+          children.push(child);
+          return el;
+        },
+        attr: (_k: string, _v?: string) => el,
+        children,
+        empty: () => {
+          children.length = 0;
+          return el;
+        },
+        find: (_sel: string) => el,
+        htmlString: tagStr,
+        on: (_eventName: string, _callback: any) => el,
+        remove: () => el,
+        removeClass: (_cls?: string) => el,
+        text: (_t?: string) => el,
+      };
+      return el;
+    };
+
+    class MockScroll {
+      public append(_elem: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) { return createMockElement('div'); }
+      public reset() {}
+      public update() {}
+    }
+
+    (globalThis as any).$ = (tag: string) => createMockElement(tag);
+    (globalThis as any).Lampa.Background = { change: () => {} };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+    };
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    // Mirrors Lampa.Utils.clearHtmlTags' real stripping behavior, rather than the
+    // identity passthrough used elsewhere in this file, so this test actually
+    // exercises sanitization instead of merely asserting it was called.
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value.replace(/<[^>]*>/g, ''),
+    };
+
+    const component = new TorstTorrentsComponent() as any;
+    component.scrollView.minus();
+    component.scrollView.append(component.contentGrid);
+    component.rootElement.append(component.scrollView.render());
+
+    component.renderTorrents([
+      {
+        files: [{ length: 1048576, name: '<img src=x onerror=alert(1)>episode.mkv', path: 'episode.mkv' }],
+        hash: 'hash1',
+        name: 'Fallback Name',
+        retention: 'temporary' as const, storage: 'memory',
+        title: '<img src=x onerror=alert(1)>Malicious Torrent',
+        total_size: 1048576,
+      },
+    ], {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    });
+
+    const cardHtml = component.contentGrid.children[0].htmlString;
+    assert.ok(cardHtml.includes('<div class="card__title">Malicious Torrent</div>'));
+    assert.ok(!cardHtml.includes('onerror'));
+
+    (globalThis as any).Lampa.Modal = { close: () => {}, open: () => {} };
+    const templateCalls: any[] = [];
+    (globalThis as any).Lampa.Template = {
+      get: (_name: string, data: any) => {
+        templateCalls.push(data);
+        return createMockElement(`<div class="torrent-file selector">${data.title}</div>`);
+      },
+    };
+    (globalThis as any).Lampa.Timeline = {
+      render: (_view: any) => createMockElement('<div class="time-line"></div>'),
+      view: (hash: string) => ({ hash }),
+    };
+
+    const multiFileTorrent: any = {
+      files: [
+        { length: 1048576, name: '<img src=x onerror=alert(1)>episode-1.mkv', path: 'episode-1.mkv' },
+        { length: 1048576, name: 'episode-2.mkv', path: 'episode-2.mkv' },
+      ],
+      hash: 'hash1',
+      name: 'Fallback Name',
+      title: 'Malicious Torrent',
+    };
+
+    await component.openTorrent(multiFileTorrent);
+
+    assert.equal(templateCalls.length, 2, 'Each video file must produce a torrent-file card');
+    assert.equal(templateCalls[0].title, 'episode-1', 'file title must be stripped of HTML tags before templating');
+    assert.ok(!templateCalls[0].title.includes('<img'));
+  });
+
+  it('context menu offers switch-storage action and applies it via PATCH', async () => {
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (message: string) => { notyMessages.push(message); };
+
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public update() {}
+    };
+    (globalThis as any).$ = (tag: string) => ({
+      append: () => (globalThis as any).$(tag),
+      find: () => (globalThis as any).$(tag),
+      remove: () => {},
+    });
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      files: [{ length: 1048576, name: 'movie.mkv', path: 'movie.mkv' }],
+      hash: 'abc123456789',
+      name: 'Example Animation',
+      retention: 'persisted' as const,
+      storage: 'memory',
+      total_size: 1048576,
+    };
+    let isCardTypeRemoved = false;
+    let isUnrelatedCardTypeRemoved = false;
+    let appendedToCardView = '';
+    const mockCardType = {
+      length: 0,
+      remove: () => { isCardTypeRemoved = true; },
+    };
+    const mockCardView = {
+      append: (html: string) => { appendedToCardView = html; },
+    };
+    const cardElement = {
+      find: (selector: string) => {
+        if (selector === '.card__type--storage') return mockCardType;
+        if (selector === '.card__type') return { length: 1, remove: () => { isUnrelatedCardTypeRemoved = true; } };
+        if (selector === '.card__view') return mockCardView;
+        return { length: 0 };
+      },
+      remove: () => {},
+    };
+
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+
+    assert.equal(lastSelectOptions.title, NATIVE_TRANSLATIONS.title_action, 'context menu title must match native title_action');
+
+    const switchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
+    assert.ok(switchAction, 'switch-storage action must be present for known storage for a saved torrent');
+    assert.equal(switchAction.title, getTestTranslation('torst_menu_switch_disk'));
+    assert.equal(switchAction.subtitle, getTestTranslation('torst_menu_switch_disk_descr'));
+
+    const deleteAction = lastSelectOptions.items.find((item: any) => item.action === 'delete');
+    assert.ok(deleteAction, 'delete action must be present in context menu');
+    assert.equal(deleteAction.title, getTestTranslation('torst_menu_delete'));
+    assert.equal(deleteAction.subtitle, getTestTranslation('torst_menu_delete_descr'));
+
+    const update = mock.method(TorstApi, 'updateTorrent', async (_instance: TorstInstance, hash: string, change: TorrentUpdate) => {
+      assert.equal(hash, torrent.hash);
+      return { ...torrent, storage: change.storage };
+    });
+    await lastSelectOptions.onSelect(switchAction);
+    assert.equal(update.mock.callCount(), 1);
+    assert.equal(torrent.storage, 'file');
+    assert.ok(appendedToCardView.includes(TORST_STORAGE_BADGE_ICON), 'switching to file storage must append badge to card');
+    assert.ok(notyMessages.includes(getTestTranslation('torst_noty_storage_switched', { storage: getTestTranslation('torst_storage_type_disk') })));
+
+    // A subsequent long-press or right-click must recompute the item for the new storage state
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+    const secondSwitchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
+    assert.equal(secondSwitchAction.title, getTestTranslation('torst_menu_switch_ram'));
+    assert.equal(secondSwitchAction.subtitle, getTestTranslation('torst_menu_switch_ram_descr'));
+
+    // Switching back to memory removes the badge
+    globalThis.fetch = async () => new Response(JSON.stringify({ ...torrent, storage: 'memory' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+    mockCardType.length = 1;
+    await lastSelectOptions.onSelect(secondSwitchAction);
+    assert.equal(torrent.storage, 'memory');
+    assert.equal(isCardTypeRemoved, true, 'switching back to memory storage must remove badge from card');
+    assert.equal(isUnrelatedCardTypeRemoved, false, 'storage changes must preserve unrelated card decorations');
+  });
+
+  it('context menu reports failure and keeps storage unchanged when PATCH fails', async () => {
+    const notyMessages: string[] = [];
+    (globalThis as any).Lampa.Noty.show = (message: string) => { notyMessages.push(message); };
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public update() {}
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      files: [],
+      hash: 'def987654321',
+      name: 'Example Short',
+      retention: 'persisted' as const,
+      storage: 'file',
+      total_size: 0,
+    };
+    const cardElement = { remove: () => {} };
+
+    globalThis.fetch = async () => new Response('Internal Server Error', { status: 500 });
+
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+    const switchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
+    await lastSelectOptions.onSelect(switchAction);
+
+    assert.equal(torrent.storage, 'file');
+    assert.deepEqual(notyMessages, [getTestTranslation('torst_noty_storage_switch_failed', { msg: 'Torst API error (/api/v1/torrents?page_size=200&retention=any&info_hash=def987654321): 500' })]);
+  });
+
+  it('context menu omits switch-storage action for unknown storage', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public update() {}
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      files: [],
+      hash: 'unknown123456',
+      name: 'Unknown Storage',
+      retention: 'temporary' as const, storage: 'cache',
+      total_size: 0,
+    };
+    const cardElement = { remove: () => {} };
+
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+    const switchAction = lastSelectOptions.items.find((item: any) => item.action === 'switch-storage');
+    assert.ok(!switchAction, 'switch-storage action must be omitted for unknown storage');
+  });
+
+  it('offers disk storage without an editable server storage path', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$('<div>'); }
+    };
+    const component = new TorstTorrentsComponent();
+    const instance = InstanceManager.getInstances()[0];
+    const torrent: any = { files: [], hash: 'test', name: 'Sintel', retention: 'persisted' as const, storage: 'memory', total_size: 0 };
+    await component.openContextMenu(torrent, instance, {} as any);
+    assert.ok(lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'));
+  });
+
+  it('keeps show-more library results filtered while leaving the sidebar listing complete', async () => {
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    const instance = InstanceManager.getInstances()[0];
+    const torrents: any[] = [
+      { files: [], hash: 'a'.repeat(40), name: 'Matching Show', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
+      { files: [], hash: 'b'.repeat(40), name: 'Matching Show', retention: 'temporary' as const, storage: 'memory', total_size: 10 },
+      { files: [], hash: 'c'.repeat(40), name: 'Other', retention: 'persisted' as const, storage: 'memory', total_size: 10 },
+    ];
+    mock.method(InstanceManager, 'getBestInstance', async () => instance);
+    const listing = mock.method(TorstApi, 'getTorrents', async (_instance: TorstInstance, options?: { search?: string }) => ({
+      torrents: options?.search ? [torrents[0]] : torrents,
+    }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
+    try {
+      const filtered = new TorstTorrentsComponent({ search: 'matching' });
+      let results: any[] = [];
+      filtered.renderTorrents = list => { results = list; };
+      await filtered.load(true);
+      assert.deepEqual(listing.mock.calls[0].arguments[1], { fuzzy: true, retention: 'persisted', search: 'matching' });
+      assert.deepEqual(results, [torrents[0]]);
+      await filtered.load(true);
+      assert.deepEqual(results, [torrents[0]]);
+      const sidebar = new TorstTorrentsComponent();
+      sidebar.renderTorrents = list => { results = list; };
+      await sidebar.load(true);
+      assert.equal(listing.mock.calls[2].arguments[1], undefined);
+      assert.deepEqual(results, torrents);
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      mock.restoreAll();
+    }
+  });
+
+  it('loads a view expanded from a search row from the instance that produced the row', async () => {
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    const [primary] = InstanceManager.getInstances();
+    const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
+    mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
+    const bestInstance = mock.method(InstanceManager, 'getBestInstance', async () => primary);
+    const listed = mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
+    try {
+      const pinned = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      pinned.renderEmptyState = () => {};
+      await pinned.load(true);
+      assert.equal(listed.mock.calls[0].arguments[0], backup);
+      assert.equal(bestInstance.mock.callCount(), 0);
+      const orphaned = new TorstTorrentsComponent({ instanceId: 'removed', search: 'show' });
+      orphaned.renderEmptyState = () => {};
+      await orphaned.load(true);
+      assert.equal(listed.mock.calls[1].arguments[0], primary);
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      mock.restoreAll();
+    }
+  });
+
+  it('keeps the saved-torrent cache on the routed library while a view is pinned elsewhere', async () => {
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    const [primary] = InstanceManager.getInstances();
+    const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
+    const listing = [{ files: [], hash: 'd'.repeat(40), name: 'Show', retention: 'persisted' as const, storage: 'memory', total_size: 1 }];
+    mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
+    mock.method(InstanceManager, 'getPrimaryInstance', () => primary);
+    mock.method(InstanceManager, 'getBestInstance', async () => primary);
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: listing }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
+    const synced = mock.method(SavedTorrents, 'syncFromListing', () => {});
+    try {
+      const pinnedElsewhere = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      pinnedElsewhere.renderTorrents = () => {};
+      await pinnedElsewhere.load(true);
+      assert.equal(synced.mock.callCount(), 0);
+      const pinnedToPrimary = new TorstTorrentsComponent({ instanceId: primary.id, search: 'show' });
+      pinnedToPrimary.renderTorrents = () => {};
+      await pinnedToPrimary.load(true);
+      assert.equal(synced.mock.callCount(), 1);
+      assert.equal(synced.mock.calls[0].arguments[0], primary.id);
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      mock.restoreAll();
+    }
+  });
+
+  it('lets only the routed library update the saved-torrent cache from deletes', () => {
+    const [primary] = InstanceManager.getInstances();
+    const backup = { ...primary, id: 'search-backup' };
+    const failoverTarget = { ...primary, id: 'failover-target' };
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    mock.method(InstanceManager, 'getPrimaryInstance', () => primary);
+    try {
+      const component: any = new TorstTorrentsComponent();
+      component.isPinnedToSearchInstance = true;
+      component.activeInstance = backup;
+      assert.equal(component.isRoutedInstance(primary), true);
+      assert.equal(component.isRoutedInstance(backup), false);
+      // A card rendered while pinned keeps pointing at the backup after the pin drops.
+      component.isPinnedToSearchInstance = false;
+      component.activeInstance = primary;
+      assert.equal(component.isRoutedInstance(backup), false);
+      // An unpinned listing served by failover still describes the library requests go to.
+      component.activeInstance = failoverTarget;
+      assert.equal(component.isRoutedInstance(failoverTarget), true);
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      mock.restoreAll();
+    }
+  });
+
+  it('drops the search pin and falls back to regular selection once the pinned instance is unreachable', async () => {
+    const originalJquery = (globalThis as any).$;
+    const originalUtils = (globalThis as any).Lampa.Utils;
+    (globalThis as any).Lampa.Utils = { ...originalUtils, clearHtmlTags: (text: string) => text.replace(/<[^>]*>/g, '') };
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    const [primary] = InstanceManager.getInstances();
+    const backup = { ...primary, id: 'search-backup', name: 'Backup', url: 'http://backup.local' };
+    mock.method(InstanceManager, 'getInstances', () => [primary, backup]);
+    const bestInstance = mock.method(InstanceManager, 'getBestInstance', async () => primary);
+    const listed = mock.method(TorstApi, 'getTorrents', async (selected: TorstInstance) => {
+      if (selected === backup) throw new NetworkError('Failed to fetch');
+      return { torrents: [] };
+    });
+    mock.method(TorstApi, 'getSettings', async () => ({}));
+    try {
+      const messages: string[] = [];
+      const pinned = new TorstTorrentsComponent({ instanceId: backup.id, search: 'show' });
+      pinned.renderEmptyState = (message: string) => { messages.push(message); };
+      await pinned.load(true);
+      assert.deepEqual(listed.mock.calls.map(call => call.arguments[0]), [backup, primary]);
+      assert.equal(bestInstance.mock.callCount(), 1);
+      assert.equal(messages.length, 1);
+      assert.ok(messages[0].includes('show'));
+      await pinned.load(true);
+      assert.equal(listed.mock.calls[2].arguments[0], primary);
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      (globalThis as any).Lampa.Utils = originalUtils;
+      mock.restoreAll();
+    }
+  });
+
+  it('tells a filtered library view that nothing matches instead of reporting an empty library', async () => {
+    const originalJquery = (globalThis as any).$;
+    const originalUtils = (globalThis as any).Lampa.Utils;
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {} });
+    (globalThis as any).Lampa.Scroll = class {
+      public render() { return (globalThis as any).$(); }
+    };
+    (globalThis as any).Lampa.Utils = { ...originalUtils, clearHtmlTags: (text: string) => text.replace(/<[^>]*>/g, '') };
+    const instance = InstanceManager.getInstances()[0];
+    mock.method(InstanceManager, 'getBestInstance', async () => instance);
+    mock.method(TorstApi, 'getTorrents', async () => ({ torrents: [] }));
+    mock.method(TorstApi, 'getSettings', async () => ({}));
+    try {
+      const messages: string[] = [];
+      const filtered = new TorstTorrentsComponent({ search: ' <b>missing</b> ' });
+      filtered.renderEmptyState = (message: string) => { messages.push(message); };
+      await filtered.load(true);
+      const sidebar = new TorstTorrentsComponent();
+      sidebar.renderEmptyState = (message: string) => { messages.push(message); };
+      await sidebar.load(true);
+      assert.equal(messages.length, 2);
+      assert.ok(messages[0].includes('missing'));
+      assert.ok(!messages[0].includes('<b>'));
+      assert.equal(messages[0], getTestTranslation('torst_empty_search', { query: 'missing' }));
+      assert.equal(messages[1], getTestTranslation('torst_empty_library'));
+    } finally {
+      (globalThis as any).$ = originalJquery;
+      (globalThis as any).Lampa.Utils = originalUtils;
+      mock.restoreAll();
+    }
+  });
+
+  it('revalidates background refreshes and keeps the grid when the listing is unchanged', async () => {
+    const buildDom = () => {
+      const node: any = { children: [] as any[] };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+    const originalJquery = (globalThis as any).$;
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    try {
+      const component = new TorstTorrentsComponent();
+      const grid: any = (component as any).contentGrid;
+      const instance = {
+        authType: 'none',
+        id: 'test',
+        name: 'Test Node',
+        url: 'http://127.0.0.1:8080',
+      };
+      const torrent = { files: [], hash: 'unchanged123', name: 'Sintel', retention: 'temporary' as const, storage: 'memory', total_size: 0 };
+
+      const sentTags: (string | undefined)[] = [];
+      globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (!String(input).includes('/api/v1/torrents')) {
+          return new Response(JSON.stringify({}), { status: 200 });
+        }
+        const ifNoneMatch = (init?.headers as Record<string, string> | undefined)?.['If-None-Match'];
+        sentTags.push(ifNoneMatch);
+        if (ifNoneMatch === '"list-v1"') return new Response(null, { status: 304 });
+        return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
+          headers: { ETag: '"list-v1"' },
+          status: 200,
+        });
+      };
+      (InstanceManager as any).instances = [instance];
+
+      await component.load(true);
+      const initialCards = grid[0].children.slice();
+      assert.equal(initialCards.length, 1);
+
+      await component.load(true);
+
+      assert.deepEqual(sentTags, [undefined, '"list-v1"']);
+      assert.deepEqual(grid[0].children, initialCards, 'an unchanged listing must leave the live cards in place');
+      component.destroy();
+    } finally {
+      (globalThis as any).$ = originalJquery;
+    }
+  });
+
+  it('suspends background refreshes while the context menu is open and restores focus on close', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public reset() {}
+      public update() {}
+    };
+
+    const toggledControllers: string[] = [];
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+      toggle: (name: string) => { toggledControllers.push(name); },
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      files: [],
+      hash: 'poll123456789',
+      name: 'Polled Torrent',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 0,
+    };
+    const cardElement = { remove: () => {} };
+
+    let renderTorrentsCallCount = 0;
+    component.renderTorrents = () => { renderTorrentsCallCount++; };
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/api/v1/settings')) {
+        return new Response(JSON.stringify({ background_downloads_enabled: false }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      }
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },  items: ([torrent]).map(createTorstTorrent), links: {} }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    };
+    (InstanceManager as any).instances = [instance];
+
+    await component.load(true);
+    assert.equal(renderTorrentsCallCount, 1, 'a background poll must render while no context menu is open');
+
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+
+    // Rebuilding the grid here would detach the card the menu acts on and the element focus
+    // is restored to when it closes.
+    await component.load(true);
+    assert.equal(renderTorrentsCallCount, 1, 'a background poll must not rebuild the grid while the context menu is open');
+
+    lastSelectOptions.onBack();
+    assert.deepEqual(toggledControllers, ['content'], 'closing the context menu must hand focus back to the grid');
+
+    await component.load(true);
+    assert.equal(renderTorrentsCallCount, 2, 'background refreshes must resume once the context menu is closed');
+
+    // Navigating away with the menu still open must not suspend refreshes for good.
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+    component.pause();
+    await component.load(true);
+    assert.equal(renderTorrentsCallCount, 3, 'a menu left open across a lifecycle transition must not stall polling');
+
+    component.destroy();
+  });
+
+  it('resumes polling after a single gesture opens the context menu twice', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+      toggle: () => {},
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      enableDownloader: true,
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      files: [],
+      hash: 'reentrant12345',
+      name: 'Reentrant Torrent',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 0,
+    };
+
+    (component as any).startPolling();
+    assert.notEqual((component as any).pollIntervalId, null, 'polling must be running before the menu opens');
+
+    // A card binds the menu to both a long press and a context menu event, so one gesture
+    // can reach here twice before the first menu is even shown.
+    await component.openContextMenu(torrent, instance as any, { remove: () => {} } as any);
+    await component.openContextMenu(torrent, instance as any, { remove: () => {} } as any);
+    assert.equal((component as any).pollIntervalId, null, 'the open menu must suspend polling');
+
+    lastSelectOptions.onBack();
+    assert.notEqual((component as any).pollIntervalId, null, 'closing the menu must resume polling');
+
+    component.destroy();
+  });
+
+  it('opens multi-file torrent via Lampa.Modal with torrent-file styled cards', async () => {
+    let modalOptions: any = null;
+    let isModalClosed = false;
+    let timelineRenderCount = 0;
+    let focusedRow: any = null;
+    let isModalReady = false;
+    (globalThis as any).Lampa.Controller = {
+      ...((globalThis as any).Lampa.Controller || {}),
+      collectionFocus: (target: any, container: any) => {
+        assert.equal(isModalReady, true, 'focus must follow modal visibility setup');
+        assert.equal(target, false);
+        assert.equal(container, modalOptions.html);
+        focusedRow = container.children[0];
+      },
+    };
+
+    (globalThis as any).Lampa.Modal = {
+      close: () => { isModalClosed = true; },
+      open: (opts: any) => { modalOptions = opts; focusedRow = null; isModalReady = true; },
+    };
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value,
+      hash: (value: string) => value,
+    };
+
+    const capturedItems: string[] = [];
+    const capturedTemplates: Array<{ data: any, name: string }> = [];
+    (globalThis as any).$ = (html: string) => {
+      capturedItems.push(html);
+      const listeners: Record<string, any> = {};
+      const el: any = {
+        __html: html,
+        __listeners: listeners,
+        0: { style: {} },
+        append: (child: any) => { el.children.push(child); return el; },
+        children: [],
+        find: (_selector: string) => el,
+        on: (eventName: string, callback: any) => { listeners[eventName] = callback; return el; },
+      };
+      return el;
+    };
+    (globalThis as any).Lampa.Template = {
+      get: (name: string, data: any) => {
+        capturedTemplates.push({ data, name });
+        return (globalThis as any).$(`
+        <div class="${name === 'torrent_file_serial' ? 'torrent-serial' : 'torrent-file'} selector">
+          <div class="torrent-file__title">${data.fname || data.title}<span class="exe">.${data.exe}</span></div>
+          <div class="torrent-file__size">${data.size}</div>
+        </div>
+      `);
+      },
+    };
+    (globalThis as any).Lampa.Timeline = {
+      render: (_view: any) => {
+        timelineRenderCount++;
+        return (globalThis as any).$('<div class="time-line"></div>');
+      },
+      view: (hash: string) => ({ hash }),
+    };
+
+    (globalThis as any).Lampa.Scroll = class {
+      append(_e: any) {}
+      minus() {}
+      render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      update() {}
+    };
+
+    const component = new TorstTorrentsComponent();
+    const multiFileTorrent: any = {
+      files: [
+        { length: 734003200, name: 'episode.S01E01.mkv', path: 'episode.S01E01.mkv' },
+        { length: 734003200, name: 'episode.S01E02.m4v', path: 'episode.S01E02.m4v' },
+        { length: 10240,     name: 'subtitle.srt',       path: 'subtitle.srt' },
+      ],
+      hash: 'multi123',
+      name: 'My Show S01',
+      poster: 'https://example.com/show-poster.jpg',
+      title: 'My Show S01',
+    };
+
+    await component.openTorrent(multiFileTorrent);
+
+    // Should have opened a Modal, not a Select
+    assert.ok(modalOptions, 'Lampa.Modal.open must be called for multi-file torrent');
+    assert.ok(focusedRow);
+    assert.equal(focusedRow, modalOptions.html.children[0]);
+    assert.equal(modalOptions.title, NATIVE_TRANSLATIONS.title_files);
+    assert.equal(modalOptions.mask, true);
+    assert.equal(modalOptions.size, 'large');
+    assert.ok(lastSelectOptions === null, 'Lampa.Select.show must NOT be called for multi-file torrent');
+
+    // The html container should use torrent-files class
+    const containerHtml = capturedItems.find(s => s.includes('torrent-files'));
+    assert.ok(containerHtml, 'Container must have class torrent-files');
+
+    const fileCards = capturedItems.filter(s => s.includes('torrent-serial selector'));
+    // Only video files should be shown, including every format supported by the playback engine.
+    assert.equal(fileCards.length, 2, 'Only video files should produce torrent-file cards');
+
+    // Each file card must split title and extension correctly
+    assert.ok(fileCards[0].includes('episode.S01E01'), 'First card must contain episode title');
+    assert.ok(fileCards[0].includes('<span class="exe">.mkv</span>'), 'First card must have .mkv extension span');
+    assert.ok(fileCards[0].includes('torrent-file__size'), 'First card must have size element');
+    assert.ok(fileCards[1].includes('episode.S01E02'), 'Second card must contain episode title');
+    assert.ok(fileCards[1].includes('<span class="exe">.m4v</span>'), 'Second card must support .m4v');
+    assert.deepEqual(capturedTemplates.map(template => template.name), ['torrent_file_serial', 'torrent_file_serial']);
+    assert.equal(capturedTemplates[0].data.img, 'https://example.com/show-poster.jpg');
+    assert.equal(capturedTemplates[0].data.air_date, '--');
+    assert.equal(timelineRenderCount, 2, 'Each file row must include the native timeline element');
+
+    // Closing modal via onBack should call Lampa.Modal.close and toggle content controller
+    let toggledController = '';
+    (globalThis as any).Lampa.Controller = {
+      ...((globalThis as any).Lampa.Controller || {}),
+      toggle: (name: string) => { toggledController = name; },
+    };
+    modalOptions.onBack();
+    assert.equal(isModalClosed, true, 'onBack must close the modal');
+    assert.equal(toggledController, 'content', 'onBack must toggle back to content controller');
+  });
+
+  it('does not open a pending file list after the component stops', async () => {
+    let modalOpenCount = 0;
+
+    (globalThis as any).$ = () => ({ append: () => {} });
+    (globalThis as any).Lampa.Controller = { enabled: () => ({ name: 'content' }) };
+    (globalThis as any).Lampa.Modal = { open: () => { modalOpenCount++; } };
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_element: any) {}
+      public destroy() {}
+      public minus() {}
+      public render() { return {}; }
+    };
+
+    const component = new TorstTorrentsComponent();
+    const opening = component.openTorrent({
+      files: [
+        { length: 1, name: 'Show.S01E01.mkv', path: 'Show.S01E01.mkv' },
+        { length: 1, name: 'Show.S01E02.mkv', path: 'Show.S01E02.mkv' },
+      ],
+      hash: 'delayed-list',
+      name: 'Show',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 2,
+    });
+
+    component.stop();
+    await opening;
+
+    assert.equal(modalOpenCount, 0);
+  });
+
+  it('reports asynchronous file-list failures from torrent-card activation', async () => {
+    const notyMessages: string[] = [];
+    (globalThis as any).$ = () => ({ append: () => {} });
+    (globalThis as any).Lampa.Noty = { show: (message: string) => { notyMessages.push(message); } };
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_element: any) {}
+      public destroy() {}
+      public minus() {}
+      public render() { return {}; }
+    };
+
+    const component = new TorstTorrentsComponent() as any;
+    component.openTorrent = async () => { throw new Error('metadata rendering failed'); };
+    component.openTorrentSafely({ hash: 'broken' });
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(notyMessages.length, 1);
+    assert.ok(notyMessages[0].includes('metadata rendering failed'));
+  });
+
+  it('leaves the file list modal open (instead of closing it) when picking a file from the grid, so the player exit refocuses it', async () => {
+    let modalOpenCount = 0;
+    let modalCloseCount = 0;
+    const templatedItems: any[] = [];
+
+    (globalThis as any).Lampa.Modal = {
+      close: () => { modalCloseCount += 1; },
+      open: () => { modalOpenCount += 1; },
+    };
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`,
+      clearHtmlTags: (value: string) => value,
+      hash: (value: string) => value,
+    };
+    (globalThis as any).Lampa.Controller = {
+      enabled: () => ({ name: 'torst_torrents' }),
+      toggle: () => {},
+    };
+    (globalThis as any).$ = (_html?: string) => {
+      const listeners: Record<string, any> = {};
+      const el: any = {
+        __listeners: listeners,
+        0: { style: {} },
+        append: (_child: any) => el,
+        find: (_selector: string) => el,
+        on: (eventName: string, callback: any) => { listeners[eventName] = callback; return el; },
+      };
+      return el;
+    };
+    (globalThis as any).Lampa.Template = {
+      get: () => {
+        const el = (globalThis as any).$('<div class="torrent-file selector"></div>');
+        templatedItems.push(el);
+        return el;
+      },
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      append(_e: any) {}
+      minus() {}
+      render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      update() {}
+    };
+
+    let capturedReturnController: string | undefined;
+    let capturedMovie: any;
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (
+      _torrent: any,
+      _fileIndex: number,
+      movie: any,
+      _sourceInstance: any,
+      returnController: string
+    ) => {
+      capturedMovie = movie;
+      capturedReturnController = returnController;
+    };
+
+    try {
+      const component = new TorstTorrentsComponent();
+      const multiFileTorrent: any = {
+        files: [
+          { length: 734003200, name: 'episode.S01E01.mkv', path: 'episode.S01E01.mkv' },
+          { length: 734003200, name: 'episode.S01E02.mkv', path: 'episode.S01E02.mkv' },
+        ],
+        hash: 'multi-exit-test',
+        name: 'My Show S01',
+        title: 'My Show S01',
+      };
+
+      await component.openTorrent(multiFileTorrent);
+      assert.equal(modalOpenCount, 1, 'file list modal should open initially');
+      assert.equal(templatedItems.length, 2, 'both video files should be templated');
+
+      templatedItems[0].__listeners['hover:enter']();
+
+      assert.equal(modalCloseCount, 0, 'selecting a file must NOT close the file list modal (Lampa leaves it open behind the player)');
+      assert.equal(
+        capturedReturnController,
+        'modal',
+        'startTorrentPlayback must be told to refocus the modal (not the torrent card) on player exit'
+      );
+      assert.equal(modalOpenCount, 1, 'the modal must not be recreated');
+      assert.equal(capturedMovie, undefined, 'a saved torrent carries no catalog card to hand to playback');
+    } finally {
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
+    }
+  });
+
+  it('reads file list progress under the hash playback writes for a saved torrent', async () => {
+    const viewedHashes: string[] = [];
+    (globalThis as any).Lampa.Modal = { close: () => {}, open: () => {} };
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${bytes} B`,
+      clearHtmlTags: (value: string) => value,
+      hash: (value: string) => value,
+    };
+    (globalThis as any).Lampa.Controller = { enabled: () => ({ name: 'torst_torrents' }), toggle: () => {} };
+    (globalThis as any).$ = (_html?: string) => {
+      const el: any = { 0: { style: {} }, append: () => el, find: () => el, on: () => el };
+      return el;
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      append() {}
+      minus() {}
+      render() { return (globalThis as any).$(); }
+      update() {}
+    };
+    (globalThis as any).Lampa.Template = { get: () => (globalThis as any).$() };
+    (globalThis as any).Lampa.Timeline = {
+      render: () => (globalThis as any).$(),
+      view: (hash: string) => { viewedHashes.push(hash); return { hash }; },
+    };
+
+    const component = new TorstTorrentsComponent();
+    await component.openTorrent({
+      files: [
+        { length: 1, name: 'My.Show.S01E01.mkv', path: 'My.Show.S01E01.mkv' },
+        { length: 1, name: 'My.Show.S01E02.mkv', path: 'My.Show.S01E02.mkv' },
+      ],
+      hash: 'cardless',
+      name: 'My.Show.S01',
+      retention: 'temporary' as const, storage: 'memory',
+      title: 'My Show',
+      total_size: 2,
+    });
+
+    // Playback hashes a card-less torrent against the torrent itself, not the
+    // name-based fallback card the file list uses for display.
+    assert.deepEqual(viewedHashes, ['11My Show', '12My Show']);
+  });
+
+  describe('watched overlay on grid cards', () => {
+    const progressTorrent: any = {
+      files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv' }],
+      hash: 'watched-hash',
+      name: 'Movie',
+      retention: 'temporary' as const, storage: 'memory',
+      title: 'Movie',
+      total_size: 1,
+    };
+
+    let cards: any[];
+    let prepended: any[];
+
+    const createCard = () => {
+      const listeners: Record<string, (event: any) => void> = {};
+      const classes = new Set<string>();
+      const node: any = { classList: { contains: (name: string) => classes.has(name) }, style: {} };
+      const card: any = {
+        0: node,
+        addClass: () => card,
+        append: () => card,
+        attr: () => card,
+        children: [],
+        classes,
+        empty: () => card,
+        find: (selector: string) => {
+          if (selector === '.card-watched') return { length: card.hasOverlay ? 1 : 0, remove: () => { card.hasOverlay = false; } };
+          if (selector === '.card__view') return { prepend: (overlay: any) => { prepended.push(overlay); card.hasOverlay = true; } };
+          return card;
+        },
+        hasOverlay: false,
+        listeners,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => { listeners[name] = callback; });
+          return card;
+        },
+        remove: () => card,
+        removeClass: () => card,
+        text: () => card,
+      };
+      return card;
+    };
+
+    const focusCard = (card: any) => {
+      card.classes.add('focus');
+      card.listeners['hover:focus']({ currentTarget: card[0] });
+    };
+
+    const renderCard = (listedTorrent = progressTorrent) => {
+      const component = new TorstTorrentsComponent() as any;
+      component.renderTorrents([listedTorrent], { authType: 'none', id: 'test', name: 'Test', url: 'http://127.0.0.1:8080' }, true);
+      return { card: cards[cards.length - 1], component };
+    };
+
+    beforeEach(() => {
+      mock.timers.enable({ apis: ['setTimeout'] });
+      cards = [];
+      prepended = [];
+      (globalThis as any).$ = (html?: string) => {
+        const card = createCard();
+        if (typeof html === 'string' && html.includes('class="card card--loaded')) cards.push(card);
+        return card;
+      };
+      (globalThis as any).Lampa.Background = { change: () => {} };
+      (globalThis as any).Lampa.Controller = { collectionFocus: () => {}, collectionSet: () => {} };
+      (globalThis as any).Lampa.Lang = { translate: (key: string) => key };
+      (globalThis as any).Lampa.Scroll = class {
+        append() {}
+        destroy() {}
+        render() { return createCard(); }
+        update() {}
+      };
+      (globalThis as any).Lampa.Template = { get: () => createCard() };
+      (globalThis as any).Lampa.Timeline = {
+        render: () => createCard(),
+        view: (hash: string) => ({ hash, percent: 40, time: 600 }),
+      };
+      (globalThis as any).Lampa.Utils = {
+        bytesToSize: (bytes: number) => `${bytes} B`,
+        clearHtmlTags: (value: string) => value,
+        hash: (value: string) => value,
+        secondsToTimeHuman: (seconds: number) => `${seconds}s`,
+      };
+    });
+
+    afterEach(() => {
+      mock.timers.reset();
+    });
+
+    it('shows the overlay after the focus delay and refreshes it on refocus', () => {
+      const { card } = renderCard();
+      focusCard(card);
+
+      mock.timers.tick(499);
+      assert.equal(prepended.length, 0);
+      mock.timers.tick(1);
+      assert.equal(prepended.length, 1);
+
+      focusCard(card);
+      mock.timers.tick(500);
+      assert.equal(prepended.length, 2, 'refocusing replaces the previous overlay with current progress');
+      assert.equal(card.hasOverlay, true);
+    });
+
+    it('loads cold card files from the grid instance before drawing watched progress', async () => {
+      const read = mock.method(TorstApi, 'getTorrent', async () => progressTorrent);
+      const { card, component } = renderCard({ ...progressTorrent, files: [] });
+      focusCard(card);
+      mock.timers.tick(500);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(read.mock.callCount(), 1);
+      const sourceInstance = read.mock.calls[0].arguments[0];
+      assert.ok(sourceInstance);
+      assert.equal(sourceInstance.id, 'test');
+      assert.equal(read.mock.calls[0].arguments[1], progressTorrent.hash);
+      assert.equal(prepended.length, 1);
+      component.destroy();
+    });
+
+    it('skips a card that lost focus before the delay elapsed', () => {
+      const { card } = renderCard();
+      focusCard(card);
+      card.classes.delete('focus');
+
+      mock.timers.tick(500);
+      assert.equal(prepended.length, 0);
+    });
+
+    it('cancels a pending overlay when the component is destroyed', () => {
+      const { card, component } = renderCard();
+      focusCard(card);
+      component.destroy();
+
+      mock.timers.tick(500);
+      assert.equal(prepended.length, 0);
+    });
+
+    it('respects Lampa turning off card episode overlays', () => {
+      (globalThis as any).Lampa.Storage.field = (key: string) => (key === 'card_episodes' ? false : undefined);
+      const { card } = renderCard();
+      focusCard(card);
+
+      mock.timers.tick(500);
+      assert.equal(prepended.length, 0);
+    });
+  });
+
+  it('plays the file the user picked from a library torrent, addressing it by its index in the complete file list', async () => {
+    const templatedItems: any[] = [];
+    const requestedFileIndexes: number[] = [];
+
+    (globalThis as any).Lampa.Modal = { close: () => {}, open: () => {} };
+    (globalThis as any).Lampa.Utils = {
+      bytesToSize: (bytes: number) => `${bytes} B`,
+      clearHtmlTags: (value: string) => value,
+      hash: (value: string) => value,
+    };
+    (globalThis as any).Lampa.Controller = {
+      enabled: () => ({ name: 'torst_torrents' }),
+      toggle: () => {},
+    };
+    (globalThis as any).$ = (_html?: string) => {
+      const listeners: Record<string, any> = {};
+      const el: any = {
+        __listeners: listeners,
+        0: { style: {} },
+        append: (_child: any) => el,
+        find: (_selector: string) => el,
+        on: (eventName: string, callback: any) => { listeners[eventName] = callback; return el; },
+      };
+      return el;
+    };
+    (globalThis as any).Lampa.Template = {
+      get: () => {
+        const el = (globalThis as any).$('<div class="torrent-file selector"></div>');
+        templatedItems.push(el);
+        return el;
+      },
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      append(_e: any) {}
+      minus() {}
+      render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      update() {}
+    };
+
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
+      requestedFileIndexes.push(fileIndex);
+    };
+
+    try {
+      const component = new TorstTorrentsComponent();
+      // Non-video entries and an out-of-order episode make the video-only sorted
+      // list disagree with the torrent's own file order in both directions.
+      await component.openTorrent({
+        files: [
+          { length: 1, name: 'poster.jpg', path: 'Show.S01/poster.jpg' },
+          { length: 1, name: 'Show.S01E10.mkv', path: 'Show.S01/Show.S01E10.mkv' },
+          { length: 1, name: 'Show.S01E01.mkv', path: 'Show.S01/Show.S01E01.mkv' },
+          { length: 1, name: 'Show.S01E02.mkv', path: 'Show.S01/Show.S01E02.mkv' },
+          { length: 1, name: 'readme.nfo', path: 'Show.S01/readme.nfo' },
+        ],
+        hash: 'multi-file-index',
+        name: 'Show S01',
+        retention: 'temporary' as const, storage: 'file',
+        total_size: 5,
+      } as any);
+
+      assert.equal(templatedItems.length, 3, 'only the three video files should be listed');
+
+      templatedItems[0].__listeners['hover:enter']();
+      templatedItems[1].__listeners['hover:enter']();
+      templatedItems[2].__listeners['hover:enter']();
+
+      assert.deepEqual(
+        requestedFileIndexes,
+        [2, 3, 1],
+        'rows are sorted E01, E02, E10 and must resolve to their own positions in the full file list'
+      );
+    } finally {
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
+    }
+  });
+
+  it('plays the only video of a library torrent by its real index when other files precede it', async () => {
+    const requestedFileIndexes: number[] = [];
+
+    (globalThis as any).$ = (_html?: string) => {
+      const el: any = {
+        append: (_child: any) => el,
+        attr: (_name: string, _value?: string) => el,
+        find: (_selector: string) => el,
+        on: (_eventName: string, _callback: any) => el,
+      };
+      return el;
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      append(_e: any) {}
+      minus() {}
+      render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      update() {}
+    };
+
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    (TorstEngine as any).startTorrentPlayback = async (_torrent: any, fileIndex: number) => {
+      requestedFileIndexes.push(fileIndex);
+    };
+
+    try {
+      const component = new TorstTorrentsComponent();
+      await component.openTorrent({
+        files: [
+          { length: 1, name: 'poster.jpg', path: 'Movie/poster.jpg' },
+          { length: 1, name: 'sample.txt', path: 'Movie/sample.txt' },
+          { length: 1, name: 'Movie.mkv', path: 'Movie/Movie.mkv' },
+        ],
+        hash: 'single-video-index',
+        name: 'Movie',
+        retention: 'temporary' as const, storage: 'file',
+        total_size: 3,
+      } as any);
+
+      assert.deepEqual(requestedFileIndexes, [2]);
+    } finally {
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
+    }
+  });
+
+  it('shows an error notice and stops loading when playback fails from the library torrents browser', async () => {
+    const notyMessages: string[] = [];
+    let loadingStopped = false;
+    let toggledController = '';
+
+    (globalThis as any).$ = (_html?: string) => {
+      const el: any = {
+        append: (_child: any) => el,
+        attr: (_name: string, _value?: string) => el,
+        find: (_selector: string) => el,
+        on: (_eventName: string, _callback: any) => el,
+      };
+      return el;
+    };
+    (globalThis as any).Lampa.Noty.show = (message: string) => { notyMessages.push(message); };
+    (globalThis as any).Lampa.Loading = { stop: () => { loadingStopped = true; } };
+    (globalThis as any).Lampa.Controller = {
+      enabled: () => ({ name: 'torst_torrents' }),
+      toggle: (name: string) => { toggledController = name; },
+    };
+    (globalThis as any).Lampa.Scroll = class {
+      append(_e: any) {}
+      minus() {}
+      render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      update() {}
+    };
+
+    const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+    let playbackSourceInstance: any = null;
+    (TorstEngine as any).startTorrentPlayback = async (
+      _torrent: any,
+      _fileIndex: number,
+      _movie: any,
+      sourceInstance: any
+    ) => {
+      playbackSourceInstance = sourceInstance;
+      throw new Error('All configured Torst instances are unreachable');
+    };
+
+    try {
+      const component = new TorstTorrentsComponent();
+      const activeInstance = {
+        authType: 'none',
+        id: 'library-instance',
+        name: 'Library Instance',
+        url: 'http://library.example.com',
+      };
+      (component as any).activeInstance = activeInstance;
+      const singleFileTorrent: any = {
+        files: [{ length: 1000, name: 'movie.mkv', path: 'movie.mkv' }],
+        hash: 'single123',
+        name: 'Movie',
+      };
+
+      component.openTorrent(singleFileTorrent);
+
+      // Playback failure is asynchronous — wait for the rejection to be handled.
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      assert.equal(loadingStopped, true, 'Loading screen must be stopped on failure');
+      assert.equal(playbackSourceInstance, activeInstance, 'Playback must stay on the instance that supplied the card');
+      assert.equal(toggledController, 'torst_torrents', 'Launching controller must be restored on failure');
+      assert.ok(
+        notyMessages.some(message => message.includes('All configured Torst instances are unreachable')),
+        'An error notice must be shown when playback fails'
+      );
+    } finally {
+      TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
+    }
+  });
+
+  it('filters out native TorrServer items from context menu when playback mode is Always Torst', () => {
+    let torrentListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'torrent') torrentListener = callback;
+      },
+    };
+
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+    assert.ok(torrentListener, 'Torrent listener must be registered');
+
+    // Test in 'ask' mode: `tomy` item is retained
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+    const askMenu: any[] = [
+      { mark: true, title: 'Mark' },
+      { title: 'Add to TorrServer', tomy: true },
+      { title: 'Remove Mark', unmark: true },
+    ];
+    torrentListener({
+      element: { title: 'Test Torrent' },
+      item: {},
+      menu: askMenu,
+      type: 'onlong',
+    });
+    assert.equal(askMenu[0].title, getTestTranslation('torst_play_via'), 'Play via Torst must be first action');
+    assert.equal(askMenu[1].title, getTestTranslation('torst_save_to'), 'Save to Torst must be second action');
+    assert.ok(askMenu.some(item => item.tomy), 'Native TorrServer item must be kept in ask mode');
+    assert.ok(askMenu.some(item => item.mark), 'Mark action must be kept when unviewed');
+    assert.equal(askMenu.some(item => item.unmark), false, 'Unmark action must be filtered when unviewed');
+
+    // Test dynamic toggle when already marked viewed
+    storageMap.set('torrents_view', ['viewed_hash']);
+    const viewedMenu: any[] = [
+      { mark: true, title: 'Mark' },
+      { title: 'Remove Mark', unmark: true },
+    ];
+    torrentListener({
+      element: { hash: 'viewed_hash', title: 'Viewed Torrent' },
+      item: {},
+      menu: viewedMenu,
+      type: 'onlong',
+    });
+    assert.ok(viewedMenu.some(item => item.unmark), 'Unmark action must be kept when already viewed');
+    assert.equal(viewedMenu.some(item => item.mark), false, 'Mark action must be filtered when already viewed');
+
+    // Test in 'torst' mode: `tomy` item is stripped
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+    const torstMenu: any[] = [
+      { title: 'Add to TorrServer', tomy: true },
+      { mark: true, title: 'Mark' },
+      { title: 'Remove Mark', unmark: true },
+    ];
+    torrentListener({
+      element: { title: 'Test Torrent' },
+      item: {},
+      menu: torstMenu,
+      type: 'onlong',
+    });
+    assert.equal(torstMenu.some(item => item.tomy), false, 'Native TorrServer item must be removed in torst mode');
+    assert.equal(torstMenu[0].title, getTestTranslation('torst_play_via'));
+    assert.equal(torstMenu[0].subtitle, getTestTranslation('torst_play_via_descr'));
+    assert.equal(torstMenu[1].title, getTestTranslation('torst_save_to'));
+    assert.equal(torstMenu[1].subtitle, getTestTranslation('torst_save_to_descr'));
+    assert.ok(torstMenu.some(item => item.mark), 'Mark item should be preserved when unviewed');
+
+    // Verify selecting 'Save to Torst' passes resolved movie instead of DOM item
+    let savedMovie: any = null;
+    const origSaveToLibrary = TorstEngine.saveToLibrary;
+    TorstEngine.saveToLibrary = async (_element: any, movie: any) => {
+      savedMovie = movie;
+    };
+
+    const mockMovie = { id: 123, title: 'Context Movie' };
+    (globalThis as any).Lampa.Activity = {
+      active: () => ({
+        component: 'torrents',
+        movie: mockMovie,
+      }),
+    };
+
+    const contextMenu: any[] = [];
+    torrentListener({
+      element: { title: 'Test Torrent' },
+      item: {},
+      menu: contextMenu,
+      type: 'onlong',
+    });
+
+    const saveOption = contextMenu.find(item => item.title === getTestTranslation('torst_save_to'));
+    assert.ok(saveOption);
+    saveOption.onSelect();
+    assert.deepEqual(savedMovie, mockMovie, 'Must pass active activity movie context instead of DOM element');
+    TorstEngine.saveToLibrary = origSaveToLibrary;
+  });
+
+  it('prefers the card a search result sends over the page behind the search screen', () => {
+    let torrentListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'torrent') torrentListener = callback;
+      },
+    };
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+    (globalThis as any).Lampa.Activity = {
+      active: () => ({ component: 'full', movie: { id: 7, title: 'Unrelated Page Movie' } }),
+    };
+    const playedMovies: unknown[] = [];
+    const savedMovies: unknown[] = [];
+    const originalPlayDirect = TorstEngine.playTorrentDirect;
+    const originalSave = TorstEngine.saveToLibrary;
+    TorstEngine.playTorrentDirect = (_element: any, movie: any) => { playedMovies.push(movie); };
+    TorstEngine.saveToLibrary = async (_element: any, movie: any) => { savedMovies.push(movie); };
+
+    try {
+      const searchCard = { title: 'Search Result Title' };
+      const menu: any[] = [];
+      torrentListener({ element: { title: 'Search Result Title' }, item: {}, menu, movie: searchCard, type: 'onlong' });
+      menu.find(item => item.title === getTestTranslation('torst_play_via')).onSelect();
+      menu.find(item => item.title === getTestTranslation('torst_save_to')).onSelect();
+
+      assert.deepEqual(playedMovies, [searchCard]);
+      assert.deepEqual(savedMovies, [searchCard]);
+    } finally {
+      TorstEngine.playTorrentDirect = originalPlayDirect;
+      TorstEngine.saveToLibrary = originalSave;
+    }
+  });
+
+  it('states that a searched torrent is already stored instead of offering to save it again', () => {
+    let torrentListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'torrent') torrentListener = callback;
+      },
+    };
+
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+
+    const savedHash = 'a'.repeat(40);
+    const unsavedHash = 'b'.repeat(40);
+    SavedTorrents.reset();
+    SavedTorrents.markSaved(savedHash);
+    SavedTorrents.markUnsaved(unsavedHash);
+
+    const savedMenu: any[] = [];
+    torrentListener({
+      element: { InfoHash: savedHash.toUpperCase(), title: 'Stored Torrent' },
+      item: {},
+      menu: savedMenu,
+      type: 'onlong',
+    });
+
+    const savedNotice = savedMenu.find(item => item.title === getTestTranslation('torst_already_saved'));
+    assert.ok(savedNotice, 'A stored torrent must be reported as already stored');
+    assert.equal(savedNotice.ghost, true, 'The notice must be drawn as inactive');
+    assert.equal(savedNotice.noenter, true, 'The notice must not be selectable');
+    assert.equal(
+      savedMenu.some(item => item.title === getTestTranslation('torst_save_to')),
+      false,
+      'A stored torrent must not be offered for saving again'
+    );
+
+    const unsavedMenu: any[] = [];
+    torrentListener({
+      element: { InfoHash: unsavedHash, title: 'New Torrent' },
+      item: {},
+      menu: unsavedMenu,
+      type: 'onlong',
+    });
+    assert.ok(
+      unsavedMenu.some(item => item.title === getTestTranslation('torst_save_to')),
+      'A torrent absent from the library must still be offered for saving'
+    );
+
+    const unknownMenu: any[] = [];
+    torrentListener({
+      element: { MagnetUri: `magnet:?xt=urn:btih:${'c'.repeat(40)}`, title: 'Unresolved Torrent' },
+      item: {},
+      menu: unknownMenu,
+      type: 'onlong',
+    });
+    assert.ok(
+      unknownMenu.some(item => item.title === getTestTranslation('torst_save_to')),
+      'A torrent whose state never resolved must keep the save action'
+    );
+
+    SavedTorrents.reset();
+  });
+
+  it('resolves stored state for rendered search results through a single filtered listing', async () => {
+    let torrentListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'torrent') torrentListener = callback;
+      },
+    };
+
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+
+    const storedHash = 'd'.repeat(40);
+    const clientOnlyHash = 'e'.repeat(40);
+    const requestedUrls: string[] = [];
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },
+        items: ([
+          { files: [], hash: storedHash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+        ]).map(createTorstTorrent),
+        links: {},
+      }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
+    };
+
+    SavedTorrents.reset();
+    torrentListener({ element: { InfoHash: storedHash }, item: {}, type: 'render' });
+    torrentListener({ element: { InfoHash: clientOnlyHash }, item: {}, type: 'render' });
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    const listingRequests = requestedUrls.filter(url => url.includes('/api/v1/torrents?'));
+    assert.equal(listingRequests.length, 1, 'Rendered results must be resolved in one batched listing');
+    assert.ok(
+      listingRequests[0].includes(storedHash) && listingRequests[0].includes(clientOnlyHash),
+      'The listing must be filtered server-side by the rendered hashes'
+    );
+    assert.equal(SavedTorrents.isSaved(storedHash), true, 'A library row must count as stored');
+    assert.equal(
+      SavedTorrents.isSaved(clientOnlyHash),
+      false,
+      'A torrent only loaded in the torrent client must not count as stored'
+    );
+
+    SavedTorrents.reset();
+  });
+
+  it('drops cached stored state when requests are rerouted to another instance', () => {
+    const cachedHash = 'f'.repeat(40);
+
+    (SavedTorrents as any).isRegistered = false;
+    SavedTorrents.init();
+    SavedTorrents.reset();
+    SavedTorrents.markSaved(cachedHash);
+    assert.equal(SavedTorrents.isSaved(cachedHash), true, 'Precondition: the hash is cached as stored');
+
+    InstanceManager.addInstance({ authType: 'none', id: 'other-instance', name: 'Other', url: 'http://other.example' });
+    InstanceManager.setSelectedId('other-instance');
+
+    assert.equal(
+      SavedTorrents.isSaved(cachedHash),
+      undefined,
+      'Another instance means another library, so the previous answer must not be reused'
+    );
+
+    InstanceManager.removeInstance('other-instance');
+    SavedTorrents.reset();
+  });
+
+  it('retries a hash whose lookup failed instead of leaving it permanently unknown', async () => {
+    const hash = '1'.repeat(40);
+    const requestedUrls: string[] = [];
+    let shouldFail = true;
+
+    globalThis.fetch = async (input: RequestInfo | URL) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (shouldFail && url.includes('/api/v1/torrents')) return new Response('boom', { status: 500 });
+      return new Response(JSON.stringify({ facets: { categories: [], total_count: 1, version: 'v1' },
+        items: ([
+          { files: [], hash, name: 'Stored', retention: 'persisted' as const, storage: 'memory', total_size: 0 },
+        ]).map(createTorstTorrent),
+        links: {},
+      }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
+    };
+
+    SavedTorrents.reset();
+    SavedTorrents.queueLookup(hash);
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    assert.equal(
+      SavedTorrents.isSaved(hash),
+      undefined,
+      'A failed lookup must not be recorded as an answer'
+    );
+    assert.ok(
+      requestedUrls.some(url => /[?&]page_size=/.test(url)),
+      'A lookup must use Torst page sizes'
+    );
+
+    shouldFail = false;
+    SavedTorrents.queueLookup(hash);
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    assert.equal(
+      SavedTorrents.isSaved(hash),
+      true,
+      'The requeued hash must be resolved on the next lookup'
+    );
+
+    SavedTorrents.reset();
+  });
+
+  it('omits the storage switch for a torrent that is only loaded in the torrent client', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public update() {}
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      enableDownloader: true,
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const clientOnlyTorrent: any = {
+      files: [],
+      hash: 'f'.repeat(40),
+      name: 'Client Only Torrent',
+      retention: 'temporary' as const, storage: 'memory',
+      total_size: 0,
+    };
+    const cardElement = { remove: () => {} };
+
+    await component.openContextMenu(clientOnlyTorrent, instance as any, cardElement as any);
+
+    assert.equal(
+      lastSelectOptions.items.some((item: any) => item.action === 'switch-storage'),
+      false,
+      'A torrent with no library row cannot be switched to file storage'
+    );
+    assert.ok(
+      lastSelectOptions.items.some((item: any) => item.action === 'delete'),
+      'The delete action must remain available'
+    );
+  });
+
+  it('restores focus to the card list after an injected context menu action', () => {
+    let torrentListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'torrent') torrentListener = callback;
+      },
+    };
+
+    const toggledControllers: string[] = [];
+    let enabledController = 'content';
+    (globalThis as any).Lampa.Controller = {
+      enabled: () => ({ name: enabledController }),
+      toggle: (name: string) => { toggledControllers.push(name); },
+    };
+
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+
+    const origSaveToLibrary = TorstEngine.saveToLibrary;
+    const origPlayDirect = TorstEngine.playTorrentDirect;
+    let playReturnController: string | undefined;
+    TorstEngine.saveToLibrary = async () => {};
+    TorstEngine.playTorrentDirect = (_element: any, _movie: any, returnController?: string) => {
+      playReturnController = returnController;
+    };
+
+    try {
+      const menu: any[] = [];
+      torrentListener({
+        element: { title: 'Test Torrent' },
+        item: {},
+        menu,
+        type: 'onlong',
+      });
+
+      // Lampa's Select owns the controller by the time an item is chosen, so the injected
+      // handlers must use the one captured when the menu was built.
+      enabledController = 'select';
+
+      menu.find(item => item.title === getTestTranslation('torst_save_to')).onSelect();
+      assert.deepEqual(toggledControllers, ['content'], 'saving must hand focus back to the card list');
+
+      menu.find(item => item.title === getTestTranslation('torst_play_via')).onSelect();
+      assert.equal(playReturnController, 'content', 'playback must fall back to the card list, not the closed menu');
+    } finally {
+      TorstEngine.saveToLibrary = origSaveToLibrary;
+      TorstEngine.playTorrentDirect = origPlayDirect;
+    }
+  });
+
+  it('injects Torst button into movie card details and opens torrents activity with torst flag', () => {
+    let fullListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'full') fullListener = callback;
+      },
+    };
+
+    let pushedActivity: any = null;
+    (globalThis as any).Lampa.Activity = {
+      push: (activity: any) => {
+        pushedActivity = activity;
+      },
+    };
+
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+    storageMap.set('parse_lang', 'df');
+
+    (CatalogChoice as any).isRegistered = false;
+    CatalogChoice.init();
+    assert.ok(fullListener, 'Full listener must be registered');
+
+    const torrentClasses = new Set<string>(['selector']);
+    const injectedElements: any[] = [];
+    const mock$: any = (arg: any) => {
+      if (typeof arg === 'string') {
+        const listeners: Record<string, any> = {};
+        let subtitleVal = '';
+        subtitleVal = arg.match(/data-subtitle="([^"]*)"/)?.[1] || '';
+        const el: any = {
+          __html: arg,
+          __listeners: listeners,
+          after: (child: any) => {
+            injectedElements.push(child);
+            return el;
+          },
+          append: (child: any) => {
+            injectedElements.push(child);
+            return el;
+          },
+          data: (key: string) => (key === 'subtitle' ? subtitleVal : undefined),
+          find: (selector: string) => {
+            if (selector === '.view--torst') {
+              const matched = injectedElements.filter(e => e.__html && e.__html.includes('view--torst'));
+              return {
+                data: (k: string) => (matched[0] ? matched[0].data(k) : undefined),
+                length: matched.length,
+                text: () => (matched[0] ? matched[0].text() : ''),
+                trigger: (evt: string) => {
+                  if (matched[0] && matched[0].__listeners[evt]) matched[0].__listeners[evt]();
+                },
+              };
+            }
+            if (selector === '.view--torrent') {
+              return {
+                addClass: (c: string) => torrentClasses.add(c),
+                after: (child: any) => {
+                  injectedElements.push(child);
+                },
+                before: (child: any) => {
+                  injectedElements.unshift(child);
+                },
+                hasClass: (c: string) => torrentClasses.has(c),
+                length: 1,
+                removeClass: (c: string) => torrentClasses.delete(c),
+              };
+            }
+            if (selector === '.buttons--container') {
+              return {
+                append: (child: any) => {
+                  injectedElements.push(child);
+                },
+                length: 1,
+                prepend: (child: any) => {
+                  injectedElements.unshift(child);
+                },
+              };
+            }
+            return { length: 0 };
+          },
+          length: 1,
+          on: (eventName: string, handler: any) => {
+            listeners[eventName] = handler;
+            return el;
+          },
+          text: () => (arg.includes('Torst') ? 'Torst' : ''),
+          trigger: (evt: string) => {
+            if (listeners[evt]) listeners[evt]();
+          },
+        };
+        return el;
+      }
+      return arg;
+    };
+    (globalThis as any).$ = mock$;
+
+    // Create mock DOM for movie card
+    const mockBody = mock$('<div><div class="buttons--container"><div class="view--torrent"></div></div></div>');
+
+    let groupButtonsEmitted = false;
+    const mockEvent = {
+      body: mockBody,
+      data: {
+        movie: {
+          first_air_date: '2020-05-01',
+          id: 789,
+          original_title: 'Original Title',
+          title: 'Localized Title',
+        },
+      },
+      link: {
+        items: [
+          {
+            emit: (eventName: string) => {
+              if (eventName === 'groupButtons') groupButtonsEmitted = true;
+            },
+          },
+        ],
+      },
+      type: 'complite',
+    };
+
+    // When in Always Torst mode, native .view--torrent is hidden
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+    fullListener(mockEvent);
+
+    assert.equal(injectedElements[0].__html.includes('view--torst'), true, 'Torst must be first in list');
+    const torstBtn = mockBody.find('.view--torst');
+    assert.equal(torstBtn.length, 1, 'Torst button must be injected');
+    assert.equal(torstBtn.data('subtitle'), getTestTranslation('torst_btn_subtitle'));
+    assert.equal(torstBtn.text().trim(), 'Torst');
+    assert.equal(groupButtonsEmitted, true, 'groupButtons must be re-emitted');
+    assert.equal(torrentClasses.has('hide'), true, 'Native button must have hide class in Always Torst');
+    assert.equal(torrentClasses.has('selector'), false, 'Native button must remove selector class in Always Torst');
+
+    // When in context/ask mode, native .view--torrent is not hidden
+    torrentClasses.clear();
+    torrentClasses.add('selector');
+    injectedElements.length = 0;
+    const askBody = mock$('<div><div class="buttons--container"><div class="view--torrent"></div></div></div>');
+    storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'context');
+    fullListener({
+      ...mockEvent,
+      body: askBody,
+    });
+    assert.equal(torrentClasses.has('hide'), false, 'Native button must not have hide class in context mode');
+    assert.equal(torrentClasses.has('selector'), true, 'Native button must retain selector class in context mode');
+
+    // Verify duplicate injection is prevented
+    groupButtonsEmitted = false;
+    fullListener(mockEvent);
+    assert.equal(mockBody.find('.view--torst').length, 1, 'Duplicate button should not be injected');
+    assert.equal(groupButtonsEmitted, false, 'groupButtons should not be emitted on duplicate');
+
+    // Test button click (hover:enter)
+    torstBtn.trigger('hover:enter');
+    assert.ok(pushedActivity, 'Activity.push must be called on click');
+    assert.equal(pushedActivity.component, 'torrents');
+    assert.equal(pushedActivity.torst, true);
+    assert.equal(pushedActivity.title, 'Torst');
+    assert.equal(pushedActivity.movie.torst, true);
+    assert.equal(pushedActivity.movie.title, 'Localized Title');
+    assert.equal(pushedActivity.search, 'Original Title');
+
+    // Test disabled state
+    injectedElements.length = 0;
+    const disabledBody = mock$('<div><div class="buttons--container"><div class="view--torrent"></div></div></div>');
+    storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
+    fullListener({
+      ...mockEvent,
+      body: disabledBody,
+    });
+    assert.equal(disabledBody.find('.view--torst').length, 0, 'Button must not be injected when plugin is disabled');
+  });
+
+  it('offers dynamic mark/unmark in the library context menu', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return (globalThis as any).$('<div>'); }
+      public update() {}
+    };
+    (globalThis as any).$ = (tag: string) => ({
+      append: () => (globalThis as any).$(tag),
+      find: () => (globalThis as any).$(tag),
+      remove: () => {},
+    });
+
+    const component = new TorstTorrentsComponent();
+    const instance = {
+      authType: 'none',
+      id: 'test',
+      name: 'Test Node',
+      url: 'http://127.0.0.1:8080',
+    };
+    const torrent: any = {
+      hash: 'torrent_lib_123',
+      name: 'Sample Show S01',
+      storage: 'memory',
+    };
+
+    let appendedHtml = '';
+    let isRemoved = false;
+    const cardElement = {
+      find: (sel: string) => {
+        if (sel === '.card__icons-inner') {
+          return {
+            append: (h: string) => { appendedHtml = h; },
+            find: () => ({ length: 0 }),
+            length: 1,
+          };
+        }
+        if (sel === '.card__icon--viewed') {
+          return {
+            remove: () => { isRemoved = true; },
+          };
+        }
+        return { length: 0 };
+      },
+    };
+
+    // 1. When unviewed: 'mark' action present
+    storageMap.set('torrents_view', []);
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+
+    const markAction = lastSelectOptions.items.find((i: any) => i.action === 'mark');
+    assert.ok(markAction, 'Mark action must be present when unviewed');
+    await lastSelectOptions.onSelect(markAction);
+    const viewedStorage = (globalThis as any).Lampa.Storage.get('torrents_view', []);
+    assert.ok(viewedStorage.includes('torrent_lib_123'));
+    assert.ok(appendedHtml.includes('card__icon--viewed'));
+
+    // 2. When viewed: 'unmark' action present
+    await component.openContextMenu(torrent, instance as any, cardElement as any);
+    const unmarkAction = lastSelectOptions.items.find((i: any) => i.action === 'unmark');
+    assert.ok(unmarkAction, 'Unmark action must be present when already viewed');
+    await lastSelectOptions.onSelect(unmarkAction);
+    const updatedStorage = (globalThis as any).Lampa.Storage.get('torrents_view', []);
+    assert.equal(updatedStorage.includes('torrent_lib_123'), false);
+    assert.equal(isRemoved, true);
+  });
+
+  it('toggles torst--hide-torrserver body class and hides sidebar mytorrents when Always Torst is active', () => {
+    const classSet = new Set<string>();
+    const mockBody = {
+      classList: {
+        contains: (cls: string) => classSet.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) classSet.add(cls);
+          else classSet.delete(cls);
+        },
+      },
+    };
+    let injectedCss = '';
+    const myTorrentsClasses = new Set<string>(['selector']);
+    const mockMyTorrents = {
+      classList: {
+        contains: (cls: string) => myTorrentsClasses.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) myTorrentsClasses.add(cls);
+          else myTorrentsClasses.delete(cls);
+        },
+      },
+    };
+    const viewTorrentClasses = new Set<string>(['selector']);
+    const mockViewTorrent = {
+      classList: {
+        contains: (cls: string) => viewTorrentClasses.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) viewTorrentClasses.add(cls);
+          else viewTorrentClasses.delete(cls);
+        },
+      },
+    };
+    const parserFolderClasses = new Set<string>(['selector']);
+    const mockParserFolder = {
+      classList: {
+        contains: (cls: string) => parserFolderClasses.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) parserFolderClasses.add(cls);
+          else parserFolderClasses.delete(cls);
+        },
+      },
+    };
+    const mockDocument = {
+      body: mockBody,
+      createElement: () => ({ id: '', textContent: '' }),
+      getElementById: () => null,
+      head: {
+        appendChild: (elem: any) => {
+          injectedCss = elem.textContent || '';
+        },
+      },
+      querySelectorAll: (sel: string) => {
+        const results: any[] = [];
+        if (sel.includes('mytorrents')) results.push(mockMyTorrents);
+        if (sel.includes('view--torrent')) results.push(mockViewTorrent);
+        if (sel.includes('data-component="parser"')) results.push(mockParserFolder);
+        return results;
+      },
+    };
+    (globalThis as any).document = mockDocument;
+
+    try {
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+      SettingsUi.updateTorrServerVisibility();
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
+      assert.ok(injectedCss.includes('.settings-folder[data-component="server"]'));
+      assert.ok(injectedCss.includes('.settings-folder[data-component="parser"]'));
+      assert.ok(injectedCss.includes('[data-action="mytorrents"]'));
+      assert.ok(injectedCss.includes('.view--torrent'));
+      assert.ok(injectedCss.includes('.full-start__button.view--torrent'));
+      assert.ok(myTorrentsClasses.has('hide'));
+      assert.equal(myTorrentsClasses.has('selector'), false);
+      assert.ok(viewTorrentClasses.has('hide'));
+      assert.equal(viewTorrentClasses.has('selector'), false);
+      assert.ok(parserFolderClasses.has('hide'));
+      assert.equal(parserFolderClasses.has('selector'), false);
+
+      ProviderManager.addProvider({
+        id: 'provider-1', isEnabled: true, name: 'Jackett', type: 'jackett', url: 'http://jackett.local:9117',
+      });
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+      SettingsUi.updateTorrServerVisibility();
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
+      assert.equal(classSet.has('torst--hide-native-parser'), true);
+      assert.equal(myTorrentsClasses.has('hide'), false);
+      assert.ok(myTorrentsClasses.has('selector'));
+      assert.equal(viewTorrentClasses.has('hide'), false);
+      assert.ok(viewTorrentClasses.has('selector'));
+      assert.equal(parserFolderClasses.has('hide'), false);
+      assert.ok(parserFolderClasses.has('selector'));
+
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, false);
+      SettingsUi.updateTorrServerVisibility();
+      assert.equal(classSet.has('torst--hide-native-parser'), false);
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
+      assert.equal(myTorrentsClasses.has('hide'), false);
+      assert.ok(myTorrentsClasses.has('selector'));
+      assert.equal(viewTorrentClasses.has('hide'), false);
+      assert.ok(viewTorrentClasses.has('selector'));
+      assert.equal(parserFolderClasses.has('hide'), false);
+      assert.ok(parserFolderClasses.has('selector'));
+    } finally {
+      delete (globalThis as any).document;
+    }
+  });
+
+  it('updates native TorrServer visibility on menu and activity events in SidebarManager', () => {
+    let menuListener: any = null;
+    let activityListener: any = null;
+    (globalThis as any).Lampa.Listener = {
+      follow: (event: string, callback: any) => {
+        if (event === 'menu') menuListener = callback;
+        if (event === 'activity') activityListener = callback;
+      },
+    };
+
+    const classSet = new Set<string>();
+    const mockBody = {
+      classList: {
+        contains: (cls: string) => classSet.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) classSet.add(cls);
+          else classSet.delete(cls);
+        },
+      },
+    };
+    const myTorrentsClasses = new Set<string>(['selector']);
+    const mockMyTorrents = {
+      classList: {
+        contains: (cls: string) => myTorrentsClasses.has(cls),
+        toggle: (cls: string, force: boolean) => {
+          if (force) myTorrentsClasses.add(cls);
+          else myTorrentsClasses.delete(cls);
+        },
+      },
+    };
+    const mockDocument = {
+      body: mockBody,
+      createElement: () => ({ id: '', textContent: '' }),
+      getElementById: () => null,
+      head: {
+        appendChild: () => {},
+      },
+      querySelectorAll: (sel: string) => {
+        if (sel.includes('mytorrents')) return [mockMyTorrents];
+        return [];
+      },
+    };
+    (globalThis as any).document = mockDocument;
+
+    try {
+      (SidebarManager as any).isRegistered = false;
+      SidebarManager.init();
+      assert.ok(menuListener, 'menu listener must be registered');
+      assert.ok(activityListener, 'activity listener must be registered');
+
+      storageMap.set(TORST_ENABLED_STORAGE_KEY, true);
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+
+      // Trigger menu start event
+      menuListener({ type: 'start' });
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
+      assert.ok(myTorrentsClasses.has('hide'));
+      assert.equal(myTorrentsClasses.has('selector'), false);
+
+      // Trigger menu toggle event with ask mode
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'ask');
+      menuListener({ type: 'toggle' });
+      assert.equal(classSet.has('torst--hide-torrserver'), false);
+      assert.equal(myTorrentsClasses.has('hide'), false);
+      assert.ok(myTorrentsClasses.has('selector'));
+
+      // Trigger activity event with torst mode
+      storageMap.set(PLAYBACK_MODE_STORAGE_KEY, 'torst');
+      activityListener();
+      assert.equal(classSet.has('torst--hide-torrserver'), true);
+      assert.ok(myTorrentsClasses.has('hide'));
+      assert.equal(myTorrentsClasses.has('selector'), false);
+    } finally {
+      delete (globalThis as any).document;
+    }
+  });
+
+  it('keeps background polling running regardless of controller or overlay state', async () => {
+    class MockScroll {
+      public append(_elem: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) {
+        return { remove: () => {} };
+      }
+      public reset() {}
+      public update() {}
+    }
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).$ = () => ({
+      append: () => {},
+      empty: () => {},
+      remove: () => {},
+    });
+
+    // Lampa's controller focus reportedly never returns to 'content' after closing an
+    // overlay such as Settings in some environments, so background polling must not depend
+    // on that state.
+    (globalThis as any).Lampa.Controller = {
+      enabled: () => ({ name: 'settings' }),
+      toggle: () => {},
+    };
+
+    const component = new TorstTorrentsComponent();
+    let loadCallCount = 0;
+    component.load = async () => {
+      loadCallCount++;
+    };
+
+    await component.load(true);
+    assert.equal(loadCallCount, 1, 'load must run even while the controller reports a non-content overlay');
+    assert.equal((component as any).needsReload, false);
+
+    component.destroy();
+  });
+
+  it('leaves the current view untouched when a background poll fails silently', async () => {
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return { remove: () => {} }; }
+      public update() {}
+    };
+    (globalThis as any).$ = () => ({ append: () => {}, empty: () => {}, remove: () => {} });
+    (InstanceManager as any).instances = [];
+
+    const component = new TorstTorrentsComponent();
+    let renderEmptyStateCallCount = 0;
+    component.renderEmptyState = () => { renderEmptyStateCallCount++; };
+
+    await component.load(true);
+
+    assert.equal(renderEmptyStateCallCount, 0, 'a silent background failure must not replace the current view with an error screen');
+  });
+
+  for (const controllerName of ['head', 'items_line', 'modal', 'search', 'settings_component', 'torst_provider_result']) {
+    it(`does not move scroll position or focus while ${controllerName} is active`, () => {
+      const createMockElement = (_tag: any) => {
+        const el: any = {
+          addClass: () => el,
+          append: () => el,
+          attr: () => el,
+          empty: () => el,
+          find: () => el,
+          on: () => el,
+          remove: () => el,
+          removeClass: () => el,
+          text: () => el,
+        };
+        return el;
+      };
+      (globalThis as any).$ = (tag: any) => (typeof tag === 'object' ? tag : createMockElement(tag));
+
+      let updateCalls = 0;
+      let collectionSetCalls = 0;
+      let collectionFocusCalls = 0;
+      class MockScroll {
+        public append(_e: any) {}
+        public clear() {}
+        public destroy() {}
+        public minus() {}
+        public render(_js?: boolean) { return createMockElement('div'); }
+        public reset() {}
+        public update() { updateCalls++; }
+      }
+      (globalThis as any).Lampa.Scroll = MockScroll;
+      (globalThis as any).Lampa.Controller = {
+        collectionFocus: () => { collectionFocusCalls++; },
+        collectionSet: () => { collectionSetCalls++; },
+        enabled: () => ({ name: controllerName }),
+      };
+      (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+      const component = new TorstTorrentsComponent();
+      const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+      const torrents: any[] = [
+        { files: [], hash: 'h1', name: 'Torrent One', retention: 'temporary' as const, storage: 'memory', total_size: 0 },
+      ];
+
+      component.renderTorrents(torrents, instance, true);
+      assert.equal(updateCalls, 0, 'a silent refresh must not recompute scroll layout');
+      assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch controller focus');
+      assert.equal(collectionFocusCalls, 0, 'a silent refresh must not touch controller focus');
+
+      component.renderTorrents(torrents, instance, false);
+      assert.equal(updateCalls, 0);
+      assert.equal(collectionSetCalls, 0);
+      assert.equal(collectionFocusCalls, 0);
+
+      (globalThis as any).Lampa.Controller.enabled = () => ({ name: 'content' });
+      component.renderTorrents(torrents, instance, false);
+      assert.equal(updateCalls, 1, 'a non-silent render must still recompute scroll layout');
+      assert.equal(collectionSetCalls, 1);
+      assert.equal(collectionFocusCalls, 1);
+    });
+  }
+
+  it('updates the storage badge when a background refresh sees a storage change', () => {
+    const buildDom = (tag: any) => {
+      const node: any = { children: [] as any[], contains: () => false };
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          node.children.push(child);
+          return el;
+        },
+        attr: () => el,
+        children: node.children,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        htmlString: typeof tag === 'string' ? tag : '',
+        on: () => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom(tag));
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom('div'); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '1 MB', clearHtmlTags: (value: string) => value };
+
+    const component = new TorstTorrentsComponent();
+    const grid: any = (component as any).contentGrid;
+    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const torrent = (storage: 'memory' | 'file') => ([{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage, total_size: 0 }] as any[]);
+
+    component.renderTorrents(torrent('memory'), instance, false);
+    assert.ok(!grid.children[0].htmlString.includes('data-testid="file-storage-badge"'));
+
+    component.renderTorrents(torrent('file'), instance, true);
+    assert.ok(
+      grid.children[0].htmlString.includes('data-testid="file-storage-badge"'),
+      'a background refresh must show the disk badge after switching to file storage'
+    );
+
+    component.renderTorrents(torrent('memory'), instance, true);
+    assert.ok(
+      !grid.children[0].htmlString.includes('data-testid="file-storage-badge"'),
+      'a background refresh must drop the disk badge after switching to memory'
+    );
+
+    component.destroy();
+  });
+
+  it('re-registers the rebuilt cards with the navigator when a silent refresh replaces the focused card', () => {
+    const buildDom = () => {
+      const node: any = {
+        children: [] as any[],
+        classes: new Set<string>(),
+        contains(candidate: any): boolean {
+          return this.children.indexOf(candidate) >= 0;
+        },
+      };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: (name: string) => { node.classes.add(name); return el; },
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+
+    let scrollUpdateCalls = 0;
+    let collectionSetCalls = 0;
+    let collectionFocusCalls = 0;
+    class MockScroll {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() { scrollUpdateCalls++; }
+    }
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).Lampa.Background = { change: () => {} };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => { collectionFocusCalls++; },
+      collectionSet: () => { collectionSetCalls++; },
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    let focusedElement: any = null;
+    (globalThis as any).Lampa.Navigator = {
+      focused: (element: any) => { focusedElement = element; },
+      getFocusedElement: () => focusedElement,
+      move: () => {},
+    };
+
+    const component = new TorstTorrentsComponent();
+    const grid: any = (component as any).contentGrid;
+    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const torrent = (hash: string, name: string) => ({ files: [], hash, name, retention: 'temporary' as const, storage: 'memory', total_size: 0 });
+    const torrents: any[] = [torrent('h1', 'One'), torrent('h2', 'Two')];
+
+    component.renderTorrents(torrents, instance, false);
+    const initialCards = grid[0].children.slice();
+    assert.equal(initialCards.length, 2);
+
+    // The user lands on the second card, which is what the navigator now steers by.
+    initialCards[1].wrapper.handlers.get('hover:focus')({ currentTarget: initialCards[1] });
+    focusedElement = initialCards[1];
+
+    const scrollUpdatesBeforePoll = scrollUpdateCalls;
+    collectionSetCalls = 0;
+    collectionFocusCalls = 0;
+
+    // An unchanged listing must leave the live card elements in place.
+    component.renderTorrents(torrents, instance, true);
+    assert.deepEqual(grid[0].children, initialCards, 'an unchanged silent refresh must not rebuild the grid');
+    assert.equal(collectionSetCalls, 0);
+
+    // A changed listing rebuilds every card, detaching the one the navigator holds.
+    component.renderTorrents([...torrents, torrent('h3', 'Three')], instance, true);
+    const rebuiltCards = grid[0].children.slice();
+    assert.equal(rebuiltCards.length, 3);
+    assert.equal(collectionSetCalls, 1, 'the rebuilt cards must be handed to the navigator collection');
+    assert.equal(collectionFocusCalls, 0, 'restoring the cursor must not re-trigger hover:focus');
+    assert.equal(scrollUpdateCalls, scrollUpdatesBeforePoll, 'a silent refresh must not move the scroll position');
+    assert.equal(focusedElement, rebuiltCards[1], 'the cursor must move to the replacement of the same torrent card');
+    assert.ok(grid[0].contains(focusedElement), 'the navigator must never be left pointing at a detached card');
+    assert.ok(rebuiltCards[1].classes.has('focus'), 'the replacement card must carry the focus marker');
+
+    component.destroy();
+  });
+
+  describe('library order and focus', () => {
+    const buildGridDom = (markup = '') => {
+      const node: any = {
+        children: [] as any[],
+        classes: new Set<string>(),
+        contains(candidate: any): boolean {
+          return this.children.indexOf(candidate) >= 0;
+        },
+        parent: null as any,
+      };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: (name: string) => { node.classes.add(name); return el; },
+        append: (child: any) => {
+          if (child && child[0]) {
+            node.children.push(child[0]);
+            child[0].parent = node;
+          }
+          return el;
+        },
+        attr: () => el,
+        before: (child: any) => {
+          const siblings = node.parent.children;
+          siblings.splice(siblings.indexOf(child[0]), 1);
+          siblings.splice(siblings.indexOf(node), 0, child[0]);
+          return el;
+        },
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        markup,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    let focusedElement: any;
+    let scrolledTo: any[];
+
+    beforeEach(() => {
+      focusedElement = null;
+      scrolledTo = [];
+      (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildGridDom(tag));
+      (globalThis as any).Lampa.Scroll = class {
+        append(_e: any) {}
+        clear() {}
+        destroy() {}
+        minus() {}
+        render(_js?: boolean) { return buildGridDom(); }
+        reset() {}
+        update(element: any) { scrolledTo.push(element && element[0]); }
+      };
+      (globalThis as any).Lampa.Background = { change: () => {} };
+      (globalThis as any).Lampa.Controller = {
+        collectionFocus: () => {},
+        collectionSet: () => {},
+        enabled: () => ({ name: 'content' }),
+      };
+      (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+      (globalThis as any).Lampa.Navigator = {
+        focused: (element: any) => { focusedElement = element; },
+        getFocusedElement: () => focusedElement,
+        move: () => {},
+      };
+    });
+
+    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const torrent = (hash: string, isSaved: boolean, { sizeBytes = 0 } = {}) => ({
+      files: [{ length: 1, name: 'movie.mkv', path: 'movie.mkv' }],
+      hash,
+      name: hash,
+      retention: isSaved ? 'persisted' : 'temporary',
+      storage: 'memory',
+      total_size: sizeBytes,
+    });
+    const cardTitles = (component: any) => component.contentGrid[0].children.map((child: any) =>
+      child.wrapper.markup.match(/<div class="card__title">(.*?)<\/div>/)?.[1]
+    );
+
+    const playFrom = async (component: any, played: any, isHandedOff: boolean) => {
+      const originalStartTorrentPlayback = TorstEngine.startTorrentPlayback;
+      (TorstEngine as any).startTorrentPlayback = async () => isHandedOff;
+      try {
+        component.playTorrentFileSafely(played, 0);
+        await new Promise(resolve => setImmediate(resolve));
+      } finally {
+        TorstEngine.startTorrentPlayback = originalStartTorrentPlayback;
+      }
+    };
+
+    it('preserves library order, focus, and scroll after playback and refresh', async () => {
+      const component: any = new TorstTorrentsComponent();
+      const torrents = [torrent('loaded', false), torrent('first', true), torrent('played', true)];
+      component.renderTorrents(torrents, instance, false);
+      const firstCard = component.contentGrid[0].children[1].wrapper;
+      firstCard.handlers.get('hover:focus')({ currentTarget: firstCard[0] });
+      focusedElement = firstCard[0];
+      const cardsBeforePlayback = component.contentGrid[0].children.slice();
+      scrolledTo = [];
+
+      await playFrom(component, torrents[2], true);
+      await playFrom(component, torrents[1], true);
+
+      assert.deepEqual(cardTitles(component), ['loaded', 'first', 'played']);
+      assert.deepEqual(scrolledTo, []);
+      assert.equal(component.lastFocusedElement, firstCard[0]);
+      assert.equal(component.lastFocusedTorrentHash, 'first');
+      assert.equal(focusedElement, firstCard[0]);
+
+      component.renderTorrents(torrents, instance, true);
+      assert.deepEqual(component.contentGrid[0].children, cardsBeforePlayback);
+      component.renderTorrents([torrents[0], { ...torrents[1], total_size: 1 }, torrents[2]], instance, true);
+      assert.deepEqual(cardTitles(component), ['loaded', 'first', 'played']);
+      assert.equal(focusedElement, component.contentGrid[0].children[1].wrapper[0]);
+      assert.deepEqual(scrolledTo, []);
+
+      component.destroy();
+    });
+
+    it('leaves the order alone when playback is not handed off or the torrent is not saved', async () => {
+      const component: any = new TorstTorrentsComponent();
+      const torrents = [torrent('first', true), torrent('played', true), torrent('loaded', false)];
+      component.renderTorrents(torrents, instance, false);
+      scrolledTo = [];
+
+      await playFrom(component, torrents[1], false);
+      await playFrom(component, torrents[2], true);
+
+      assert.deepEqual(cardTitles(component), ['first', 'played', 'loaded']);
+      assert.deepEqual(scrolledTo, []);
+
+      component.destroy();
+    });
+
+    it('scrolls to the focused card when a silent refresh moves it', () => {
+      const component: any = new TorstTorrentsComponent();
+      component.renderTorrents([torrent('first', true), torrent('watched', true)], instance, false);
+      const watchedCard = component.contentGrid[0].children[1].wrapper;
+      watchedCard.handlers.get('hover:focus')({ currentTarget: watchedCard[0] });
+      focusedElement = watchedCard[0];
+
+      // A changed listing that keeps the focused card in place leaves the view alone.
+      scrolledTo = [];
+      component.renderTorrents([torrent('first', true, { sizeBytes: 1 }), torrent('watched', true)], instance, true);
+      assert.deepEqual(scrolledTo, []);
+
+      component.renderTorrents([torrent('watched', true), torrent('first', true)], instance, true);
+      const movedCard = component.contentGrid[0].children[0].wrapper;
+      assert.equal(focusedElement, movedCard[0]);
+      assert.deepEqual(scrolledTo, [movedCard[0]], 'the view must follow the card under the cursor');
+
+      component.destroy();
+    });
+  });
+
+  it('leaves the navigator alone when a silent refresh runs while another screen holds focus', () => {
+    const buildDom = () => {
+      const node: any = {
+        children: [] as any[],
+        classes: new Set<string>(),
+        contains(candidate: any): boolean {
+          return this.children.indexOf(candidate) >= 0;
+        },
+      };
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        on: () => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+
+    let collectionSetCalls = 0;
+    let collectionFocusCalls = 0;
+    class MockScroll {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    }
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => { collectionFocusCalls++; },
+      collectionSet: () => { collectionSetCalls++; },
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    const foreignElement: any = { classes: new Set<string>() };
+    let focusedElement: any = foreignElement;
+    (globalThis as any).Lampa.Navigator = {
+      focused: (element: any) => { focusedElement = element; },
+      getFocusedElement: () => focusedElement,
+      move: () => {},
+    };
+
+    const component = new TorstTorrentsComponent();
+    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
+
+    component.renderTorrents(torrents, instance, true);
+    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', retention: 'temporary' as const, storage: 'memory', total_size: 0 }], instance, true);
+
+    assert.equal(collectionSetCalls, 0, 'a silent refresh must not touch the collection of the screen that holds focus');
+    assert.equal(collectionFocusCalls, 0);
+    assert.equal(focusedElement, foreignElement, 'a silent refresh must not pull the cursor away from another screen');
+
+    component.destroy();
+  });
+
+  it('rebuilds the cards when a silent refresh switches instance behind an identical listing', () => {
+    const buildDom = () => {
+      const node: any = { children: [] as any[] };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    const component = new TorstTorrentsComponent();
+    const grid: any = (component as any).contentGrid;
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
+    const first: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const second: any = { authType: 'none', id: 'b', name: 'B', url: 'http://b.local' };
+
+    component.renderTorrents(torrents, first, false);
+    const initialCard = grid[0].children[0];
+
+    component.renderTorrents(torrents, first, true);
+    assert.equal(grid[0].children[0], initialCard, 'an unchanged silent refresh must not rebuild the grid');
+
+    // A failover hands the same listing over from a different instance: the cards close over the
+    // instance, so they have to be rebuilt even though nothing on screen changes.
+    component.renderTorrents(torrents, second, true);
+    assert.notEqual(grid[0].children[0], initialCard, 'a silent refresh after a failover must rebuild the cards');
+
+    let contextInstance: any = null;
+    (component as any).openContextMenu = (_t: any, usedInstance: any) => { contextInstance = usedInstance; };
+    grid[0].children[0].wrapper.handlers.get('hover:long')({});
+    assert.equal(contextInstance, second, 'the rebuilt cards must act on the instance that is now serving them');
+
+    component.destroy();
+  });
+
+  it('renders the empty state once across repeated silent refreshes', () => {
+    const buildDom = () => {
+      const node: any = { children: [] as any[] };
+      const el: any = {
+        0: node,
+        addClass: () => el,
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        on: () => el,
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+
+    const appended: any[] = [];
+    class MockScroll {
+      public append(element: any) { appended.push(element); }
+      public clear() { appended.length = 0; }
+      public destroy() {}
+      public minus() {}
+      public nopadding() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    }
+    (globalThis as any).Lampa.Scroll = MockScroll;
+    (globalThis as any).Lampa.Empty = class {
+      public destroy() {}
+      public render() { return buildDom(); }
+      public start() {}
+    };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => {},
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    const component = new TorstTorrentsComponent();
+    component.renderEmptyState('No torrents found', 'Torst', false);
+    const appendedAfterFirstRender = appended.length;
+
+    component.renderEmptyState('No torrents found', 'Torst', true);
+    component.renderEmptyState('No torrents found', 'Torst', true);
+    assert.equal(appended.length, appendedAfterFirstRender, 'repeated silent refreshes must not stack empty states');
+
+    // A different message is a real change and must replace what is on screen.
+    component.renderEmptyState('Instances unreachable', 'Torst', true);
+    assert.equal(appended.length, appendedAfterFirstRender + 1);
+
+    component.destroy();
+  });
+
+  it('falls back to the focus marker class when the navigator cannot report its focused element', () => {
+    const buildDom = () => {
+      const node: any = {
+        children: [] as any[],
+        classes: new Set<string>(),
+        querySelector(selector: string): any {
+          return selector === '.card.focus'
+            ? this.children.find((child: any) => child.classes && child.classes.has('focus')) || null
+            : null;
+        },
+      };
+      const handlers = new Map<string, any>();
+      const el: any = {
+        0: node,
+        addClass: (name: string) => { node.classes.add(name); return el; },
+        append: (child: any) => {
+          if (child && child[0]) node.children.push(child[0]);
+          return el;
+        },
+        attr: () => el,
+        empty: () => { node.children.length = 0; return el; },
+        find: () => el,
+        handlers,
+        on: (events: string, callback: any) => {
+          events.split(' ').forEach(name => handlers.set(name, callback));
+          return el;
+        },
+        remove: () => el,
+        removeClass: () => el,
+        text: () => el,
+      };
+      node.wrapper = el;
+      return el;
+    };
+
+    (globalThis as any).$ = (tag: any) => (tag && typeof tag === 'object' ? (tag.wrapper || tag) : buildDom());
+
+    let collectionSetCalls = 0;
+    (globalThis as any).Lampa.Scroll = class {
+      public append(_e: any) {}
+      public clear() {}
+      public destroy() {}
+      public minus() {}
+      public render(_js?: boolean) { return buildDom(); }
+      public reset() {}
+      public update() {}
+    };
+    (globalThis as any).Lampa.Background = { change: () => {} };
+    (globalThis as any).Lampa.Controller = {
+      collectionFocus: () => {},
+      collectionSet: () => { collectionSetCalls++; },
+      enabled: () => ({ name: 'content' }),
+    };
+    (globalThis as any).Lampa.Utils = { bytesToSize: () => '0 MB', clearHtmlTags: (value: string) => value };
+
+    // A navigator without getFocusedElement: the grid has to recognize its own cursor anyway.
+    let focusedElement: any = null;
+    (globalThis as any).Lampa.Navigator = {
+      focused: (element: any) => { focusedElement = element; },
+      move: () => {},
+    };
+
+    const component = new TorstTorrentsComponent();
+    const grid: any = (component as any).contentGrid;
+    const instance: any = { authType: 'none', id: 'a', name: 'A', url: 'http://a.local' };
+    const torrents: any[] = [{ files: [], hash: 'h1', name: 'One', retention: 'temporary' as const, storage: 'memory', total_size: 0 }];
+
+    component.renderTorrents(torrents, instance, false);
+    const initialCard = grid[0].children[0];
+    initialCard.wrapper.handlers.get('hover:focus')({ currentTarget: initialCard });
+    initialCard.classes.add('focus');
+
+    collectionSetCalls = 0;
+    component.renderTorrents([...torrents, { files: [], hash: 'h2', name: 'Two', retention: 'temporary' as const, storage: 'memory', total_size: 0 }], instance, true);
+
+    assert.equal(collectionSetCalls, 1, 'the rebuilt cards must still be handed to the navigator collection');
+    assert.equal(focusedElement, grid[0].children[0], 'the cursor must move to the replacement of the same torrent card');
+
+    component.destroy();
+  });
+
+  it('does not install a global ad-blocking stylesheet', () => {
+    const originalDocument = (globalThis as any).document;
+    const styleElements: any[] = [];
+
+    (globalThis as any).document = {
+      createElement: () => ({ id: '', textContent: '' }),
+      getElementById: (id: string) => styleElements.find(element => element.id === id) || null,
+      head: {
+        appendChild: (element: any) => styleElements.push(element),
+      },
+    };
+
+    try {
+      SettingsUi.init();
+      assert.equal(
+        styleElements.some(element => (
+          element.textContent.includes('.ad-preroll')
+          || element.textContent.includes('.ad-video-block')
+          || element.textContent.includes('.ad-banner')
+        )),
+        false
+      );
+    } finally {
+      if (originalDocument === undefined) {
+        delete (globalThis as any).document;
+      } else {
+        (globalThis as any).document = originalDocument;
+      }
+    }
+  });
+
+});
