@@ -36,6 +36,12 @@ describe('InstanceManager', () => {
     mock.restoreAll();
   });
 
+  it('creates and persists the local instance on the default Torst port', () => {
+    const instance = InstanceManager.getPrimaryInstance();
+    assert.equal(instance.url, 'http://127.0.0.1:8642');
+    assert.deepEqual(InstanceManager.load(), [instance]);
+  });
+
   it('persists an independent selected viewing profile on each instance', () => {
     const instances = InstanceManager.getInstances();
     const first = instances[0];

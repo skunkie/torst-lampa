@@ -123,7 +123,7 @@ export class InstanceManager {
           id: generateUuid(),
           name: 'Local Torst',
           status: 'unknown' as const,
-          url: 'http://127.0.0.1:8080',
+          url: 'http://127.0.0.1:8642',
         },
       ];
       this.save();

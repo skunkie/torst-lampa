@@ -226,8 +226,8 @@ export const TRANSLATIONS: Record<string, Record<SupportedLocale, string>> = {
     ru: 'Для хранения на диске нужно сохранение в библиотеку',
   },
   torst_instance_url_placeholder: {
-    en: 'Instance URL (e.g. http://192.168.1.100:8080)',
-    ru: 'URL инстанса (например, http://192.168.1.100:8080)',
+    en: 'Instance URL (e.g. http://192.168.1.100:8642)',
+    ru: 'URL инстанса (например, http://192.168.1.100:8642)',
   },
   torst_invalid_credentials_noty: {
     en: 'Torst: Saved credentials for {names} could not be read. Please re-enter the password in Settings.',

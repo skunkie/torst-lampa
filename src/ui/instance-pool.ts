@@ -519,7 +519,7 @@ export class InstancePoolUi {
     Lampa.Input.edit({
       free: true,
       nosave: true,
-      title: translate('torst_instance_url_placeholder', 'Instance URL (e.g. http://192.168.1.100:8080)'),
+      title: translate('torst_instance_url_placeholder', 'Instance URL (e.g. http://192.168.1.100:8642)'),
       value: 'http://',
     }, instanceUrlInput => {
       if (!instanceUrlInput || !instanceUrlInput.trim() || instanceUrlInput.trim() === 'http://') {
