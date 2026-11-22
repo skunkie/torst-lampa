@@ -113,7 +113,7 @@ export async function requestHttp(
   const method = options.method || 'GET';
   const headers = options.headers || {};
   const timeoutMs = options.timeoutMs || 15000;
-  const isConditional = Object.keys(headers).some(name => name.toLowerCase() === 'if-none-match');
+  const isConditionalRead = (method === 'GET' || method === 'HEAD') && Object.keys(headers).some(name => name.toLowerCase() === 'if-none-match');
   const hasBinaryBody = options.body instanceof Blob;
   const usesBinaryTransport = (hasBinaryBody || (options.responseType === 'blob' && options.shouldUseNativeBinaryResponse)) && typeof Lampa !== 'undefined' && !!Lampa.Platform?.is('android');
 
@@ -204,12 +204,12 @@ export async function requestHttp(
             // Lampa's `Reguest` wrapper only passes the parsed body to its success callback
             // without exposing the underlying jqXHR status. We synthesize 200 vs 204 based
             // on whether the response body contains data, and 304 for an empty answer to a
-            // conditional request, which ajax counts as a success.
+            // conditional read, which ajax counts as a success.
             const hasBody = responseBody !== null && responseBody !== undefined && responseBody !== '';
             const responseText = typeof responseBody === 'string'
               ? responseBody
               : (responseBody ? JSON.stringify(responseBody) : '');
-            const isNotModified = !hasBody && isConditional;
+            const isNotModified = !hasBody && isConditionalRead;
             const status = hasBody ? 200 : (isNotModified ? 304 : 204);
             const statusText = hasBody ? 'OK' : (isNotModified ? 'Not Modified' : 'No Content');
 

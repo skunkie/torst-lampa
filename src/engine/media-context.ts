@@ -16,7 +16,7 @@ export function resolveCardKind(movie?: LampaMovie): 'movie' | 'series' | undefi
 /**
  * Extracts movie data from explicit context or currently active Lampa activity.
  */
-export function resolveMovieContext(movieContext?: unknown): LampaMovie | undefined {
+export function resolveMovieContext(movieContext?: unknown, useActivity = true): LampaMovie | undefined {
   const isObject = (item: unknown): item is Record<string, unknown> =>
     Boolean(item && typeof item === 'object');
 
@@ -45,7 +45,7 @@ export function resolveMovieContext(movieContext?: unknown): LampaMovie | undefi
   const direct = unwrap(movieContext);
   if (direct) return direct;
 
-  if (typeof Lampa !== 'undefined' && Lampa.Activity) {
+  if (useActivity && typeof Lampa !== 'undefined' && Lampa.Activity) {
     const active = Lampa.Activity.active?.();
     const activeMovie = unwrap(active?.movie) || unwrap(active?.card) || unwrap(active);
     if (activeMovie && activeMovie.id !== undefined) return activeMovie;
@@ -68,8 +68,8 @@ export function resolveMovieContext(movieContext?: unknown): LampaMovie | undefi
 /**
  * Resolves an absolute, downloadable poster URL for Torst library and preload screens.
  */
-export function resolvePosterUrl(torrentItem?: { img?: string, poster?: string }, movieContext?: unknown): string {
-  const movie = resolveMovieContext(movieContext);
+export function resolvePosterUrl(torrentItem?: { img?: string, poster?: string }, movieContext?: unknown, useActivity = true): string {
+  const movie = resolveMovieContext(movieContext, useActivity);
 
   const candidates: Array<string | undefined | null> = [
     torrentItem?.poster,

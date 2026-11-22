@@ -27,9 +27,9 @@ function resolveGenres(movie: LampaMovie): string[] | undefined {
 }
 
 /**
- * Builds the library members Torst keeps for a saved torrent from the catalog card it was
- * opened from. Up next groups a series' episodes only when its kind is known, and the IMDb
- * ID links the torrent to catalogs that key titles by it.
+ * Builds library metadata for temporary and saved torrents from their catalog cards.
+ * Up next groups a series' episodes only when its kind is known, and the IMDb ID
+ * links the torrent to catalogs that key titles by it.
  */
 export function buildLibraryDetails(movie?: LampaMovie): LibraryDetails | undefined {
   if (!movie) return undefined;

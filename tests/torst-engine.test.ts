@@ -651,13 +651,18 @@ describe('TorstEngine', () => {
     };
 
     mock.method(InstanceManager, 'getBestInstance', async () => InstanceManager.getInstances()[0]);
-    mock.method(TorstApi, 'addTorrent', async () => ({
-      files: [{ length: 5000, name: 'video.mkv', path: 'video.mkv' }],
-      hash: testHash,
-      name: 'Sintel',
-      retention: 'temporary' as const, storage: 'memory',
-      total_size: 5000,
-    }));
+    mock.method(TorstApi, 'addTorrent', async (_instance: TorstInstance, request: TorrentAdd) => {
+      assert.equal(request.retention, 'temporary');
+      assert.equal(request.title, 'Example Film');
+      assert.equal(request.poster, 'https://image.tmdb.org/t/p/w500/example-film-poster.jpg');
+      return {
+        files: [{ length: 5000, name: 'video.mkv', path: 'video.mkv' }],
+        hash: testHash,
+        name: 'Sintel',
+        retention: 'temporary' as const, storage: 'memory',
+        total_size: 5000,
+      };
+    });
 
     const movieContext = {
       id: 4242,
@@ -670,7 +675,7 @@ describe('TorstEngine', () => {
     await TorstEngine.startPlayback(
       {
         MagnetUri: `magnet:?xt=urn:btih:${testHash}&dn=Example%20Film`,
-        Title: 'Example Film',
+        Title: 'Example Film 1080p',
       },
       movieContext
     );

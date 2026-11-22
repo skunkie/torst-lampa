@@ -63,6 +63,7 @@ describe('HTTP Client (requestHttp)', () => {
           assert.equal(params.type, 'PUT');
           assert.equal(params.bodyEncoding, 'base64');
           assert.equal(params.headers['Content-Type'], 'image/png');
+          assert.equal(params.headers['If-None-Match'], '*');
           assert.deepEqual(new Uint8Array(Buffer.from(String(body), 'base64')), bytes);
           success('');
         }
@@ -70,7 +71,11 @@ describe('HTTP Client (requestHttp)', () => {
       },
     };
     globalThis.fetch = async () => { throw new Error('Browser transport must not be used'); };
-    const response = await requestHttp('http://binary.test/api/v1/torrents/trr_one/poster', { body: new Blob([bytes], { type: 'image/png' }), method: 'PUT' });
+    const response = await requestHttp('http://binary.test/api/v1/torrents/trr_one/poster', {
+      body: new Blob([bytes], { type: 'image/png' }),
+      headers: { 'If-None-Match': '*' },
+      method: 'PUT',
+    });
     assert.equal(response.status, 204);
     assert.deepEqual(methods, ['PUT']);
   });

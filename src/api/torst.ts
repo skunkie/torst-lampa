@@ -51,6 +51,8 @@ interface ResourcePage<T> {
   links: { next?: string }
 }
 
+type LibraryMembers = Record<string, string | number | string[]>;
+
 interface TorstTorrent {
   failure?: { detail: string } | null,
   file_count: number | null,
@@ -142,6 +144,7 @@ const DUPLICATE_TORRENT_PROBLEM_TYPE = 'tag:skunkie.github.io,2026:torrplay/prob
 // Torst accepts metainfo uploads of up to 33 MiB.
 const METAINFO_MAX_BYTES = 33 * 1024 * 1024;
 
+const CONTENT_TOO_LARGE_PROBLEM_TYPE = 'tag:skunkie.github.io,2026:torrplay/problems/content-too-large';
 const VALIDATION_FAILED_PROBLEM_TYPE = 'tag:skunkie.github.io,2026:torrplay/problems/validation-failed';
 
 export class TorstApi {
@@ -289,20 +292,19 @@ export class TorstApi {
     const magnet = torrentRequest.magnet?.trim() || (hash ? `magnet:?xt=urn:btih:${hash}` : '');
     if (!magnet) throw new TorstApiError('A magnet URI or info hash is required', 422);
     const retention = torrentRequest.retention || 'persisted';
-    return this.createTorrent(instance, hasLibrary => JSON.stringify({
+    return this.createTorrent(instance, members => JSON.stringify({
       magnet_uri: magnet,
       retention,
       storage_mode: retention === 'temporary' || torrentRequest.storage !== 'file' ? 'memory' : 'disk',
-      ...(retention === 'persisted' ? this.libraryMembers(torrentRequest, hasLibrary) : {}),
+      ...members,
     }), torrentRequest, extractHashFromMagnet(magnet) || undefined);
   }
 
   /**
-   * The library members of a saved torrent, as Torst's wire names. Temporary torrents carry
-   * none, and `hasLibrary` false keeps only the title.
+   * The library members of a torrent, as Torst's wire names. `hasLibrary` false keeps only the title.
    */
-  private static libraryMembers(options: TorrentAdd, hasLibrary: boolean): Record<string, string | number | string[]> {
-    const members: Record<string, string | number | string[]> = {};
+  private static libraryMembers(options: TorrentAdd, hasLibrary: boolean): LibraryMembers {
+    const members: LibraryMembers = {};
     const title = normalizeLibraryLine(options.title);
     if (title) members.title = title;
     const library = hasLibrary ? options.library : undefined;
@@ -314,27 +316,59 @@ export class TorstApi {
     return members;
   }
 
-  private static isLibraryRejection(error: unknown): boolean {
-    return error instanceof TorstApiError && error.status === 422 && error.problemType === VALIDATION_FAILED_PROBLEM_TYPE;
+  private static missingLibraryMembers(current: Record<string, unknown>, offered: LibraryMembers): LibraryMembers {
+    return Object.fromEntries(Object.entries(offered).filter(([name]) => {
+      const value = current[name];
+      return value == null || (Array.isArray(value) && value.length === 0);
+    }));
   }
 
-  private static async createTorrent(instance: TorstInstance, buildBody: (hasLibrary: boolean) => string | FormData, options: TorrentAdd, infoHash?: string): Promise<Torrent> {
+  private static isContentTooLarge(error: unknown): boolean {
+    return error instanceof TorstApiError && error.status === 413 && error.problemType === CONTENT_TOO_LARGE_PROBLEM_TYPE;
+  }
+
+  private static isLibraryRejection(error: unknown, isJson: boolean): boolean {
+    return (error instanceof TorstApiError && error.status === 422 && error.problemType === VALIDATION_FAILED_PROBLEM_TYPE) ||
+      (isJson && this.isContentTooLarge(error));
+  }
+
+  private static async createTorrent(instance: TorstInstance, buildBody: (members: LibraryMembers) => string | FormData, options: TorrentAdd, infoHash?: string): Promise<Torrent> {
     let resource: TorstTorrent;
-    const create = async (hasLibrary: boolean) => {
-      const body = buildBody(hasLibrary);
+    let savedByAnotherClient = false;
+    const create = async (body: string | FormData) => {
       return (await this.request<TorstTorrent>(instance, '/api/v1/torrents', {
         body,
         headers: typeof body === 'string' ? { 'Content-Type': 'application/json' } : undefined,
         method: 'POST',
       })).data;
     };
+    let members = this.libraryMembers(options, true);
+    let includeLibrary = Object.keys(members).some(name => name !== 'title');
+    let membersBeforeSizeRetry: LibraryMembers | undefined;
     try {
-      try {
-        resource = await create(true);
-      } catch (error) {
-        // Catalog details are a convenience; one Torst refuses must not block the torrent itself.
-        if (!options.library || options.retention === 'temporary' || !this.isLibraryRejection(error)) throw error;
-        resource = await create(false);
+      for (;;) {
+        const body = buildBody(members);
+        const isJson = typeof body === 'string';
+        try {
+          resource = await create(body);
+          break;
+        } catch (error) {
+          const tooLarge = isJson && this.isContentTooLarge(error);
+          if (includeLibrary && this.isLibraryRejection(error, isJson)) {
+            if (tooLarge) membersBeforeSizeRetry ??= members;
+            includeLibrary = false;
+            members = this.libraryMembers(options, false);
+          } else if (tooLarge && members.title) {
+            membersBeforeSizeRetry ??= members;
+            members = {};
+          } else {
+            throw error;
+          }
+        }
+      }
+      if (membersBeforeSizeRetry) {
+        const omitted = Object.fromEntries(Object.entries(membersBeforeSizeRetry).filter(([name]) => !(name in members)));
+        void this.fillMissingLibrary(instance, resource.id, omitted).catch(() => {});
       }
     } catch (error) {
       if (!(error instanceof TorstApiError) || error.status !== 409) throw error;
@@ -350,22 +384,89 @@ export class TorstApi {
       }
       resource = (await this.request<TorstTorrent>(instance, resourcePath)).data;
       if (options.retention !== 'temporary' && resource.retention === 'temporary') {
-        const path = `/api/v1/torrents/${encodeURIComponent(resource.id)}/configuration`;
-        const promotion = { retention: 'persisted', storage_mode: options.storage === 'file' ? 'disk' : 'memory' };
-        try {
-          await this.patchResource(instance, path, { ...promotion, ...this.libraryMembers(options, true) });
-        } catch (patchError) {
-          if (!options.library || !this.isLibraryRejection(patchError)) throw patchError;
-          await this.patchResource(instance, path, { ...promotion, ...this.libraryMembers(options, false) });
-        }
+        savedByAnotherClient = !await this.promoteTemporary(instance, resource.id, options);
         resource = (await this.request<TorstTorrent>(instance, `/api/v1/torrents/${encodeURIComponent(resource.id)}`)).data;
+      } else if (options.retention === 'temporary' && resource.retention === 'temporary') {
+        void this.fillMissingLibrary(instance, resource.id, this.libraryMembers(options, true)).catch(() => {});
       }
     }
     const torrent = this.rememberTorrent(instance, resource);
-    if (options.retention !== 'temporary' && options.poster) {
-      await this.uploadPoster(instance, torrent, options.poster).catch(() => {});
+    if (options.poster && !savedByAnotherClient && !resource.poster) {
+      if (options.retention !== 'temporary') {
+        await this.uploadPoster(instance, torrent, options.poster).catch(() => {});
+      } else if (resource.retention === 'temporary') {
+        void this.uploadPoster(instance, torrent, options.poster).catch(() => {});
+      }
     }
     return torrent;
+  }
+
+  /** Applies an explicit save only while this resource remains temporary. */
+  private static async promoteTemporary(instance: TorstInstance, id: string, options: TorrentAdd): Promise<boolean> {
+    const path = `/api/v1/torrents/${encodeURIComponent(id)}/configuration`;
+    const original = { ...instance };
+    const promotion = { retention: 'persisted', storage_mode: options.storage === 'file' ? 'disk' : 'memory' };
+    let includeLibrary = Boolean(options.library);
+    let omitted: LibraryMembers | undefined;
+    let mayRetryStale = true;
+    for (;;) {
+      this.ensureInstanceUnchanged(instance, original);
+      const { data, etag } = await this.request<Record<string, unknown>>(instance, path, { needsResponseHeaders: true });
+      if (data.retention !== 'temporary') return false;
+      if (!etag) throw new TorstApiError('Torst did not expose the resource ETag', 0);
+      const missing = this.missingLibraryMembers(data, this.libraryMembers(options, includeLibrary));
+      try {
+        await this.patchResource(instance, path, { ...promotion, ...missing }, etag);
+        if (omitted) void this.fillMissingLibrary(instance, id, omitted).catch(() => {});
+        return true;
+      } catch (error) {
+        if (includeLibrary && this.isLibraryRejection(error, true)) {
+          if (this.isContentTooLarge(error)) {
+            omitted = Object.fromEntries(Object.entries(missing).filter(([name]) => name !== 'title'));
+          }
+          includeLibrary = false;
+        } else if (mayRetryStale && error instanceof TorstApiError && error.status === 412) {
+          mayRetryStale = false;
+        } else {
+          throw error;
+        }
+      }
+    }
+  }
+
+  private static async fillMissingLibrary(instance: TorstInstance, id: string, offered: LibraryMembers): Promise<void> {
+    const original = { ...instance };
+    const path = `/api/v1/torrents/${encodeURIComponent(id)}/configuration`;
+    const pending = [offered];
+    for (const members of pending) {
+      if (Object.keys(members).length === 0) continue;
+      for (const mayRetryStale of [true, false]) {
+        this.ensureInstanceUnchanged(instance, original);
+        // Read again for each patch so concurrent edits and promotion are respected.
+        const { data, etag } = await this.request<Record<string, unknown>>(instance, path, { needsResponseHeaders: true });
+        if (!etag) return;
+        const missing = this.missingLibraryMembers(data, members);
+        const entries = Object.entries(missing);
+        if (entries.length === 0) break;
+        try {
+          await this.patchResource(instance, path, missing, etag);
+          break;
+        } catch (error) {
+          if (mayRetryStale && error instanceof TorstApiError && error.status === 412) continue;
+          if (this.isContentTooLarge(error)) {
+            if (entries.length > 1) {
+              const middle = Math.ceil(entries.length / 2);
+              pending.push(Object.fromEntries(entries.slice(0, middle)), Object.fromEntries(entries.slice(middle)));
+            }
+          } else if (this.isLibraryRejection(error, true)) {
+            if (entries.length > 1 && missing.title) pending.push({ title: missing.title });
+          } else {
+            throw error;
+          }
+          break;
+        }
+      }
+    }
   }
 
   private static async uploadPoster(instance: TorstInstance, torrent: Torrent, url: string): Promise<void> {
@@ -377,7 +478,10 @@ export class TorstApi {
     if (image.size > 1024 * 1024) return;
     await this.request(instance, `/api/v1/torrents/${encodeURIComponent(torrent.id as string)}/poster`, {
       body: image,
-      headers: { 'Content-Type': image.type },
+      headers: {
+        'Content-Type': image.type,
+        'If-None-Match': '*',
+      },
       method: 'PUT',
     });
   }
@@ -462,16 +566,14 @@ export class TorstApi {
 
   private static async uploadMetainfo(instance: TorstInstance, file: Blob, options: TorrentAdd): Promise<Torrent> {
     const retention = options.retention || 'persisted';
-    return this.createTorrent(instance, hasLibrary => {
+    return this.createTorrent(instance, members => {
       const form = new FormData();
       form.append('metainfo', file, 'download.torrent');
       form.append('retention', retention);
       form.append('storage_mode', retention === 'temporary' || options.storage !== 'file' ? 'memory' : 'disk');
-      if (retention === 'persisted') {
-        // A multipart form takes one part per list value.
-        for (const [name, value] of Object.entries(this.libraryMembers(options, hasLibrary))) {
-          for (const part of Array.isArray(value) ? value : [value]) form.append(name, String(part));
-        }
+      // A multipart form takes one part per list value.
+      for (const [name, value] of Object.entries(members)) {
+        for (const part of Array.isArray(value) ? value : [value]) form.append(name, String(part));
       }
       return form;
     }, options);
@@ -522,8 +624,8 @@ export class TorstApi {
     this.preloads.delete(this.cacheKey(instance, torrent.hash));
   }
 
-  private static async patchResource<T = unknown>(instance: TorstInstance, path: string, patch: object): Promise<T> {
-    const { etag } = await this.request(instance, path, { needsResponseHeaders: true });
+  private static async patchResource<T = unknown>(instance: TorstInstance, path: string, patch: object, expectedEtag?: string): Promise<T> {
+    const etag = expectedEtag ?? (await this.request(instance, path, { needsResponseHeaders: true })).etag;
     if (!etag) throw new TorstApiError('Torst did not expose the resource ETag', 0);
     return (await this.request<T>(instance, path, {
       body: JSON.stringify(patch),

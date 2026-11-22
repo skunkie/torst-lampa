@@ -52,7 +52,7 @@ Torst is unreleased and in active development. The plugin targets its current AP
   - Configurable playback choice: always use Torst, ask between Torst and TorrServer, or use Torst only from the context menu and button.
 - **Storage and Library**:
   - Save torrents in the library with **RAM** (`memory`) or **Disk** (`disk`) storage. The plugin maps its Disk choice to Torst's `disk` storage mode.
-  - Temporary playback creates torrents with `retention: temporary` in memory, without library metadata or posters. Torst removes them after they go unwatched; the plugin does not send automatic cleanup deletes. Saving an existing temporary torrent promotes it to `persisted` with the same ID.
+  - Temporary playback creates torrents with `retention: temporary` in memory. Torst shows the title and artwork supplied by the plugin, discards them when the torrent expires, and keeps them with the same ID when it is saved to the library.
   - Magnet links create torrents directly; torrent file links are downloaded by the client and uploaded as multipart data.
 - **Authentication**:
   - Use no authentication when Torst has no password, or select **Bearer** and enter the Torst password. There is no username or Basic authentication.

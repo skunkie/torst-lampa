@@ -332,7 +332,8 @@ export class TorstEngine {
       resolvedMovie?.name ||
       'Torrent';
     const poster = resolvePosterUrl(torrentItem, resolvedMovie);
-    const library = buildLibraryDetails(resolveCatalogCard(movie, resolvedMovie));
+    const catalog = resolveCatalogCard(movie, resolvedMovie);
+    const library = buildLibraryDetails(catalog);
 
     // 1. Resolve storage and library persistence preferences
     const playOptions = await PlayDialog.resolveOptions(title);
@@ -373,13 +374,15 @@ export class TorstEngine {
         instance,
         async i => {
           const retention = playOptions.saveToLibrary ? 'persisted' : 'temporary';
+          const torrentTitle = retention === 'temporary' ? (catalog?.title || catalog?.name || torrentItem?.title || torrentItem?.Title) : title;
+          const artwork = retention === 'temporary' ? resolvePosterUrl(torrentItem, catalog, false) : poster;
           if (torrentLink) {
             return TorstApi.resolveTorrent(i, torrentLink, {
               library,
-              poster,
+              poster: artwork,
               retention,
               storage: playOptions.storage,
-              title,
+              title: torrentTitle,
             }, () => isCanceled);
           }
           if (isCanceled) throw new Error('Playback canceled');
@@ -387,10 +390,10 @@ export class TorstEngine {
             hash: torrentHash,
             library,
             magnet: magnetUri,
-            poster,
+            poster: artwork,
             retention,
             storage: playOptions.storage,
-            title,
+            title: torrentTitle,
           });
         },
         () => isCanceled

@@ -392,36 +392,121 @@ describe('Torst API contract', () => {
     instance.url = 'http://second.test';
     assert.equal((await TorstApi.getTorrents(instance)).torrents[0].id, 'trr_second');
   });
-  it('creates temporary magnets without library fields, posters, or disk storage', async () => {
-    const requests: string[] = [];
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>(done => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  it('returns a temporary magnet before downloading its poster and uses a fill-only upload', async () => {
+    const started = deferred<void>();
+    const artwork = deferred<Response>();
+    const uploaded = deferred<string | null>();
     globalThis.fetch = async (input, options) => {
-      requests.push(String(input));
+      const url = new URL(String(input));
+      if (url.hostname === 'images.test') {
+        started.resolve();
+        return artwork.promise;
+      }
+      if (options?.method === 'PUT') {
+        uploaded.resolve(new Headers(options.headers).get('If-None-Match'));
+        return new Response(null, { status: 412 });
+      }
       assert.deepEqual(JSON.parse(String(options?.body)), {
         magnet_uri: `magnet:?xt=urn:btih:${HASH}`,
         retention: 'temporary',
         storage_mode: 'memory',
+        title: 'Sintel',
       });
-      return json({ ...RESOURCE, retention: 'temporary', title: null }, 201);
+      return json({ ...RESOURCE, retention: 'temporary' }, 201);
     };
-    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, poster: 'https://images.test/sintel.jpg', retention: 'temporary', storage: 'file', title: 'Sintel' });
-    assert.equal(torrent.retention, 'temporary');
-    assert.equal(requests.length, 1);
+    const adding = TorstApi.addTorrent(INSTANCE, { hash: HASH, poster: 'https://images.test/sintel.jpg', retention: 'temporary', storage: 'file', title: 'Sintel' });
+    await started.promise;
+    const early = await Promise.race([adding, new Promise<undefined>(resolve => setImmediate(() => resolve(undefined)))]);
+    artwork.resolve(new Response(new Blob(['poster'], { type: 'image/jpeg' })));
+    assert.equal(await uploaded.promise, '*');
+    assert.equal(early?.retention, 'temporary');
   });
 
-  it('uploads temporary files without library form parts or poster requests', async () => {
-    let calls = 0;
-    globalThis.fetch = async (_input, options) => {
-      if (++calls === 1) return new Response('torrent bytes');
+  it('uploads temporary files with library form parts and a poster', async () => {
+    const requests: string[] = [];
+    const uploaded = deferred<void>();
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      requests.push(`${options?.method || 'GET'} ${url.pathname}`);
+      if (url.hostname === 'indexer.test') return new Response('torrent bytes');
+      if (url.hostname === 'images.test') return new Response(new Blob(['poster'], { type: 'image/jpeg' }));
+      if (options?.method === 'PUT') {
+        uploaded.resolve();
+        return new Response(null, { status: 201 });
+      }
       assert.ok(options?.body instanceof FormData);
       assert.equal(options.body.get('retention'), 'temporary');
       assert.equal(options.body.get('storage_mode'), 'memory');
-      assert.equal(options.body.has('title'), false);
+      assert.equal(options.body.get('title'), 'Sintel');
+      assert.deepEqual(options.body.getAll('genres'), ['Animation', 'Fantasy']);
       return json({ ...RESOURCE, retention: 'temporary' }, 201);
     };
-    const torrent = await TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent', { poster: 'https://images.test/sintel.jpg', retention: 'temporary', storage: 'file', title: 'Sintel' });
+    const torrent = await TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent', {
+      library: { genres: ['Animation', 'Fantasy'] },
+      poster: 'https://images.test/sintel.jpg',
+      retention: 'temporary',
+      storage: 'file',
+      title: 'Sintel',
+    });
     assert.equal(torrent.retention, 'temporary');
-    assert.equal(calls, 2);
+    await uploaded.promise;
+    assert.deepEqual(requests, ['GET /sintel.torrent', 'POST /api/v1/torrents', 'GET /sintel.jpg', `PUT ${TORRENT_PATH}/poster`]);
   });
+
+  it('fills missing metadata for a duplicate temporary torrent without replacing its title', async () => {
+    const patched = deferred<{ body: unknown, tag: string | null }>();
+    globalThis.fetch = async (input, options) => {
+      const path = new URL(String(input)).pathname;
+      if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+      if (options?.method === 'PATCH') {
+        patched.resolve({ body: JSON.parse(String(options.body)), tag: new Headers(options.headers).get('If-Match') });
+        return json({});
+      }
+      if (path.endsWith('/configuration')) return json({ retention: 'temporary', title: 'Existing title' }, 200, { ETag: '"cfg-temp"' });
+      return json({ ...RESOURCE, retention: 'temporary', title: 'Existing title' });
+    };
+    await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { year: 2010 }, retention: 'temporary', title: 'Sintel' });
+    assert.deepEqual(await patched.promise, { body: { year: 2010 }, tag: '"cfg-temp"' });
+  });
+
+  for (const timing of ['before the configuration read', 'between the read and write'] as const) {
+    it(`fills missing metadata when a temporary duplicate is promoted ${timing}`, { timeout: 2000 }, async () => {
+      const finished = deferred<void>();
+      const writes: { body: unknown, tag: string | null }[] = [];
+      let reads = 0;
+      globalThis.fetch = async (input, options) => {
+        const path = new URL(String(input)).pathname;
+        if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+        if (!path.endsWith('/configuration')) {
+          return json({ ...RESOURCE, retention: 'temporary', title: null });
+        }
+        const isLate = timing === 'between the read and write';
+        if (options?.method === 'PATCH') {
+          writes.push({ body: JSON.parse(String(options.body)), tag: new Headers(options.headers).get('If-Match') });
+          if (isLate && writes.length === 1) return json({}, 412);
+          finished.resolve();
+          return json({});
+        }
+        reads++;
+        if (isLate && reads === 1) return json({ retention: 'temporary', title: null }, 200, { ETag: '"temporary"' });
+        return json({ retention: 'persisted', title: isLate ? 'Edited in Library' : null }, 200, { ETag: '"persisted"' });
+      };
+
+      await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { year: 2010 }, retention: 'temporary', title: 'Sintel' });
+      await finished.promise;
+      const first = { body: { title: 'Sintel', year: 2010 }, tag: '"temporary"' };
+      const last = { body: { year: 2010 }, tag: '"persisted"' };
+      assert.deepEqual(writes, timing === 'between the read and write'
+        ? [first, last]
+        : [{ body: { title: 'Sintel', year: 2010 }, tag: '"persisted"' }]);
+    });
+  }
 
   it('promotes a duplicate temporary torrent before saving library metadata or disk storage', async () => {
     let isPromoted = false;
@@ -446,7 +531,101 @@ describe('Torst API contract', () => {
     assert.equal(torrent.storage, 'file');
   });
 
-  it('sends library details when saving a magnet and omits them for temporary playback', async () => {
+  it('rereads a temporary torrent when metadata makes a direct save stale', async () => {
+    const tags: Array<string | null> = [];
+    let reads = 0;
+    globalThis.fetch = async (input, options) => {
+      const path = new URL(String(input)).pathname;
+      if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+      if (options?.method === 'PATCH') {
+        tags.push(new Headers(options.headers).get('If-Match'));
+        return tags.length === 1 ? json({}, 412) : json({});
+      }
+      if (path.endsWith('/configuration')) return json({ retention: 'temporary' }, 200, { ETag: `"cfg-${++reads}"` });
+      return json({ ...RESOURCE, retention: tags.length > 1 ? 'persisted' : 'temporary' });
+    };
+
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, retention: 'persisted', storage: 'file', title: 'Sintel' });
+
+    assert.equal(torrent.retention, 'persisted');
+    assert.deepEqual(tags, ['"cfg-1"', '"cfg-2"']);
+  });
+
+  it('leaves the configuration and poster alone when another client won the promotion', async () => {
+    const requests: string[] = [];
+    let readConfiguration = false;
+    globalThis.fetch = async (input, options) => {
+      const url = new URL(String(input));
+      requests.push(`${options?.method || 'GET'} ${url.pathname}`);
+      if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+      if (url.pathname.endsWith('/configuration')) {
+        readConfiguration = true;
+        return json({ retention: 'persisted' }, 200, { ETag: '"promoted"' });
+      }
+      return json({ ...RESOURCE, retention: readConfiguration ? 'persisted' : 'temporary', storage_mode: 'memory', title: 'Edited in Library' });
+    };
+
+    const torrent = await TorstApi.addTorrent(INSTANCE, {
+      hash: HASH,
+      poster: 'https://images.test/sintel.jpg',
+      retention: 'persisted',
+      storage: 'file',
+      title: 'Catalog title',
+    });
+
+    assert.equal(torrent.retention, 'persisted');
+    assert.equal(torrent.title, 'Edited in Library');
+    assert.equal(torrent.storage, 'memory');
+    assert.deepEqual(requests, [
+      'POST /api/v1/torrents',
+      `GET ${TORRENT_PATH}`,
+      `GET ${TORRENT_PATH}/configuration`,
+      `GET ${TORRENT_PATH}`,
+    ]);
+  });
+
+  for (const hasPoster of [true, false]) {
+    it(`preserves existing metadata and handles a ${hasPoster ? 'stored' : 'missing'} poster on promotion`, async () => {
+      const oldTitle = 'Catalog title';
+      const oldPoster = hasPoster ? { media_type: 'image/png' } : null;
+      let promoted = false;
+      let promotion: unknown;
+      const uploads: Array<string | null> = [];
+      globalThis.fetch = async (input, options) => {
+        const url = new URL(String(input));
+        if (url.hostname === 'images.test') return new Response(new Blob(['image'], { type: 'image/jpeg' }));
+        if (options?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+        if (options?.method === 'PUT') {
+          uploads.push(new Headers(options.headers).get('If-None-Match'));
+          return new Response(null, { status: 412 });
+        }
+        if (options?.method === 'PATCH') {
+          promotion = JSON.parse(String(options.body));
+          promoted = true;
+          return json({});
+        }
+        if (url.pathname.endsWith('/configuration')) {
+          return json({ genres: ['Drama'], retention: 'temporary', title: oldTitle }, 200, { ETag: '"temporary"' });
+        }
+        return json({ ...RESOURCE, poster: oldPoster, retention: promoted ? 'persisted' : 'temporary', title: oldTitle });
+      };
+
+      const torrent = await TorstApi.addTorrent(INSTANCE, {
+        hash: HASH,
+        library: { genres: ['Animation'], year: 2010 },
+        poster: 'https://images.test/sintel.jpg',
+        retention: 'persisted',
+        title: 'Catalog.Title.1080p',
+      });
+
+      assert.equal(torrent.retention, 'persisted');
+      assert.equal(torrent.title, oldTitle);
+      assert.deepEqual(promotion, { retention: 'persisted', storage_mode: 'memory', year: 2010 });
+      assert.deepEqual(uploads, hasPoster ? [] : ['*']);
+    });
+  }
+
+  it('sends library details for saved and temporary magnets', async () => {
     const library = { description: 'A dragon story.', genres: ['Animation', 'Fantasy'], imdbId: 'tt1727587', kind: 'movie' as const, year: 2010 };
     const bodies: unknown[] = [];
     globalThis.fetch = async (_input, options) => {
@@ -457,7 +636,7 @@ describe('Torst API contract', () => {
     await TorstApi.addTorrent(INSTANCE, { hash: HASH, library, retention: 'temporary', title: 'Sintel' });
     assert.deepEqual(bodies, [
       { description: 'A dragon story.', genres: ['Animation', 'Fantasy'], imdb_id: 'tt1727587', kind: 'movie', magnet_uri: `magnet:?xt=urn:btih:${HASH}`, retention: 'persisted', storage_mode: 'memory', title: 'Sintel', year: 2010 },
-      { magnet_uri: `magnet:?xt=urn:btih:${HASH}`, retention: 'temporary', storage_mode: 'memory' },
+      { description: 'A dragon story.', genres: ['Animation', 'Fantasy'], imdb_id: 'tt1727587', kind: 'movie', magnet_uri: `magnet:?xt=urn:btih:${HASH}`, retention: 'temporary', storage_mode: 'memory', title: 'Sintel', year: 2010 },
     ]);
   });
 
@@ -490,6 +669,230 @@ describe('Torst API contract', () => {
     assert.equal(torrent.id, RESOURCE.id);
     assert.deepEqual(bodies.map(body => body.genres), [['Animation'], undefined]);
     assert.equal(bodies[1].title, 'Sintel');
+  });
+
+  const longDescription = '🎬'.repeat(4096);
+  const contentTooLarge = () => json({
+    status: 413,
+    title: 'Content too large',
+    type: 'tag:skunkie.github.io,2026:torrplay/problems/content-too-large',
+  }, 413);
+  const exceedsJsonLimit = (body: string) => Buffer.byteLength(body, 'utf8') > 16 * 1024;
+
+  it('creates a temporary magnet with the title alone when catalog details exceed the JSON limit', { timeout: 2000 }, async () => {
+    const payloads: string[] = [];
+    const attemptedPatch = deferred<unknown>();
+    globalThis.fetch = async (_input, init) => {
+      if (init?.method === 'GET') return json({ retention: 'temporary', title: 'Sintel' }, 200, { ETag: '"cfg"' });
+      const body = String(init?.body);
+      if (init?.method === 'PATCH') {
+        attemptedPatch.resolve(JSON.parse(body));
+        return contentTooLarge();
+      }
+      payloads.push(body);
+      return exceedsJsonLimit(body) ? contentTooLarge() : json({ ...RESOURCE, retention: 'temporary' }, 201);
+    };
+
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { description: longDescription }, retention: 'temporary', title: 'Sintel' });
+
+    assert.equal(torrent.retention, 'temporary');
+    assert.deepEqual(payloads.map(exceedsJsonLimit), [true, false]);
+    const fallback = JSON.parse(payloads[1]);
+    assert.equal(fallback.title, 'Sintel');
+    assert.equal(fallback.description, undefined);
+    assert.deepEqual(await attemptedPatch.promise, { description: longDescription });
+  });
+
+  for (const descriptionFits of [true, false]) {
+    it(`fills smaller metadata groups when the description ${descriptionFits ? 'fits separately' : 'exceeds the limit alone'}`, { timeout: 2000 }, async () => {
+      const description = descriptionFits ? '界'.repeat(4096) : longDescription;
+      const genres = Array.from({ length: 16 }, (_, index) => `${index}${'界'.repeat(125)}`);
+      const configuration: Record<string, unknown> = { description: null, genres: [], retention: 'temporary', title: 'Sintel', year: null };
+      const finished = deferred<void>();
+      const rejectedPatches: Array<Record<string, unknown>> = [];
+      let revision = 0;
+      globalThis.fetch = async (_input, init) => {
+        const body = String(init?.body ?? '');
+        const members = body ? JSON.parse(body) : {};
+        if (init?.method === 'POST') {
+          return exceedsJsonLimit(body) ? contentTooLarge() : json({ ...RESOURCE, retention: 'temporary' }, 201);
+        }
+        if (init?.method === 'PATCH') {
+          assert.equal(new Headers(init.headers).get('If-Match'), `"cfg-${revision}"`);
+          if (exceedsJsonLimit(body)) {
+            rejectedPatches.push(members);
+            if (rejectedPatches.length === 1) {
+              configuration.year = 2026;
+              revision++;
+            }
+            return contentTooLarge();
+          }
+          Object.assign(configuration, members);
+          revision++;
+          if (members.genres) finished.resolve();
+        }
+        return json(configuration, 200, { ETag: `"cfg-${revision}"` });
+      };
+
+      await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { description, genres, year: 2010 }, retention: 'temporary', title: 'Sintel' });
+      await finished.promise;
+
+      assert.deepEqual(configuration, {
+        description: descriptionFits ? description : null,
+        genres,
+        retention: 'temporary',
+        title: 'Sintel',
+        year: 2026,
+      });
+      assert.deepEqual(rejectedPatches, descriptionFits ? [{ description, genres, year: 2010 }] : [{ description, genres, year: 2010 }, { description }]);
+    });
+  }
+
+  for (const hasDetails of [false, true]) {
+    it(`sends just the magnet when the title exceeds the JSON limit ${hasDetails ? 'after removing other metadata' : 'on its own'}`, { timeout: 2000 }, async () => {
+      const magnet = `magnet:?xt=urn:btih:${HASH}&dn=${'🎬'.repeat(3300)}`;
+      const title = '🎬'.repeat(900);
+      const payloads: string[] = [];
+      const attemptedPatch = deferred<{ body: unknown, tag: string | null }>();
+      const patchResponse = deferred<Response>();
+      globalThis.fetch = async (_input, init) => {
+        if (init?.method === 'GET') return json({ retention: 'temporary', title: null }, 200, { ETag: '"cfg"' });
+        const body = String(init?.body);
+        if (init?.method === 'PATCH') {
+          attemptedPatch.resolve({ body: JSON.parse(body), tag: new Headers(init.headers).get('If-Match') });
+          return patchResponse.promise;
+        }
+        payloads.push(body);
+        return exceedsJsonLimit(body) ? contentTooLarge() : json({ ...RESOURCE, retention: 'temporary' }, 201);
+      };
+
+      const torrent = await TorstApi.addTorrent(INSTANCE, {
+        library: hasDetails ? { year: 2010 } : undefined,
+        magnet,
+        retention: 'temporary',
+        title,
+      });
+
+      assert.equal(torrent.retention, 'temporary');
+      assert.deepEqual(payloads.map(exceedsJsonLimit), hasDetails ? [true, true, false] : [true, false]);
+      assert.deepEqual(JSON.parse(payloads[payloads.length - 1]), {
+        magnet_uri: magnet,
+        retention: 'temporary',
+        storage_mode: 'memory',
+      });
+      const patch = await attemptedPatch.promise;
+      patchResponse.resolve(json({}));
+      assert.deepEqual(patch, { body: hasDetails ? { title, year: 2010 } : { title }, tag: '"cfg"' });
+    });
+  }
+
+  for (const retention of ['persisted', 'temporary'] as const) {
+    it(`keeps the title when a duplicate's ${retention === 'persisted' ? 'promotion' : 'metadata update'} exceeds the JSON limit`, { timeout: 2000 }, async () => {
+      const completed = deferred<void>();
+      const attemptedDescription = deferred<void>();
+      const patches: string[] = [];
+      let resourceRetention = 'temporary';
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (init?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+        if (init?.method === 'PATCH') {
+          const body = String(init.body);
+          patches.push(body);
+          if (exceedsJsonLimit(body)) {
+            if (retention === 'persisted' && resourceRetention === 'persisted') attemptedDescription.resolve();
+            return contentTooLarge();
+          }
+          resourceRetention = retention;
+          completed.resolve();
+          return json({ retention });
+        }
+        if (url.pathname.endsWith('/configuration')) {
+          return json({ retention: resourceRetention, title: null }, 200, { ETag: '"cfg"' });
+        }
+        return json({ ...RESOURCE, retention: resourceRetention, title: null });
+      };
+
+      await TorstApi.addTorrent(INSTANCE, { hash: HASH, library: { description: longDescription }, retention, title: 'Sintel' });
+      await completed.promise;
+
+      if (retention === 'persisted') {
+        await attemptedDescription.promise;
+        assert.deepEqual(patches.map(exceedsJsonLimit), [true, false, true]);
+        assert.deepEqual(JSON.parse(patches[2]), { description: longDescription });
+      } else {
+        assert.deepEqual(patches.map(exceedsJsonLimit), [true, false]);
+      }
+      assert.deepEqual(JSON.parse(patches[1]), retention === 'persisted'
+        ? { retention: 'persisted', storage_mode: 'memory', title: 'Sintel' }
+        : { title: 'Sintel' });
+    });
+  }
+
+  it('fills omitted metadata in smaller patches after a size-limited promotion', { timeout: 2000 }, async () => {
+    const description = '界'.repeat(4096);
+    const genres = Array.from({ length: 16 }, (_, index) => `${index}${'界'.repeat(125)}`);
+    const configuration: Record<string, unknown> = {
+      description: null, genres: [], retention: 'temporary', storage_mode: 'memory', title: null, year: null,
+    };
+    const finishMetadata = deferred<void>();
+    const metadataStored = deferred<void>();
+    const successfulPatches: Array<Record<string, unknown>> = [];
+    let revision = 0;
+
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const body = String(init?.body ?? '');
+      if (exceedsJsonLimit(body)) return contentTooLarge();
+      if (init?.method === 'POST') return json({ torrent: TORRENT_PATH }, 409);
+      if (init?.method === 'PATCH') {
+        const members = JSON.parse(body);
+        assert.equal(new Headers(init.headers).get('If-Match'), `"cfg-${revision}"`);
+        if (!members.retention) {
+          assert.equal(configuration.retention, 'persisted');
+          await finishMetadata.promise;
+        }
+        successfulPatches.push(members);
+        Object.assign(configuration, members);
+        revision++;
+        if (configuration.description && configuration.year && Array.isArray(configuration.genres) && configuration.genres.length > 0) {
+          metadataStored.resolve();
+        }
+      }
+      return url.pathname.endsWith('/configuration')
+        ? json(configuration, 200, { ETag: `"cfg-${revision}"` })
+        : json({ ...RESOURCE, ...configuration });
+    };
+
+    const torrent = await TorstApi.addTorrent(INSTANCE, {
+      hash: HASH, library: { description, genres, year: 2010 }, retention: 'persisted', storage: 'file', title: 'Sintel',
+    });
+
+    assert.equal(torrent.retention, 'persisted');
+    assert.equal(torrent.storage, 'file');
+    assert.deepEqual(successfulPatches, [{ retention: 'persisted', storage_mode: 'disk', title: 'Sintel' }]);
+    finishMetadata.resolve();
+    await metadataStored.promise;
+
+    assert.deepEqual(configuration, {
+      description, genres, retention: 'persisted', storage_mode: 'disk', title: 'Sintel', year: 2010,
+    });
+    assert.ok(successfulPatches.slice(1).every(patch => !('title' in patch) && !('storage_mode' in patch)));
+  });
+
+  it('does not resend a multipart upload that Torst rejects as too large', async () => {
+    let uploads = 0;
+    globalThis.fetch = async (input, init) => {
+      if (new URL(String(input)).hostname === 'indexer.test') return new Response('torrent file');
+      assert.ok(init?.body instanceof FormData);
+      uploads++;
+      return contentTooLarge();
+    };
+
+    await assert.rejects(
+      TorstApi.resolveTorrent(INSTANCE, 'https://indexer.test/sintel.torrent', { library: { description: 'A synopsis.' }, retention: 'temporary' }),
+      (error: unknown) => error instanceof TorstApiError && error.status === 413
+    );
+    assert.equal(uploads, 1);
   });
 
   it('does not retry a torrent Torst cannot process', async () => {
@@ -554,7 +957,7 @@ describe('Torst API contract', () => {
       methods.push(options?.method || 'GET');
       return options?.method === 'POST' ? json({ torrent: TORRENT_PATH }, 409) : json(RESOURCE);
     };
-    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, retention: 'temporary' });
+    const torrent = await TorstApi.addTorrent(INSTANCE, { hash: HASH, poster: 'https://images.test/sintel.jpg', retention: 'temporary', title: 'Sintel' });
     assert.equal(torrent.retention, 'persisted');
     assert.deepEqual(methods, ['POST', 'GET']);
   });
